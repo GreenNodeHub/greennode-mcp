@@ -15,6 +15,15 @@
           "path": "greennode/vks_mcp_server/__init__.py"
         }
       ]
+    },
+    "src/mcp-core": {
+      "release-type": "python",
+      "package-name": "mcp-core",
+      "component": "mcp-core",
+      "include-component-in-tag": true,
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

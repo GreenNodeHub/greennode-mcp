@@ -24,6 +24,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 # Resolve deps first (better layer caching): root workspace pyproject + lock + member pyproject
 COPY pyproject.toml uv.lock ./
 COPY src/vks-mcp-server/pyproject.toml src/vks-mcp-server/pyproject.toml
+COPY src/mcp-core/pyproject.toml src/mcp-core/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-workspace \
         --package greennode.vks-mcp-server --extra http

@@ -1,52 +1,8 @@
-"""IAM token management for GreenNode MCP Server."""
+"""IAM token management (re-exported from greennode.mcp_core)."""
 
 from __future__ import annotations
 
-import base64
-import httpx
-import time
-from greennode.vks_mcp_server.config import VksConfig
+from greennode.mcp_core.auth import DEFAULT_TIMEOUT, IAM_TOKEN_URL, TokenManager
 
 
-IAM_TOKEN_URL = "https://iamapis.vngcloud.vn/accounts-api/v1/auth/token"
-
-DEFAULT_TIMEOUT = 30  # seconds
-
-
-class TokenManager:
-    """Manages IAM access tokens with auto-refresh via client credentials."""
-
-    def __init__(self, config: VksConfig) -> None:
-        self._config = config
-        self._access_token = None
-        self._expires_at = 0
-
-    async def get_token(self) -> str:
-        """Return a valid access token, refreshing if needed."""
-        if self._access_token and time.time() < self._expires_at - 60:
-            return self._access_token
-
-        await self._fetch_token()
-        return self._access_token
-
-    async def _fetch_token(self) -> None:
-        """Fetch a new token from the IAM API."""
-        credentials = f"{self._config.client_id}:{self._config.client_secret}"
-        encoded = base64.b64encode(credentials.encode()).decode()
-
-        headers = {"Authorization": f"Basic {encoded}"}
-        body = {"grantType": "client_credentials"}
-
-        try:
-            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-                response = await client.post(IAM_TOKEN_URL, json=body, headers=headers)
-        except httpx.ConnectError as exc:
-            raise RuntimeError(f"Cannot connect to IAM API: {exc}") from exc
-
-        if response.status_code != 200:
-            raise RuntimeError(f"Authentication failed: HTTP {response.status_code} from IAM API.")
-
-        data = response.json()
-        self._access_token = data["accessToken"]
-        expires_in = data.get("expiresIn", 1800)
-        self._expires_at = time.time() + expires_in
+__all__ = ["DEFAULT_TIMEOUT", "IAM_TOKEN_URL", "TokenManager"]

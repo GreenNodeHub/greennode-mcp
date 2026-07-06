@@ -5,6 +5,7 @@ description = "GreenNode MCP Server for VNG Kubernetes Service (VKS)"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "greennode.mcp-core",
     "mcp[cli]>=1.28.1",
     "starlette>=0.27.0",
     "pydantic>=2.10.6",
@@ -50,6 +51,9 @@ dev = [
     "pytest-cov>=4.1.0",
     "respx>=0.21.0",
 ]
+
+[tool.uv.sources]
+"greennode.mcp-core" = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

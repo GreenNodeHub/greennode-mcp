@@ -72,6 +72,8 @@ def test_workspace_has_packages():
 def test_tool_names_are_verb_noun(pkg_name: str):
     """Every registered MCP tool name starts with an approved verb (verb_noun)."""
     pkg = SRC / pkg_name
+    if not _handler_files(pkg):
+        pytest.skip(f"{pkg_name}: library package (no MCP handlers)")
     tools = _registered_tools(pkg)
     assert tools, f"{pkg_name}: no tools registered"
     bad = [t for t in tools if t.split("_")[0] not in ALLOWED_VERBS]

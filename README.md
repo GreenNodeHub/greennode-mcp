@@ -9,6 +9,7 @@ Python namespace.
 
 | Project | Package | Description |
 |---------|---------|-------------|
+| [`src/mcp-core`](src/mcp-core) | `greennode.mcp_core` | Shared core (config/profile loading, IAM auth, HTTP client with retry/401, validators, discovery cache) — product servers import it instead of copying plumbing. |
 | [`src/vks-mcp-server`](src/vks-mcp-server) | `greennode.vks_mcp_server` | **38 tools + 3 prompts** for managing VKS (VNG Kubernetes Service): clusters, node groups, resource discovery (name→ID), quota, and in-cluster Kubernetes resources. EKS-style `verb_noun` tool names, structured (JSON) outputs, read-only by default. |
 
 More servers will be added as sibling projects under `src/`.
@@ -19,6 +20,7 @@ More servers will be added as sibling projects under `src/`.
 greennode-mcp/
 ├── pyproject.toml          # uv workspace root (members = ["src/*"])
 ├── src/
+│   ├── mcp-core/           # shared core (greennode.mcp_core)
 │   └── vks-mcp-server/     # one product = one independent project
 │       ├── pyproject.toml
 │       ├── greennode/

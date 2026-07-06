@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import configparser
-import os
 from dataclasses import dataclass
+from greennode.mcp_core.config import load_profile
 from pathlib import Path
 from typing import Literal
 
@@ -44,6 +43,11 @@ class VksConfig:
             )
         return self.regions[resolved]
 
+    def get_base_url(self, region: str | None, service: str) -> str:
+        """Return the base URL for *service* ("vks" or "vserver") in *region*."""
+        endpoints = self.get_endpoints(region)
+        return endpoints.vserver if service == "vserver" else endpoints.vks
+
 
 REGIONS: dict[str, RegionEndpoints] = {
     "HCM-3": RegionEndpoints(
@@ -60,81 +64,15 @@ REGIONS: dict[str, RegionEndpoints] = {
 def load_config(config_dir: Path) -> VksConfig:
     """Load VKS configuration from *config_dir*.
 
-    Reads ``credentials`` and ``config`` INI files under *config_dir*.
-    The profile is selected by the ``GRN_PROFILE`` environment variable
-    (default: ``"default"``).
-
-    Environment variable overrides (highest priority):
-    - ``GRN_CLIENT_ID`` overrides ``client_id`` from credentials file
-    - ``GRN_CLIENT_SECRET`` overrides ``client_secret`` from credentials file
-    - ``GRN_DEFAULT_REGION`` overrides ``region`` from config file
-
-    Raises ``FileNotFoundError`` if the credentials file is missing (and
-    no env var overrides are set) and ``ValueError`` if required fields
-    are absent.
+    Credentials/region/project resolution (INI files + ``GRN_*`` env overrides)
+    is shared logic in :func:`greennode.mcp_core.config.load_profile`; this
+    wrapper adds the VKS/vServer region endpoints.
     """
-    profile = os.environ.get("GRN_PROFILE", "default")
-
-    credentials_path = config_dir / "credentials"
-    config_path = config_dir / "config"
-
-    # --- Credentials ---
-    env_client_id = os.environ.get("GRN_CLIENT_ID")
-    env_client_secret = os.environ.get("GRN_CLIENT_SECRET")
-
-    client_id: str | None = env_client_id
-    client_secret: str | None = env_client_secret
-
-    if not (client_id and client_secret):
-        # Need to read from file
-        if not credentials_path.exists():
-            if client_id and client_secret:
-                pass  # both provided via env, skip file
-            else:
-                raise FileNotFoundError(
-                    f"Credentials file not found: {credentials_path}"
-                    ". Run 'grn configure' to set up authentication credentials."
-                )
-
-        cred_parser = configparser.ConfigParser()
-        cred_parser.read(credentials_path)
-
-        if not cred_parser.has_section(profile):
-            raise ValueError(f"Credentials file missing section [{profile}]: {credentials_path}")
-
-        if not client_id:
-            client_id = cred_parser.get(profile, "client_id", fallback=None)
-        if not client_secret:
-            client_secret = cred_parser.get(profile, "client_secret", fallback=None)
-
-    if not client_id or not client_secret:
-        raise ValueError(
-            "Credentials must include client_id and client_secret. "
-            "Obtain them from VNG Cloud IAM Portal > Service Accounts."
-        )
-
-    # --- Region ---
-    env_region = os.environ.get("GRN_DEFAULT_REGION")
-    default_region = env_region or "HCM-3"
-
-    if not env_region and config_path.exists():
-        cfg_parser = configparser.ConfigParser()
-        cfg_parser.read(config_path)
-        if cfg_parser.has_section(profile):
-            default_region = cfg_parser.get(profile, "region", fallback=default_region)
-
-    # --- Project ID ---
-    project_id = os.environ.get("GRN_PROJECT_ID")
-    if not project_id and config_path.exists():
-        cfg_parser = configparser.ConfigParser()
-        cfg_parser.read(config_path)
-        if cfg_parser.has_section(profile):
-            project_id = cfg_parser.get(profile, "project_id", fallback=None)
-
+    profile = load_profile(config_dir)
     return VksConfig(
-        client_id=client_id,
-        client_secret=client_secret,
-        default_region=default_region,
+        client_id=profile.client_id,
+        client_secret=profile.client_secret,
+        default_region=profile.region,
         regions=REGIONS,
-        project_id=project_id,
+        project_id=profile.project_id,
     )

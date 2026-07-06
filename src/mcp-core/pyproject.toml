@@ -1,0 +1,58 @@
+[project]
+name = "greennode.mcp-core"
+version = "0.1.0"
+description = "Shared core for GreenNode MCP servers: config, IAM auth, HTTP client, validators, discovery cache"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27.0,<1.0",
+    "cachetools>=5.3.0",
+]
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Green Node"},
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["greennode"]
+
+[tool.ruff]
+line-length = 99
+exclude = ["**/__pycache__", "**/dist", "**/build", "**/.ruff_cache", "**/.venv"]
+force-exclude = true
+
+[tool.ruff.lint]
+exclude = ["__init__.py"]
+select = ["C", "D", "E", "F", "I", "W"]
+ignore = ["C901", "E501", "E741", "F402", "F823", "D100", "D106", "D107"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+no-sections = true
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.26.0",
+    "respx>=0.21.0",
+    "ruff>=0.9.7",
+]

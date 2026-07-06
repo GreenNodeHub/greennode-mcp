@@ -32,6 +32,7 @@ on:
     tags: ['vks-mcp-server-v*']
     paths:
       - 'src/vks-mcp-server/**'
+      - 'src/mcp-core/**'
       - 'pyproject.toml'
       - 'uv.lock'
       - '.github/workflows/deploy.yml'

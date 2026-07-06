@@ -14,6 +14,7 @@ GreenNode MCP Server provides AI assistants (Claude, Cursor, Gemini, etc.) with 
 
 Monorepo organized as a **uv workspace** (root `pyproject.toml`, `members = ["src/*"]`), mirroring the AWS Labs MCP layout. Each product is an independent project under `src/` sharing the `greennode` namespace.
 
+- Shared core: `src/mcp-core/` (`greennode.mcp_core`) — config/profile loading, IAM `TokenManager`, `BaseClient` (retry/401), `validate_id`, `DiscoveryCache`. Product servers **import** it (workspace dependency), never copy it.
 - Product project: `src/vks-mcp-server/` (own `pyproject.toml`, `tests/`, `README.md`, `Dockerfile`, …)
 - Import package: `greennode.vks_mcp_server` (source under `src/vks-mcp-server/greennode/vks_mcp_server/`)
 - CLI entry point: `vks-mcp-server` → `greennode.vks_mcp_server.server:main`
@@ -175,9 +176,9 @@ Do NOT use `uv run mcp dev` — FastMCP is built inside `create_server()`/`main(
 | File | Purpose |
 |------|---------|
 | `server.py` | FastMCP entry point, handler registration, CLI flags |
-| `config.py` | Config loading from `~/.greenode/`, env var overrides, REGIONS dict |
-| `auth.py` | TokenManager — async OAuth2 Client Credentials with auto-refresh |
-| `client.py` | VksClient — async HTTP with retry + token refresh |
+| `config.py` | VksConfig + REGIONS endpoints; credential/profile loading delegates to `mcp_core.config.load_profile` |
+| `auth.py` | Re-export of `mcp_core.auth.TokenManager` (IAM client credentials, auto-refresh) |
+| `client.py` | VksClient extends `mcp_core.http.BaseClient` — adds the vServer service and default service `vks` |
 | `validators.py` | ID format validation |
 | `cluster_handler.py` | 12 cluster tools (CRUD + kubeconfig + events + auto-upgrade + validation + auto-healing) |
 | `nodegroup_handler.py` | 9 nodegroup tools (CRUD + metadata + nodes + dry-run + version upgrade) |
