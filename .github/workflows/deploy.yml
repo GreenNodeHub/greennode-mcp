@@ -14,14 +14,14 @@ name: Deploy
 # Trunk-based triggers:
 #   push to `main` touching this server's files (path filter below)
 #        -> deploy to the `develop` environment   (image tag = <commit sha>)
-#   push tag `v*`
-#        -> deploy to the `production` environment (image tag = <git tag>)
+#   push tag `vks-mcp-server-v*` (created by release-please)
+#        -> deploy to the `production` environment (image tag = vX.Y.Z, component prefix stripped)
 #
 # Notes:
-# - Path filters are NOT evaluated for tag pushes, so `v*` tags always deploy.
+# - Path filters are NOT evaluated for tag pushes, so release tags always deploy.
 # - If either environment restricts "Deployment branches and tags"
 #   (Settings → Environments → <env>), it must allow `main` (develop env)
-#   and `v*` tags (production env).
+#   and `vks-mcp-server-v*` tags (production env).
 # - Do NOT gate on `vars.IMAGE_REGISTRY` in a job-level `if` — environment
 #   variables are not reliably available there; the "Show target" step fails
 #   loudly instead when the environment is misconfigured.
@@ -29,7 +29,7 @@ name: Deploy
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['vks-mcp-server-v*']
     paths:
       - 'src/vks-mcp-server/**'
       - 'pyproject.toml'
@@ -41,7 +41,7 @@ jobs:
     name: Build & push image
     runs-on: ubuntu-24.04
     # tag push -> production; main push -> develop
-    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'develop' }}
+    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'develop' }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -50,7 +50,7 @@ jobs:
 
       - name: Show target & verify environment config
         run: |
-          echo "Environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'develop' }}"
+          echo "Environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'develop' }}"
           echo "Registry:    ${{ vars.IMAGE_REGISTRY }}"
           if [ -z "${{ vars.IMAGE_REGISTRY }}" ]; then
             echo "::error::IMAGE_REGISTRY variable is empty for this environment. Set it in Settings → Environments → <env> → Variables."
@@ -65,7 +65,7 @@ jobs:
         id: meta
         run: |
           if [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME#vks-mcp-server-}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
           fi

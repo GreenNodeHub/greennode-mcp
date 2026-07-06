@@ -1,0 +1,30 @@
+name: Release Please
+
+# Per-package release automation (manifest mode). On every push to main it
+# maintains a "release PR" per package that accumulates Conventional Commits
+# into a version bump + CHANGELOG. Merging that PR creates the tag
+# `<component>-vX.Y.Z` (e.g. vks-mcp-server-v0.5.0), which triggers the
+# production deploy in deploy.yml.
+#
+# NOTE: PRs created with the default GITHUB_TOKEN do not trigger other
+# workflows (GitHub safeguard), so required checks won't start on the release
+# PR automatically. Close & reopen the PR (one click) to run them — or set a
+# PAT / GitHub App token in the `token` input to remove this friction.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
