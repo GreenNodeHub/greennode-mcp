@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.4.1...vks-mcp-server-v0.5.0) (2026-07-06)
+
+
+### Features
+
+* **core:** extract shared greennode.mcp_core package ([#15](https://github.com/vngcloud/greennode-mcp/issues/15)) ([5491ad0](https://github.com/vngcloud/greennode-mcp/commit/5491ad0af867a6f2bc8c788ec433a3571696709f))
+* GreenNode MCP monorepo — VKS MCP server ([3c2f7a5](https://github.com/vngcloud/greennode-mcp/commit/3c2f7a5c69f29b161547bd3e1d2e15eba1c65140))
+* new-server scaffold, agent skills, and tiered CLAUDE.md ([#17](https://github.com/vngcloud/greennode-mcp/issues/17)) ([95cf935](https://github.com/vngcloud/greennode-mcp/commit/95cf93505ab7d17d820ac004c128e3f7741df627))
+
 ## [Unreleased]
 
 ### Fixed
