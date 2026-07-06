@@ -23,20 +23,12 @@ from pydantic import Field
 # ---------------------------------------------------------------------------
 
 _CLUSTER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{3,18}[a-z0-9]$")
-_NODEGROUP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{3,13}[a-z0-9]$")
 
 _VALID_NETWORK_TYPES = {"CILIUM_OVERLAY", "CILIUM_NATIVE_ROUTING", "TIGERA"}
 _NETWORK_NEEDS_CIDR = {"CILIUM_OVERLAY", "TIGERA"}
 _NETWORK_NEEDS_SECONDARY_SUBNETS = {"CILIUM_NATIVE_ROUTING"}
 
 _REQUIRED_CLUSTER_FIELDS = ["vpcId", "networkType", "version", "releaseChannel"]
-_REQUIRED_NODEGROUP_FIELDS = [
-    "flavorId",
-    "diskSize",
-    "diskType",
-    "sshKeyId",
-    "upgradeConfig",
-]
 
 
 # ---------------------------------------------------------------------------
@@ -285,45 +277,6 @@ def _cluster_create_validate(
         if not body.get("secondarySubnets"):
             errors.append(f"networkType={network_type} requires 'secondarySubnets' field.")
 
-    # Validate node groups
-    node_groups = body.get("nodeGroups", [])
-    for idx, ng in enumerate(node_groups):
-        prefix = f"nodeGroups[{idx}]"
-
-        ng_name = ng.get("name", "")
-        if not _NODEGROUP_NAME_RE.match(ng_name):
-            errors.append(
-                f"{prefix} name '{ng_name}' is invalid. "
-                "Must match ^[a-z0-9][a-z0-9-]{{3,13}}[a-z0-9]$"
-            )
-
-        for field in _REQUIRED_NODEGROUP_FIELDS:
-            if ng.get(field) is None or ng.get(field) == "" or ng.get(field) == []:
-                errors.append(f"{prefix}: Missing required field: {field}")
-
-        if "numNodes" not in ng:
-            errors.append(f"{prefix}: Missing required field: numNodes")
-        if "enablePrivateNodes" not in ng:
-            errors.append(f"{prefix}: Missing required field: enablePrivateNodes")
-
-        disk_size = ng.get("diskSize")
-        if disk_size is not None:
-            try:
-                ds = int(disk_size)
-                if not (20 <= ds <= 5000):
-                    errors.append(f"{prefix}: diskSize={disk_size} must be between 20-5000.")
-            except (ValueError, TypeError):
-                errors.append(f"{prefix}: diskSize must be an integer.")
-
-        num_nodes = ng.get("numNodes")
-        if num_nodes is not None:
-            try:
-                nn = int(num_nodes)
-                if not (0 <= nn <= 10):
-                    errors.append(f"{prefix}: numNodes={num_nodes} must be between 0-10.")
-            except (ValueError, TypeError):
-                errors.append(f"{prefix}: numNodes must be an integer.")
-
     if errors:
         text = "\n".join(errors)
     else:
@@ -399,8 +352,8 @@ class ClusterHandler:
             ...,
             description=(
                 "CreateClusterComboDto body. Required: name, version, networkType, vpcId. "
-                "nodeGroups is optional — omit for a control-plane-only cluster and add "
-                "workers later via create_nodegroup. Optional: enablePrivateCluster, "
+                "Creates the control plane only — add workers afterwards via create_nodegroup "
+                "(the deprecated nodeGroups array is not accepted). Optional: enablePrivateCluster, "
                 "releaseChannel, enabled{LoadBalancer,BlockStoreCsi,ServiceEndpoint}Plugin, "
                 "azStrategy, description, subnetId, cidr, secondarySubnets, listSubnetIds, "
                 "nodeNetmaskSize, autoUpgradeConfig, autoHealingConfig."

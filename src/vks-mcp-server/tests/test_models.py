@@ -234,18 +234,6 @@ def test_create_cluster_dto_defaults_and_enums():
         networkType="CILIUM_NATIVE_ROUTING",
         vpcId="net-1",
         enablePrivateCluster=False,
-        nodeGroups=[
-            NodeGroupSpec(
-                name="ng1",
-                flavorId="f1",
-                diskSize=100,
-                diskType="SSD",
-                numNodes=1,
-                securityGroups=["sg1"],
-                sshKeyId="k1",
-                upgradeConfig=UpgradeConfig(),
-            )
-        ],
     )
     assert dto.releaseChannel == "STABLE"
 
@@ -258,6 +246,19 @@ def test_create_cluster_dto_rejects_bad_network_type():
             networkType="BOGUS",
             vpcId="net-1",
             enablePrivateCluster=False,
+        )
+
+
+def test_create_cluster_dto_rejects_deprecated_nodegroups():
+    """The deprecated nodeGroups array is rejected (extra='forbid')."""
+    with pytest.raises(ValidationError):
+        CreateClusterComboDto(
+            name="demo",
+            version="v1.29.0",
+            networkType="CILIUM_OVERLAY",
+            vpcId="net-1",
+            enablePrivateCluster=False,
+            cidr="10.96.0.0/16",
             nodeGroups=[],
         )
 
@@ -472,7 +473,7 @@ def test_auto_healing_config_typed_and_bounds():
 
 
 def test_create_cluster_combo_allows_control_plane_only():
-    """nodeGroups is optional: a control-plane-only create is valid (CLI parity)."""
+    """create_cluster is control-plane only; the body carries no node group (CLI parity)."""
     dto = CreateClusterComboDto(
         name="demo01",
         version="v1.29.0",
@@ -559,6 +560,5 @@ def test_extra_forbid_create_cluster_combo_dto():
             networkType="CILIUM_NATIVE_ROUTING",
             vpcId="net-1",
             enablePrivateCluster=False,
-            nodeGroups=[],
             unknownTopLevel="bad",
         )

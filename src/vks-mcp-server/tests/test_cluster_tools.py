@@ -20,11 +20,10 @@ from greennode.vks_mcp_server.models import (
     ClusterDetail,
     ClusterListData,
     CreateClusterComboDto,
-    NodeGroupSpec,
     UpdateClusterDto,
-    UpgradeConfig,
 )
 from mcp.server.fastmcp import FastMCP
+from pydantic import ValidationError
 
 
 IAM_URL = "https://iamapis.vngcloud.vn/accounts-api/v1/auth/token"
@@ -135,17 +134,6 @@ async def test_cluster_delete_dryrun(client):
 # _cluster_create_validate
 # ---------------------------------------------------------------------------
 
-_VALID_NODEGROUP = {
-    "name": "worker-ng",
-    "flavorId": "flav-001",
-    "diskSize": 50,
-    "diskType": "SSD",
-    "securityGroups": ["sg-001"],
-    "sshKeyId": "key-001",
-    "upgradeConfig": {"strategy": "SURGE", "maxSurge": 1, "maxUnavailable": 1},
-    "numNodes": 2,
-    "enablePrivateNodes": True,
-}
 
 _VALID_BODY = {
     "name": "mycluster01",
@@ -155,7 +143,6 @@ _VALID_BODY = {
     "releaseChannel": "STABLE",
     "cidr": "10.96.0.0/16",
     "enablePrivateCluster": False,
-    "nodeGroups": [_VALID_NODEGROUP],
 }
 
 
@@ -220,39 +207,11 @@ def test_cluster_create_validate_missing_enable_private_cluster():
     assert "enablePrivateCluster" in text
 
 
-def test_cluster_create_validate_bad_disk_size():
-    """DiskSize out of range returns an error."""
-    bad_ng = {**_VALID_NODEGROUP, "diskSize": 10}
-    body = {**_VALID_BODY, "nodeGroups": [bad_ng]}
-    result = _cluster_create_validate({"body": body})
-    text = result[0].text
-    assert "diskSize" in text
-
-
-def test_cluster_create_validate_bad_num_nodes():
-    """NumNodes out of range returns an error."""
-    bad_ng = {**_VALID_NODEGROUP, "numNodes": 15}
-    body = {**_VALID_BODY, "nodeGroups": [bad_ng]}
-    result = _cluster_create_validate({"body": body})
-    text = result[0].text
-    assert "numNodes" in text
-
-
-def test_cluster_create_validate_bad_nodegroup_name():
-    """Invalid node group name returns an error."""
-    bad_ng = {**_VALID_NODEGROUP, "name": "BAD"}
-    body = {**_VALID_BODY, "nodeGroups": [bad_ng]}
-    result = _cluster_create_validate({"body": body})
-    text = result[0].text
-    assert "name" in text.lower()
-
-
 def test_cluster_create_validate_cilium_native_routing_needs_secondary_subnets():
     """CILIUM_NATIVE_ROUTING without secondarySubnets returns an error."""
     body = {
         **_VALID_BODY,
         "networkType": "CILIUM_NATIVE_ROUTING",
-        "nodeGroups": [_VALID_NODEGROUP],
     }
     body.pop("cidr", None)
     result = _cluster_create_validate({"body": body})
@@ -395,19 +354,6 @@ async def test_cluster_create_accepts_dto(handler_write, respx_mock):
         vpcId="net-1",
         enablePrivateCluster=False,
         secondarySubnets=["sub-1"],
-        nodeGroups=[
-            NodeGroupSpec(
-                name="ng1",
-                flavorId="f1",
-                diskSize=100,
-                diskType="SSD",
-                numNodes=1,
-                securityGroups=["sg1"],
-                sshKeyId="k1",
-                os="ubuntu",
-                upgradeConfig=UpgradeConfig(),
-            )
-        ],
     )
     result = await handler_write.create_cluster(body=dto, region=None)
     sent = _json.loads(respx_mock.calls.last.request.content)
@@ -444,8 +390,6 @@ async def test_cluster_update_accepts_dto(handler_write, respx_mock):
 @pytest.mark.asyncio
 async def test_cluster_create_validate_accepts_dto(handler_write):
     """validate_cluster_create accepts a CreateClusterComboDto and returns 'valid'."""
-    from greennode.vks_mcp_server.models import UpgradeConfig
-
     dto = CreateClusterComboDto(
         name="mycluster01",
         version="1.28",
@@ -453,18 +397,20 @@ async def test_cluster_create_validate_accepts_dto(handler_write):
         vpcId="vpc-001",
         enablePrivateCluster=False,
         cidr="10.96.0.0/16",
-        nodeGroups=[
-            NodeGroupSpec(
-                name="worker-ng",
-                flavorId="flav-001",
-                diskSize=50,
-                diskType="SSD",
-                numNodes=2,
-                securityGroups=["sg-001"],
-                sshKeyId="key-001",
-                upgradeConfig=UpgradeConfig(strategy="SURGE"),
-            )
-        ],
     )
     result = handler_write.validate_cluster_create(body=dto)
     assert result == "valid"
+
+
+def test_create_cluster_dto_rejects_nodegroups():
+    """The deprecated nodeGroups array is rejected (extra='forbid')."""
+    with pytest.raises(ValidationError):
+        CreateClusterComboDto(
+            name="mycluster01",
+            version="1.28",
+            networkType="CILIUM_OVERLAY",
+            vpcId="vpc-001",
+            enablePrivateCluster=False,
+            cidr="10.96.0.0/16",
+            nodeGroups=[{"name": "ng1"}],
+        )

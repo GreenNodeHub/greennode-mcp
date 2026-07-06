@@ -11,8 +11,8 @@ ngôn ngữ tự nhiên; trợ lý tự khám phá tài nguyên, chọn default 
 xác nhận trước khi thực thi. Bạn KHÔNG cần biết ID tài nguyên thô.
 
 ## Khái niệm
-- Cluster: control plane K8s managed. Có thể tạo control-plane-only (không kèm
-  `nodeGroups`) rồi thêm worker sau, hoặc kèm node group ngay từ đầu.
+- Cluster: control plane K8s managed. `create_cluster` chỉ tạo control plane;
+  thêm worker sau bằng `create_nodegroup`.
 - Node group: nhóm VM worker giống nhau (flavor/disk/os). Workload cần ít nhất 1.
 - VPC/subnet: mạng riêng của node (vServer). Flavor: cỡ VM (vCPU/RAM/GPU).
 - SSH key / security group: truy cập node & tường lửa.
@@ -78,9 +78,8 @@ def _create_cluster_guidance() -> str:
      `CILIUM_NATIVE_ROUTING` cần `secondarySubnets`.
    - releaseChannel: `STABLE`. azStrategy: `SINGLE` (prod/HA cân nhắc `MULTI`).
    - enablePrivateCluster: `false`. Plugin LB/CSI: bật; serviceEndpoint: tắt.
-   - nodeGroups: **bỏ trống** (control-plane-only, thêm worker sau bằng
-     `create_nodegroup`) — hoặc kèm node group ngay nếu người dùng muốn đủ bộ
-     (mỗi entry theo body của prompt `vks_create_nodegroup`).
+   - `create_cluster` chỉ tạo control plane; thêm worker sau bằng `create_nodegroup`
+     (theo body của prompt `vks_create_nodegroup`).
    - Tuỳ chọn: `autoUpgradeConfig` (weekdays + time), `autoHealingConfig`
      (enableAutoHealing, maxUnhealthy, unhealthyRange, timeoutUnhealthy 5–180 phút).
 5. Trình plan đầy đủ (mỗi field + `[auto]`/`[bạn chọn]`); cho sửa field.

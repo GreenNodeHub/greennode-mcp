@@ -899,9 +899,9 @@ class AutoHealingConfig(BaseModel):
 class CreateClusterComboDto(BaseModel):
     """Body for create_cluster. Mirrors the greennode-cli ``create-cluster`` field set.
 
-    ``nodeGroups`` is optional: omit it to create a control-plane-only cluster (the CLI
-    default) and add workers afterwards via create_nodegroup. Unknown fields are rejected
-    (``extra="forbid"``).
+    Creates the control plane only; add workers afterwards via create_nodegroup. The
+    API's ``nodeGroups`` array is deprecated and not accepted here. Unknown fields are
+    rejected (``extra="forbid"``), so passing ``nodeGroups`` is an error.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -935,9 +935,6 @@ class CreateClusterComboDto(BaseModel):
     )
     autoHealingConfig: Optional[AutoHealingConfig] = Field(
         None, description="Auto-healing configuration"
-    )
-    nodeGroups: Optional[list[NodeGroupSpec]] = Field(
-        None, description="Initial node groups (omit for control-plane-only)"
     )
 
 

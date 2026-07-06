@@ -117,7 +117,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `list_cluster_versions` | read | Available Kubernetes versions (cached 30 min) |
 | `validate_cluster_create` | read | Validate a create body without creating |
 | `delete_cluster_dryrun` | read | Preview a cluster deletion (incl. node groups) |
-| `create_cluster` | **write** | Create a cluster; `nodeGroups` optional (control-plane-only) |
+| `create_cluster` | **write** | Create a cluster (control plane only); add workers via `create_nodegroup` |
 | `update_cluster` | **write** | Change version + whitelistNodeCIDRs (+ LB/CSI plugin toggles) |
 | `delete_cluster` | **write** | Delete a cluster (IRREVERSIBLE; dry-run first) |
 | `configure_auto_upgrade` / `delete_auto_upgrade` | **write** | Manage the auto-upgrade schedule |

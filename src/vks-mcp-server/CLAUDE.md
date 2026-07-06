@@ -50,7 +50,7 @@ All write DTOs (`CreateClusterComboDto`, `UpdateClusterDto`, `CreateNodeGroupDto
 
 Cluster write DTOs:
 
-- **Create** (`CreateClusterComboDto`, `POST /v1/clusters`): required `name`, `version`, `networkType`, `vpcId`. `nodeGroups` is **optional** — omit for a control-plane-only cluster (CLI default) and add workers via `create_nodegroup`. Optional: `enablePrivateCluster`, `releaseChannel`, `enabled{LoadBalancer,BlockStoreCsi,ServiceEndpoint}Plugin`, `azStrategy`, `description`, `subnetId`, `cidr`, `secondarySubnets`, `listSubnetIds`, `nodeNetmaskSize`, `autoUpgradeConfig`, `autoHealingConfig`.
+- **Create** (`CreateClusterComboDto`, `POST /v1/clusters`): required `name`, `version`, `networkType`, `vpcId`. Creates the **control plane only** (matching the CLI) — add workers via `create_nodegroup`. The API's `nodeGroups` array is **deprecated** and rejected (`extra="forbid"`). Optional: `enablePrivateCluster`, `releaseChannel`, `enabled{LoadBalancer,BlockStoreCsi,ServiceEndpoint}Plugin`, `azStrategy`, `description`, `subnetId`, `cidr`, `secondarySubnets`, `listSubnetIds`, `nodeNetmaskSize`, `autoUpgradeConfig`, `autoHealingConfig`.
 - **Update** (`UpdateClusterDto`, `PUT /v1/clusters/{id}`): required `version` + `whitelistNodeCIDRs`; optional plugin toggles `enabledLoadBalancerPlugin`, `enabledBlockStoreCsiPlugin`. Name, description, and release channel are **not** editable via this endpoint.
 
 Node-group write DTOs:

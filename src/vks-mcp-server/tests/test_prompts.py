@@ -116,5 +116,5 @@ async def test_create_cluster_prompt_guided_flow():
     assert "validate_cluster_create" in text
     assert "create_cluster" in text
     assert "HARD GATE" in text
-    assert "nodeGroups" in text  # explains control-plane-only vs combo
+    assert "control plane" in text  # create_cluster is control-plane only
     assert "vks_create_nodegroup" in text  # cross-links the nodegroup flow
