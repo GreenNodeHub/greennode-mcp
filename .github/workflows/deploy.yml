@@ -14,24 +14,22 @@ name: Deploy
 # Trunk-based triggers:
 #   push to `main` touching this server's files (path filter below)
 #        -> deploy to the `develop` environment   (image tag = <commit sha>)
-#   push tag `vks-mcp-server-v*` (created by release-please)
+#   workflow_dispatch with tag input (chained from release-please, or manual)
 #        -> deploy to the `production` environment (image tag = vX.Y.Z, component prefix stripped)
 #
 # Notes:
-# - Path filters are NOT evaluated for tag pushes, so release tags always deploy.
 # - If either environment restricts "Deployment branches and tags"
 #   (Settings → Environments → <env>), it must allow `main` (develop env)
-#   and `vks-mcp-server-v*` tags (production env).
+#   (develop env) and `main` (production env — dispatch runs on main).
 # - Do NOT gate on `vars.IMAGE_REGISTRY` in a job-level `if` — environment
 #   variables are not reliably available there; the "Show target" step fails
 #   loudly instead when the environment is misconfigured.
 
 on:
-  # Tags are created by release-please with GITHUB_TOKEN, which does NOT
-  # trigger push workflows (GitHub safeguard). The release-please workflow
-  # therefore dispatches this one ON MAIN with the tag as an input
-  # (dispatching at the tag ref would use the workflow file frozen in that
-  # tag). workflow_dispatch is exempt from the GITHUB_TOKEN restriction.
+  # Production deploys run ONLY via workflow_dispatch with a tag input —
+  # dispatched by the release-please workflow after a release, or manually.
+  # (No tag push trigger: with the default GITHUB_TOKEN release tags never
+  # fire push workflows, and with a PAT they would double-deploy.)
   workflow_dispatch:
     inputs:
       tag:
@@ -40,7 +38,6 @@ on:
         type: string
   push:
     branches: [main]
-    tags: ['vks-mcp-server-v*']
     paths:
       - 'src/vks-mcp-server/**'
       - 'src/mcp-core/**'

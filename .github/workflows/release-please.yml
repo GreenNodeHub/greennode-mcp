@@ -6,10 +6,10 @@ name: Release Please
 # `<component>-vX.Y.Z` (e.g. vks-mcp-server-v0.5.0), which triggers the
 # production deploy in deploy.yml.
 #
-# NOTE: PRs created with the default GITHUB_TOKEN do not trigger other
-# workflows (GitHub safeguard), so required checks won't start on the release
-# PR automatically. Close & reopen the PR (one click) to run them — or set a
-# PAT / GitHub App token in the `token` input to remove this friction.
+# NOTE: with the default GITHUB_TOKEN, required checks won't start on the
+# release PR automatically (GitHub safeguard) — close & reopen it once. Set
+# the RELEASE_PLEASE_TOKEN secret (fine-grained PAT: contents + pull-requests
+# write) to remove this friction.
 
 on:
   push:
@@ -28,6 +28,10 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
+          # Optional fine-grained PAT (contents: write, pull-requests: write).
+          # With a PAT, required checks start automatically on the release PR
+          # (no close/reopen needed). Falls back to GITHUB_TOKEN when unset.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
