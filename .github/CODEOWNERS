@@ -1,0 +1,7 @@
+# Default owners — review requested automatically on every PR.
+* @vks-team
+
+# Per-product ownership: each team owns its server under src/.
+# When a new team adds src/<product>-mcp-server/, append a line here:
+#   /src/<product>-mcp-server/ @<team-or-user>
+/src/vks-mcp-server/ @vks-team

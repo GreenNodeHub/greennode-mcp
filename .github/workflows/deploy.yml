@@ -2,38 +2,46 @@ name: Deploy
 
 # Builds and pushes the image to a registry, per GitHub Environment.
 #
-# Uses GitHub Environments so develop and production can have DIFFERENT registry
-# config. Create two environments (Settings → Environments): `develop` and
-# `production`. In EACH environment set:
+# Uses GitHub Environments so dev and production can have DIFFERENT registry
+# config. Two environments (Settings → Environments): `develop` and
+# `production` (environment names are decoupled from branch names). In EACH
+# environment set:
 #   vars.IMAGE_REGISTRY        e.g. vcr.vngcloud.vn/<namespace>
 #   secrets.REGISTRY_USERNAME
 #   secrets.REGISTRY_PASSWORD
 # (Add production protection rules / required reviewers as desired.)
 #
-# Triggers:
-#   push to `develop` whose head commit message contains "[build]"
+# Trunk-based triggers:
+#   push to `main` touching this server's files (path filter below)
 #        -> deploy to the `develop` environment   (image tag = <commit sha>)
 #   push tag `v*`
 #        -> deploy to the `production` environment (image tag = <git tag>)
 #
-# NOTE: the run gate is the trigger condition only. Do NOT gate on
-# `vars.IMAGE_REGISTRY` here — environment-scoped variables are not reliably
-# available in a job-level `if`, which would silently skip the job. If the
-# environment is misconfigured, the "Show target" step fails loudly instead.
+# Notes:
+# - Path filters are NOT evaluated for tag pushes, so `v*` tags always deploy.
+# - If either environment restricts "Deployment branches and tags"
+#   (Settings → Environments → <env>), it must allow `main` (develop env)
+#   and `v*` tags (production env).
+# - Do NOT gate on `vars.IMAGE_REGISTRY` in a job-level `if` — environment
+#   variables are not reliably available there; the "Show target" step fails
+#   loudly instead when the environment is misconfigured.
 
 on:
   push:
-    branches: [develop]
+    branches: [main]
     tags: ['v*']
+    paths:
+      - 'src/vks-mcp-server/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - '.github/workflows/deploy.yml'
 
 jobs:
   build-and-push:
     name: Build & push image
     runs-on: ubuntu-24.04
-    # tag push -> production; develop push -> develop
+    # tag push -> production; main push -> develop
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'develop' }}
-    # production: any v* tag. develop: only when the head commit message has "[build]".
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[build]') }}
     permissions:
       contents: read
     timeout-minutes: 15
