@@ -1,0 +1,15 @@
+[project]
+name = "greennode-mcp"
+version = "0.0.0"
+description = "GreenNode MCP — monorepo of Model Context Protocol servers for VNG Cloud products"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Green Node"},
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["src/*"]

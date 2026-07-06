@@ -1,0 +1,72 @@
+name: Deploy
+
+# Builds and pushes the image to a registry, per GitHub Environment.
+#
+# Uses GitHub Environments so develop and production can have DIFFERENT registry
+# config. Create two environments (Settings → Environments): `develop` and
+# `production`. In EACH environment set:
+#   vars.IMAGE_REGISTRY        e.g. vcr.vngcloud.vn/<namespace>
+#   secrets.REGISTRY_USERNAME
+#   secrets.REGISTRY_PASSWORD
+# (Add production protection rules / required reviewers as desired.)
+#
+# Triggers:
+#   push to `develop` whose head commit message contains "[build]"
+#        -> deploy to the `develop` environment   (image tag = <commit sha>)
+#   push tag `v*`
+#        -> deploy to the `production` environment (image tag = <git tag>)
+#
+# NOTE: the run gate is the trigger condition only. Do NOT gate on
+# `vars.IMAGE_REGISTRY` here — environment-scoped variables are not reliably
+# available in a job-level `if`, which would silently skip the job. If the
+# environment is misconfigured, the "Show target" step fails loudly instead.
+
+on:
+  push:
+    branches: [develop]
+    tags: ['v*']
+
+jobs:
+  build-and-push:
+    name: Build & push image
+    runs-on: ubuntu-24.04
+    # tag push -> production; develop push -> develop
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'develop' }}
+    # production: any v* tag. develop: only when the head commit message has "[build]".
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || contains(github.event.head_commit.message, '[build]') }}
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show target & verify environment config
+        run: |
+          echo "Environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'develop' }}"
+          echo "Registry:    ${{ vars.IMAGE_REGISTRY }}"
+          if [ -z "${{ vars.IMAGE_REGISTRY }}" ]; then
+            echo "::error::IMAGE_REGISTRY variable is empty for this environment. Set it in Settings → Environments → <env> → Variables."
+            exit 1
+          fi
+          if [ -z "${{ secrets.REGISTRY_USERNAME }}" ] || [ -z "${{ secrets.REGISTRY_PASSWORD }}" ]; then
+            echo "::error::REGISTRY_USERNAME / REGISTRY_PASSWORD secret is missing for this environment."
+            exit 1
+          fi
+
+      - name: Compute image tag
+        id: meta
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Log in to registry
+        run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "${{ vars.IMAGE_REGISTRY }}" -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+
+      - name: Build image
+        run: docker build -f src/vks-mcp-server/Dockerfile -t "${{ vars.IMAGE_REGISTRY }}/greennode-vks-mcp:${{ steps.meta.outputs.tag }}" .
+
+      - name: Push image
+        run: docker push "${{ vars.IMAGE_REGISTRY }}/greennode-vks-mcp:${{ steps.meta.outputs.tag }}"
