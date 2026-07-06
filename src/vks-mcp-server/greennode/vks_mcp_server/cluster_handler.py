@@ -468,7 +468,14 @@ class ClusterHandler:
         ),
         region: Region | None = Field(None, description="Region override"),
     ) -> str:
-        """Deletes a VKS cluster. IRREVERSIBLE. Requires --allow-write flag. Use delete_cluster_dryrun first."""
+        """Delete a VKS cluster. IRREVERSIBLE.
+
+        ## Requirements
+        - Server must run with --allow-write
+
+        ## Workflow
+        - Call delete_cluster_dryrun first to preview what will be removed.
+        """
         result = await _cluster_delete(
             self.client,
             {"cluster_id": cluster_id, "region": region},
@@ -514,7 +521,11 @@ class ClusterHandler:
         time: str = Field(..., description="Time of day in HH:mm format, e.g. '03:00'"),
         region: Region | None = Field(None, description="Region override"),
     ) -> str:
-        """Configures auto-upgrade schedule for a VKS cluster. Requires --allow-write flag."""
+        """Configure the auto-upgrade schedule for a VKS cluster.
+
+        ## Requirements
+        - Server must run with --allow-write
+        """
         args = {"cluster_id": cluster_id, "weekdays": weekdays, "time": time}
         if region is not None:
             args["region"] = region
@@ -526,7 +537,11 @@ class ClusterHandler:
         cluster_id: str = Field(..., description="Cluster ID"),
         region: Region | None = Field(None, description="Region override"),
     ) -> str:
-        """Deletes auto-upgrade configuration for a VKS cluster. Requires --allow-write flag."""
+        """Delete the auto-upgrade configuration for a VKS cluster.
+
+        ## Requirements
+        - Server must run with --allow-write
+        """
         result = await _cluster_auto_upgrade_delete(
             self.client,
             {"cluster_id": cluster_id, "region": region},

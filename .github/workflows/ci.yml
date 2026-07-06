@@ -1,20 +1,49 @@
 name: CI
+
+# Workspace members under src/ are discovered automatically — a new
+# src/<product>-mcp-server/ gets lint/test/build with zero YAML changes.
+# Branch protection requires the single "CI OK" gate job (plus the PR-title
+# check), so adding packages never requires touching protection settings.
+
 on:
   pull_request:
-    branches: [main, develop]
+    branches: [main]
   push:
-    branches: [main, develop]
+    branches: [main]
 
 env:
   FORCE_COLOR: 1
 
 jobs:
+  discover:
+    name: Discover packages
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 2
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: list
+        name: List workspace members
+        run: |
+          packages=$(find src -mindepth 1 -maxdepth 1 -type d -exec test -f {}/pyproject.toml \; -print \
+            | xargs -n1 basename | jq -R . | jq -sc .)
+          echo "packages=$packages" >> "$GITHUB_OUTPUT"
+          echo "Discovered: $packages"
+
   test:
-    name: Test & Check
+    name: Test (${{ matrix.package }})
+    needs: discover
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.discover.outputs.packages) }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
@@ -23,23 +52,60 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-groups
       - name: Lint (ruff)
-        working-directory: src/vks-mcp-server
+        working-directory: src/${{ matrix.package }}
         run: uv run ruff check .
       - name: Format check (ruff)
-        working-directory: src/vks-mcp-server
+        working-directory: src/${{ matrix.package }}
         run: uv run ruff format --check .
       - name: Tests
-        working-directory: src/vks-mcp-server
+        working-directory: src/${{ matrix.package }}
+        run: uv run pytest tests/ -q
+
+  conventions:
+    name: Conventions
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --all-packages --all-groups
+      - name: Repo-wide convention tests
         run: uv run pytest tests/ -q
 
   build:
-    name: Build image
-    needs: test
+    name: Build (${{ matrix.package }})
+    needs: [discover, test]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJson(needs.discover.outputs.packages) }}
     steps:
       - uses: actions/checkout@v4
       - name: Build Docker image
-        run: docker build -f src/vks-mcp-server/Dockerfile -t greennode-vks-mcp:ci .
+        run: |
+          if [ -f "src/${{ matrix.package }}/Dockerfile" ]; then
+            docker build -f "src/${{ matrix.package }}/Dockerfile" -t "greennode-${{ matrix.package }}:ci" .
+          else
+            echo "No Dockerfile in src/${{ matrix.package }} — skipping build."
+          fi
+
+  ci-ok:
+    name: CI OK
+    needs: [test, conventions, build]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Verify all required jobs succeeded
+        run: |
+          echo '${{ toJson(needs) }}' | jq -e 'all(.[]; .result == "success")' \
+            || { echo "::error::A required CI job failed or was skipped."; exit 1; }
