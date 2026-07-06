@@ -4,10 +4,9 @@ name: Deploy
 #
 # Uses GitHub Environments so dev and production can have DIFFERENT registry
 # config. Two environments (Settings → Environments): `develop` and
-# `production` (environment names are decoupled from branch names).
-#   develop    → vars.IMAGE_REGISTRY       e.g. vcr.vngcloud.vn/<dev-namespace>
-#   production → vars.IMAGE_REGISTRY_PROD  e.g. vcr.vngcloud.vn/<prod-namespace>
-# Both environments also need:
+# `production` (environment names are decoupled from branch names). In EACH
+# environment set:
+#   vars.IMAGE_REGISTRY        e.g. vcr.vngcloud.vn/<namespace>
 #   secrets.REGISTRY_USERNAME
 #   secrets.REGISTRY_PASSWORD
 # (Add production protection rules / required reviewers as desired.)
@@ -43,10 +42,6 @@ jobs:
     runs-on: ubuntu-24.04
     # tag push -> production; main push -> develop
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'develop' }}
-    env:
-      TARGET_ENV: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'develop' }}
-      # production reads IMAGE_REGISTRY_PROD; develop reads IMAGE_REGISTRY
-      REGISTRY: ${{ startsWith(github.ref, 'refs/tags/v') && vars.IMAGE_REGISTRY_PROD || vars.IMAGE_REGISTRY }}
     permissions:
       contents: read
     timeout-minutes: 15
@@ -55,14 +50,10 @@ jobs:
 
       - name: Show target & verify environment config
         run: |
-          echo "Environment: $TARGET_ENV"
-          echo "Registry:    $REGISTRY"
-          if [ -z "$REGISTRY" ]; then
-            if [ "$TARGET_ENV" = "production" ]; then
-              echo "::error::IMAGE_REGISTRY_PROD variable is empty. Set it in Settings → Environments → production → Variables."
-            else
-              echo "::error::IMAGE_REGISTRY variable is empty. Set it in Settings → Environments → develop → Variables."
-            fi
+          echo "Environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'production' || 'develop' }}"
+          echo "Registry:    ${{ vars.IMAGE_REGISTRY }}"
+          if [ -z "${{ vars.IMAGE_REGISTRY }}" ]; then
+            echo "::error::IMAGE_REGISTRY variable is empty for this environment. Set it in Settings → Environments → <env> → Variables."
             exit 1
           fi
           if [ -z "${{ secrets.REGISTRY_USERNAME }}" ] || [ -z "${{ secrets.REGISTRY_PASSWORD }}" ]; then
@@ -80,10 +71,10 @@ jobs:
           fi
 
       - name: Log in to registry
-        run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "$REGISTRY" -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
+        run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "${{ vars.IMAGE_REGISTRY }}" -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
 
       - name: Build image
-        run: docker build -f src/vks-mcp-server/Dockerfile -t "$REGISTRY/greennode-vks-mcp:${{ steps.meta.outputs.tag }}" .
+        run: docker build -f src/vks-mcp-server/Dockerfile -t "${{ vars.IMAGE_REGISTRY }}/greennode-vks-mcp:${{ steps.meta.outputs.tag }}" .
 
       - name: Push image
-        run: docker push "$REGISTRY/greennode-vks-mcp:${{ steps.meta.outputs.tag }}"
+        run: docker push "${{ vars.IMAGE_REGISTRY }}/greennode-vks-mcp:${{ steps.meta.outputs.tag }}"
