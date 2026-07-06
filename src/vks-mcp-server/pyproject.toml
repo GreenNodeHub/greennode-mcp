@@ -29,7 +29,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-http = ["uvicorn>=0.30.0", "pyjwt[crypto]>=2.8.0"]
+http = ["uvicorn>=0.30.0", "pyjwt[crypto]>=2.13.0"]
 
 [project.urls]
 homepage = "https://github.com/vngcloud/greennode-mcp"
