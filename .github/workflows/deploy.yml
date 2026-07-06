@@ -27,6 +27,11 @@ name: Deploy
 #   loudly instead when the environment is misconfigured.
 
 on:
+  # Tags are created by release-please with GITHUB_TOKEN, which does NOT
+  # trigger push workflows (GitHub safeguard). The release-please workflow
+  # therefore dispatches this one explicitly at the tag ref; workflow_dispatch
+  # is exempt from the GITHUB_TOKEN restriction.
+  workflow_dispatch:
   push:
     branches: [main]
     tags: ['vks-mcp-server-v*']

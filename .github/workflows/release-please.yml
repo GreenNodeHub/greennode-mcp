@@ -18,6 +18,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 jobs:
   release-please:
@@ -25,6 +26,31 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # Tags created with GITHUB_TOKEN do not trigger push workflows, so
+      # dispatch the deploy explicitly for each released package that has a
+      # deploy pipeline (workflow_dispatch is exempt from that restriction).
+      - name: Dispatch production deploy for released tags
+        if: ${{ steps.release.outputs.releases_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTPUTS: ${{ toJson(steps.release.outputs) }}
+        run: |
+          printf '%s' "$OUTPUTS" > outputs.json
+          for path in $(jq -r '.paths_released | fromjson | .[]' outputs.json); do
+            tag=$(jq -r --arg p "$path" '.[$p + "--tag_name"] // empty' outputs.json)
+            [ -z "$tag" ] && continue
+            case "$tag" in
+              vks-mcp-server-v*)
+                echo "Dispatching deploy for $tag"
+                gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$tag"
+                ;;
+              *)
+                echo "No deploy configured for $tag — skipping"
+                ;;
+            esac
+          done
