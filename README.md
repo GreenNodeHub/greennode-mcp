@@ -39,6 +39,19 @@ uv sync
 uv run vks-mcp-server
 ```
 
+## Adding a new product server
+
+```bash
+uv run python scripts/new_server.py <product>    # e.g. vdb
+```
+
+Scaffolds `src/<product>-mcp-server/` from `templates/new-server` (working
+example tool + tests + Dockerfile, conventions baked in), registers it with
+release-please, and prints the remaining steps. CI (lint/test/build) discovers
+the new package automatically. Agent guidance lives in `.claude/skills/`
+(`new-mcp-server`, `release-mcp`) and the tiered CLAUDE.md files (repo root =
+monorepo conventions; each package has its own).
+
 See each project's own README for configuration and usage.
 
 **Note:** Create/update tools use typed Pydantic request bodies (structured DTOs) for better code-mode support and self-documenting schemas.

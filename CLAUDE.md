@@ -1,24 +1,34 @@
-# CLAUDE.md — GreenNode MCP Server
+# CLAUDE.md — GreenNode MCP monorepo
+
+Monorepo-wide conventions for all GreenNode MCP servers. **Product-specific
+guidance lives in each package's own CLAUDE.md** (e.g.
+`src/vks-mcp-server/CLAUDE.md`) — read the one for the package you're touching.
 
 ## Project overview
 
-GreenNode MCP Server provides AI assistants (Claude, Cursor, Gemini, etc.) with tools to manage VKS (VNG Kubernetes Service) clusters and Kubernetes resources via the Model Context Protocol.
-
-- **38 tools** across 6 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s
-- **3 MCP prompts** (`vks_getting_started`, `vks_create_cluster`, `vks_create_nodegroup`) — portable Vietnamese guidance for any MCP client (auth/regions/naming/tool-routing, guided cluster creation, and node-group creation flow); always available, no `--allow-write` needed
-- **Async architecture** — fully async/await with httpx.AsyncClient
-- **FastMCP framework** — uses `mcp` library for tool registration
-- **Structured output** — data tools return Pydantic models; FastMCP emits `outputSchema` + `structuredContent` (JSON). Blob tools (`get_access_token`, `get_cluster_kubeconfig`) stay `str`. Region is a fixed `Literal["HCM-3", "HAN"]`.
+MCP (Model Context Protocol) servers for VNG Cloud products, giving AI
+assistants (Claude, Cursor, Gemini, etc.) tools to manage cloud resources.
+Organized as a **uv workspace** (root `pyproject.toml`, `members = ["src/*"]`),
+mirroring the AWS Labs MCP layout.
 
 ## Repository layout
 
-Monorepo organized as a **uv workspace** (root `pyproject.toml`, `members = ["src/*"]`), mirroring the AWS Labs MCP layout. Each product is an independent project under `src/` sharing the `greennode` namespace.
-
 - Shared core: `src/mcp-core/` (`greennode.mcp_core`) — config/profile loading, IAM `TokenManager`, `BaseClient` (retry/401), `validate_id`, `DiscoveryCache`. Product servers **import** it (workspace dependency), never copy it.
-- Product project: `src/vks-mcp-server/` (own `pyproject.toml`, `tests/`, `README.md`, `Dockerfile`, …)
-- Import package: `greennode.vks_mcp_server` (source under `src/vks-mcp-server/greennode/vks_mcp_server/`)
-- CLI entry point: `vks-mcp-server` → `greennode.vks_mcp_server.server:main`
-- Future products: add as `src/<name>-mcp-server/` siblings under the same `greennode` namespace
+- Product projects: `src/<product>-mcp-server/` (own `pyproject.toml`, `tests/`, `README.md`, `CLAUDE.md`, `Dockerfile`) sharing the `greennode` namespace (pkgutil-style `greennode/__init__.py`).
+- Import package: `greennode.<product>_mcp_server`; CLI entry point `<product>-mcp-server`.
+- Repo-root `tests/` holds cross-package convention tests (run by the CI `Conventions` job).
+
+## Adding a new MCP server
+
+```bash
+uv run python scripts/new_server.py <product>    # e.g. vdb
+```
+
+Scaffolds `src/<product>-mcp-server/` from `templates/new-server` — working
+example tool, tests, Dockerfile, per-package CLAUDE.md — registers it with
+release-please, and prints the remaining manual steps (deploy job, CODEOWNERS
+line, real API endpoints). CI discovers the package automatically. See also the
+`new-mcp-server` skill in `.claude/skills/`.
 
 ## Branch & release flow (trunk-based)
 
@@ -26,17 +36,21 @@ Monorepo organized as a **uv workspace** (root `pyproject.toml`, `members = ["sr
 (feature branch → squash merge). The PR **title must follow Conventional
 Commits** (`feat:`, `fix:`, `feat!:` …) — with squash merge it becomes the
 commit message on `main` and drives release automation; `pr-title.yml` enforces
-it. The old `develop` branch is legacy (no common ancestor with the squashed
-`main`) — do not base new work on it.
+it.
+
+Releases are fully automated: release-please maintains a release PR per
+package; merging it bumps versions + CHANGELOG and tags
+`<component>-vX.Y.Z`, which deploys to production. Never edit versions,
+CHANGELOGs, or tags by hand. See the `release-mcp` skill in `.claude/skills/`.
 
 ## CI/CD
 
 GitHub Actions live in `.github/workflows/`:
 
-- `ci.yml` — runs on pull requests and pushes to `main`. **Auto-discovers workspace members** under `src/` (a new `src/<product>-mcp-server/` gets lint/format/pytest + Docker build with zero YAML changes), plus a repo-wide `Conventions` job running `tests/test_conventions.py` (verb_noun tool names, `extra="forbid"` on `*Dto` models, `## Requirements` docstrings on write tools — CLAUDE.md rules enforced as failing tests). Branch protection requires the single `CI OK` gate job, so adding packages never touches protection settings.
+- `ci.yml` — runs on pull requests and pushes to `main`. **Auto-discovers workspace members** under `src/` (a new `src/<product>-mcp-server/` gets lint/format/pytest + Docker build with zero YAML changes), plus a repo-wide `Conventions` job running `tests/test_conventions.py` (verb_noun tool names, `extra="forbid"` on `*Dto` models, `## Requirements` docstrings on write tools — the rules below enforced as failing tests). Branch protection requires the single `CI OK` gate job, so adding packages never touches protection settings.
 - `pr-title.yml` — enforces Conventional Commits on PR titles (semantic-pull-request action).
-- `deploy.yml` — builds and pushes the image to a registry, using **GitHub Environments** so dev and production can have different registry config (environment names `develop`/`production` are decoupled from branch names). Triggers: push to `main` touching `src/vks-mcp-server/**` (path filter — the `[build]` magic string is gone) → `develop` environment (image tag = commit sha); push tag `vks-mcp-server-v*` (created by release-please) → `production` environment (image tag = `vX.Y.Z`, component prefix stripped; path filters do not apply to tag pushes). In each environment (Settings → Environments) set the `IMAGE_REGISTRY` variable (e.g. `vcr.vngcloud.vn/<namespace>`) and the `REGISTRY_USERNAME` / `REGISTRY_PASSWORD` secrets. If an environment restricts "Deployment branches and tags", it must allow `main` (develop env) / `v*` tags (production env).
-- `release-please.yml` — per-package release automation (manifest mode). Conventional Commits on `main` accumulate into a release PR per package; merging it bumps the version (pyproject + `__init__.py`), regenerates CHANGELOG, and tags `<component>-vX.Y.Z`, which triggers the production deploy. Note: the release PR is created with `GITHUB_TOKEN`, so required checks don't start automatically — close & reopen it once to run them (or configure a PAT).
+- `deploy.yml` — builds and pushes the image to a registry, using **GitHub Environments** so dev and production can have different registry config (environment names `develop`/`production` are decoupled from branch names). Triggers: push to `main` touching watched paths (path filter — no magic strings) → `develop` environment (image tag = commit sha); push tag `vks-mcp-server-v*` (created by release-please) → `production` environment (image tag = `vX.Y.Z`, component prefix stripped; path filters do not apply to tag pushes). In each environment (Settings → Environments) set the registry variable `IMAGE_REGISTRY` and the `REGISTRY_USERNAME` / `REGISTRY_PASSWORD` secrets. If an environment restricts "Deployment branches and tags", it must allow `main` (develop env) / release tags (production env).
+- `release-please.yml` — per-package release automation (manifest mode). Note: the release PR is created with `GITHUB_TOKEN`, so required checks don't start automatically — close & reopen it once to run them (or configure a PAT).
 - `dependabot.yml` — weekly grouped updates for uv deps and GitHub Actions pins.
 - `.github/CODEOWNERS` — per-product ownership: each team owns its `src/<product>-mcp-server/`.
 
@@ -47,16 +61,17 @@ GitHub Actions live in `.github/workflows/`:
 - Use `from __future__ import annotations` in all files
 - Follow existing handler pattern: class with `__init__` registering tools via `self.mcp.tool()`
 - **Tool naming**: EKS-style `verb_noun` (`list_clusters`, `get_nodegroup`, `create_cluster`), matching the AWS Labs MCP convention and mapping 1:1 to greennode-cli command names (`list-clusters` → `list_clusters`). Never `noun_verb`.
+- Import shared plumbing from `greennode.mcp_core` — do not copy config/auth/HTTP/validator/cache code into a product package.
 
-## VNG Cloud API quirks
+## VNG Cloud platform quirks
 
-- **IAM API uses camelCase**: `grantType`, `accessToken`, `expiresIn` (not snake_case OAuth2 standard)
-- **VKS API pagination is 0-based**: page 0 = first page
-- **API returns 202** for most successful operations (not 200)
+- **IAM API uses camelCase**: `grantType`, `accessToken`, `expiresIn` (not snake_case OAuth2 standard) — handled by `mcp_core.auth.TokenManager`.
+- Product API quirks (pagination base, status codes, field casing) belong in the **package** CLAUDE.md.
 
 ## Configuration
 
-Reads from `~/.greenode/credentials` and `~/.greenode/config` (INI format, shared with greennode-cli).
+All servers read `~/.greenode/credentials` and `~/.greenode/config` (INI
+format, shared with greennode-cli) via `mcp_core.config.load_profile`.
 
 **Environment variable overrides** (highest priority):
 
@@ -66,150 +81,57 @@ Reads from `~/.greenode/credentials` and `~/.greenode/config` (INI format, share
 | `GRN_CLIENT_SECRET` | Override client_secret |
 | `GRN_PROFILE` | Select profile (default: "default") |
 | `GRN_DEFAULT_REGION` | Override region |
-| `GRN_PROJECT_ID` | Override project_id (auto-discovered from vServer `GET /v1/projects` when unset; needed for discovery tools) |
-
-## Server flags
-
-```bash
-# Read-only mode (default)
-uv run vks-mcp-server
-
-# Enable create/update/delete operations
-uv run vks-mcp-server --allow-write
-
-# Enable reading Kubernetes Secrets
-uv run vks-mcp-server --allow-sensitive-data-access
-
-# HTTP transport (default: stdio); Docker image serves this on port 8080
-uv run vks-mcp-server --transport streamable-http --host 0.0.0.0 --port 8080
-```
-
-## Inbound auth (HTTP transport)
-
-`--auth-mode none|api-key|jwt`. `jwt` runs the server as an OAuth 2.1 Resource Server
-(`token_verifier` + `AuthSettings` → 401 + WWW-Authenticate + PRM), verifying Bearer
-JWTs via JWKS (`--jwt-issuer/--jwt-jwks-uri/--jwt-audience/--resource-url`, or `GRN_MCP_JWT_*`/`GRN_MCP_RESOURCE_URL`).
-VKS upstream still uses the global service account (per-user is a future phase). `/health` is always open.
-`--auth-debug` (env `GRN_MCP_AUTH_DEBUG=1`) is an opt-in, redacted, HTTP-only diagnostic: logs a summary of inbound request auth (token scheme, JWT header, allow-listed claims, forwarding headers) and exposes `GET /whoami`. It never verifies signatures and never logs the full token; off by default; not for production.
+| `GRN_PROJECT_ID` | Override project_id |
 
 ## Adding a new tool
 
-1. Choose the appropriate handler or create a new one in `src/vks-mcp-server/greennode/vks_mcp_server/`
+1. Choose the appropriate handler or create a new one in the package
 2. Define async method with docstring (used as tool description)
 3. Register in handler's `__init__`: `self.mcp.tool(name="tool_name")(self.method)`
-4. Add `validate_id()` for any ID args used in URL construction
+4. Add `validate_id()` (from `mcp_core`) for any ID args used in URL construction
 5. Check `self.allow_write` for mutating operations
 6. Register handler in `server.py` if new handler class
-7. Add tests in `tests/`
+7. Add tests in `tests/` (TDD — write them first)
 8. Use `Literal[...]` for parameters with a fixed value set, and `Field(ge=, le=)` for numeric bounds, so the schema is self-documenting
-9. For create/update operations, use typed Pydantic request DTOs (e.g. `CreateClusterComboDto`, `UpdateClusterDto`, `CreateNodeGroupDto`, `UpdateNodeGroupDto` defined in `models.py`) with camelCase fields, nested specs, and Literal enums instead of `body: dict`
+9. For create/update operations, use typed Pydantic request DTOs with camelCase fields, nested specs, and Literal enums instead of `body: dict`; set `extra="forbid"`
 10. Write structured docstrings (`## Requirements`, `## Workflow`) for create/update/delete tools
-11. For discovery tools (read-only vServer lookups), wrap the fetch in `DiscoveryCache.get_or_fetch`, add a per-tool TTL to `TTL_CONFIG` in `discovery_cache.py`, and expose a `refresh: bool` parameter
+11. For discovery tools (read-only lookups), wrap the fetch in `mcp_core.cache.DiscoveryCache.get_or_fetch`, add a per-tool TTL, and expose a `refresh: bool` parameter
 12. Name the tool `verb_noun`, mirroring the greennode-cli command where one exists
 
-Example:
-```python
-async def my_tool(self, cluster_id: str) -> str:
-    """Tool description shown to AI assistant."""
-    validate_id(cluster_id, "cluster-id")
-    client = self.client
-    result = await client.get(f"/v1/clusters/{cluster_id}/my-endpoint")
-    return format_result(result)
-```
-
-## Write DTO field scope
-
-All write DTOs (`CreateClusterComboDto`, `UpdateClusterDto`, `CreateNodeGroupDto`, `UpdateNodeGroupDto`, `UpdateNodeGroupMetadataDto`, `NodeGroupSpec`, `UpgradeConfig`, and the nested `NodeGroupTaint`, `AutoScaleConfig`, `PlacementGroupConfig`, `AutoUpgradeConfig`, `AutoHealingConfig`) are configured with `extra="forbid"`, so passing an unsupported field raises a `ValidationError` with a clear message rather than silently dropping it. They mirror the greennode-cli field set — **the CLI is the source of truth for the current API** (the bundled `~/.greenode/mcp-specs/vks.json` OpenAPI file is stale).
-
-Cluster write DTOs:
-
-- **Create** (`CreateClusterComboDto`, `POST /v1/clusters`): required `name`, `version`, `networkType`, `vpcId`. `nodeGroups` is **optional** — omit for a control-plane-only cluster (CLI default) and add workers via `create_nodegroup`. Optional: `enablePrivateCluster`, `releaseChannel`, `enabled{LoadBalancer,BlockStoreCsi,ServiceEndpoint}Plugin`, `azStrategy`, `description`, `subnetId`, `cidr`, `secondarySubnets`, `listSubnetIds`, `nodeNetmaskSize`, `autoUpgradeConfig`, `autoHealingConfig`.
-- **Update** (`UpdateClusterDto`, `PUT /v1/clusters/{id}`): required `version` + `whitelistNodeCIDRs`; optional plugin toggles `enabledLoadBalancerPlugin`, `enabledBlockStoreCsiPlugin`. Name, description, and release channel are **not** editable via this endpoint.
-
-Node-group write DTOs:
-
-- **Create** (`CreateNodeGroupDto`/`NodeGroupSpec`): `name`, `flavorId`, `diskType`, `sshKeyId`, `diskSize`, `numNodes`, `os` (ubuntu/linux/rocky, top level — NOT inside `upgradeConfig`), `enablePrivateNodes`, `enabledEncryptionVolume`, `securityGroups`, `upgradeConfig`, `subnetId`, `secondarySubnets`, `labels`, `taints`, `tags`, `autoScaleConfig`, `placementGroupConfigDto`.
-- **Update** (`UpdateNodeGroupDto`, `PUT .../node-groups/{id}`): `numNodes`, `securityGroups`, `autoScaleConfig`, `upgradeConfig`.
-- **Metadata** (`UpdateNodeGroupMetadataDto`, `PATCH .../node-groups/{id}/metadata`): `labels`, `tags`, `taints` — updated **only** through this endpoint, never via `update_nodegroup`.
+The `Conventions` CI job enforces 4, 9, 10, and 12 mechanically.
 
 ## Security rules
 
-- **Input validation**: All cluster-id and nodegroup-id must be validated via `validators.validate_id()` before URL construction — prevents path traversal
-- **Write guard**: Mutating operations must check `self.allow_write` flag
-- **Sensitive data guard**: K8s Secret reads must check `self.allow_sensitive_data_access`
-- **Tokens in memory only**: Never written to disk or logged
-- **Credentials not logged**: Error messages and debug logs never include tokens or secrets
-- **Timeout**: All HTTP requests have 30s timeout to prevent hanging
-
-## HTTP Client
-
-`VksClient` in `client.py`:
-- Async httpx client with Bearer token auth
-- **Retry logic**: Max 3 retries with exponential backoff (1s → 2s → 4s) for 5xx and timeout errors
-- **401 handling**: Auto-refresh token and retry once
-- **Timeout**: 30s on all requests
+- **Input validation**: every ID used in URL construction goes through `mcp_core.validators.validate_id()` — prevents path traversal
+- **Write guard**: mutating operations must check the `allow_write` flag
+- **Tokens in memory only**: never written to disk or logged
+- **Credentials not logged**: error messages and debug logs never include tokens or secrets
+- **Timeout**: all HTTP requests have a 30s timeout (from `mcp_core.http`)
 
 ## Testing
 
 ```bash
-cd src/vks-mcp-server && uv run pytest tests/ -v
+# One package
+cd src/<product>-mcp-server && uv run pytest tests/ -v
+
+# Repo-wide convention tests
+uv run pytest tests/ -v
+
+# Lint + format (what CI runs)
+uv run ruff check . && uv run ruff format --check .
 ```
 
-- Tests covering all handlers (incl. tool-schema introspection and outputSchema assertions)
-- Uses `respx` for mocking async HTTP calls — no real API calls, no credentials needed
-- Uses `pytest-asyncio` for async test support
-
-**Manual testing** (real API, credentials from `~/.greenode/`):
-
-```bash
-# Interactive: MCP Inspector over stdio (add DANGEROUSLY_OMIT_AUTH=true to skip the proxy token)
-npx @modelcontextprotocol/inspector uv run vks-mcp-server --allow-write
-
-# Scripted: pipe JSON-RPC (initialize → initialized → tools/list | tools/call) into the stdio server
-printf '...' | uv run vks-mcp-server
-```
-
-Do NOT use `uv run mcp dev` — FastMCP is built inside `create_server()`/`main()`, there is no module-level `mcp` object. Verify auth first with the `get_access_token` tool. Full walkthrough (Inspector notes, env overrides, smoke-test snippet) lives in `src/vks-mcp-server/README.md` → Development.
-
-## Key files
-
-| File | Purpose |
-|------|---------|
-| `server.py` | FastMCP entry point, handler registration, CLI flags |
-| `config.py` | VksConfig + REGIONS endpoints; credential/profile loading delegates to `mcp_core.config.load_profile` |
-| `auth.py` | Re-export of `mcp_core.auth.TokenManager` (IAM client credentials, auto-refresh) |
-| `client.py` | VksClient extends `mcp_core.http.BaseClient` — adds the vServer service and default service `vks` |
-| `validators.py` | ID format validation |
-| `cluster_handler.py` | 12 cluster tools (CRUD + kubeconfig + events + auto-upgrade + validation + auto-healing) |
-| `nodegroup_handler.py` | 9 nodegroup tools (CRUD + metadata + nodes + dry-run + version upgrade) |
-| `k8s_handler.py` | 7 K8s tools (list/manage resources + logs + events + apply YAML + generate app manifest) |
-| `k8s_apis.py` | K8s API client wrapper using kubernetes library |
-| `k8s_client_cache.py` | TTL cache for K8s clients (840s) |
-| `version_handler.py` | 1 tool (cluster versions) |
-| `discovery_handler.py` | 8 discovery tools (vpc/subnet/flavor/sshkey/secgroup/volumetype/placementgroup lists + quota) — vServer + VKS quota, name→ID resolution for create bodies |
-| `discovery_cache.py` | Short-lived TTL cache for discovery results (per-tool TTLs, `refresh` bypass) |
-| `prompts_handler.py` | 3 MCP prompts (getting-started, create-cluster, create-nodegroup) |
-| `models.py` | Pydantic models + markdown formatters for responses |
+Tests use `respx` for async HTTP mocking — no real API calls, no credentials.
+Manual testing (MCP Inspector over stdio, JSON-RPC smoke tests) is documented
+per package (see `src/vks-mcp-server/README.md` → Development).
 
 ## Documentation update rule
 
 After completing any feature or bugfix, update ALL related documentation:
 
-1. **README.md** — Update tool list, usage examples if changed
-2. **CLAUDE.md** — Update tool count, key files if new files added
-3. **Changelog** — Add entry describing the change
+1. **Package README.md** — tool tables, usage examples
+2. **Package CLAUDE.md** — API quirks, key files
+3. Root docs only when monorepo-level behavior changes (CI/CD, conventions)
 
+CHANGELOGs are generated by release-please — do not edit them by hand.
 Code without docs is not done.
-
-## Relationship with greennode-cli
-
-Both projects share:
-- Same config files (`~/.greenode/credentials`, `~/.greenode/config`)
-- Same REGIONS dict (HCM-3, HAN endpoints)
-- Same IAM auth flow (camelCase fields)
-- Same env var names (`GRN_CLIENT_ID`, etc.)
-
-Key differences:
-- greennode-mcp is **async**, greennode-cli is **sync**
-- greennode-mcp returns **structured JSON** (Pydantic models with `outputSchema`/`structuredContent`) for data tools and **markdown** for blob/write tools (for AI readability); greennode-cli returns **JSON/table/text**
-- greennode-mcp has **K8s resource management**, greennode-cli does not

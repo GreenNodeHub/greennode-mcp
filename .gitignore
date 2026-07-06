@@ -11,5 +11,9 @@ build/
 .ruff_cache/
 .DS_Store
 .superpowers/
-.claude/
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/new-mcp-server/
+!.claude/skills/release-mcp/
 docs/superpowers/
