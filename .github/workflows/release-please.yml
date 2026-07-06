@@ -47,7 +47,7 @@ jobs:
             case "$tag" in
               vks-mcp-server-v*)
                 echo "Dispatching deploy for $tag"
-                gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref "refs/tags/$tag"
+                gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main -f "tag=$tag"
                 ;;
               *)
                 echo "No deploy configured for $tag — skipping"

@@ -29,9 +29,15 @@ name: Deploy
 on:
   # Tags are created by release-please with GITHUB_TOKEN, which does NOT
   # trigger push workflows (GitHub safeguard). The release-please workflow
-  # therefore dispatches this one explicitly at the tag ref; workflow_dispatch
-  # is exempt from the GITHUB_TOKEN restriction.
+  # therefore dispatches this one ON MAIN with the tag as an input
+  # (dispatching at the tag ref would use the workflow file frozen in that
+  # tag). workflow_dispatch is exempt from the GITHUB_TOKEN restriction.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to deploy to production, e.g. vks-mcp-server-v0.5.0"
+        required: true
+        type: string
   push:
     branches: [main]
     tags: ['vks-mcp-server-v*']
@@ -46,17 +52,20 @@ jobs:
   build-and-push:
     name: Build & push image
     runs-on: ubuntu-24.04
-    # tag push -> production; main push -> develop
-    environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'develop' }}
+    # tag push or tag-input dispatch -> production; main push -> develop
+    environment: ${{ (startsWith(github.ref, 'refs/tags/') || inputs.tag != '') && 'production' || 'develop' }}
     permissions:
       contents: read
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          # On tag-input dispatch, build the tagged source (not main)
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Show target & verify environment config
         run: |
-          echo "Environment: ${{ startsWith(github.ref, 'refs/tags/') && 'production' || 'develop' }}"
+          echo "Environment: ${{ (startsWith(github.ref, 'refs/tags/') || inputs.tag != '') && 'production' || 'develop' }}"
           echo "Registry:    ${{ vars.IMAGE_REGISTRY }}"
           if [ -z "${{ vars.IMAGE_REGISTRY }}" ]; then
             echo "::error::IMAGE_REGISTRY variable is empty for this environment. Set it in Settings → Environments → <env> → Variables."
@@ -70,7 +79,10 @@ jobs:
       - name: Compute image tag
         id: meta
         run: |
-          if [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
+          if [ -n "${{ inputs.tag }}" ]; then
+            REF_TAG="${{ inputs.tag }}"
+            echo "tag=${REF_TAG#vks-mcp-server-}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
             echo "tag=${GITHUB_REF_NAME#vks-mcp-server-}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
