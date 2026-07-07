@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.5.0...vks-mcp-server-v0.6.0) (2026-07-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* create_cluster no longer accepts nodeGroups; create node groups separately via create_nodegroup.
+
+### Features
+
+* create_cluster creates the control plane only (drop deprecated nodeGroups) ([#21](https://github.com/vngcloud/greennode-mcp/issues/21)) ([0e8f34b](https://github.com/vngcloud/greennode-mcp/commit/0e8f34bf6c78969591efe10c4126eb25db87c66d))
+
 ## [0.5.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.4.1...vks-mcp-server-v0.5.0) (2026-07-06)
 
 
