@@ -140,3 +140,34 @@ async def test_upgrade_nodegroup_description_warns_irreversible(all_tools_mcp):
     assert "update_cluster" in desc  # how to raise that bound first
     assert "get_nodegroup" in desc  # current version + post-upgrade polling
     assert "IMPORTANT" in desc
+
+
+@pytest.mark.asyncio
+async def test_server_instructions_cover_every_tool(all_tools_mcp):
+    """SERVER_INSTRUCTIONS is the always-in-context routing layer — a registered
+    tool missing from it is invisible at the session level."""
+    from greennode.vks_mcp_server.server import SERVER_INSTRUCTIONS
+
+    missing = [
+        t.name for t in await all_tools_mcp.list_tools() if t.name not in SERVER_INSTRUCTIONS
+    ]
+    assert not missing, f"tools missing from SERVER_INSTRUCTIONS: {missing}"
+
+
+def test_server_instructions_teach_flows_regions_and_prompts():
+    """Session-level guidance: creation chains, region model, guided prompts."""
+    from greennode.vks_mcp_server.server import SERVER_INSTRUCTIONS
+
+    text = SERVER_INSTRUCTIONS
+    # the zone-scoped nodegroup chain, in order
+    for a, b in [
+        ("get_cluster", "list_subnets"),
+        ("list_subnets", "list_flavors"),
+        ("list_subnets", "list_volume_types"),
+    ]:
+        assert text.index(a) < text.rindex(b), f"{a} must come before {b} in the chain"
+    # region model
+    assert "HCM-3" in text and "HAN" in text
+    # guided prompts are discoverable
+    for p in ("vks_getting_started", "vks_create_cluster", "vks_create_nodegroup"):
+        assert p in text, f"prompt {p} missing"

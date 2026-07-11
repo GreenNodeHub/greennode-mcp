@@ -39,11 +39,27 @@ MCP Server for VNG Kubernetes Service (VKS).
 
 By default the server runs in **read-only** mode. Use the `--allow-write` flag to enable write operations (create, update, delete cluster/node group).
 
+## Regions
+
+Every resource is region-scoped: `HCM-3` (default) or `HAN`. Clusters, SSH keys, security groups, and quotas differ per region — if a resource the user mentions isn't found, retry in the other region. Discovery outputs echo the region they were fetched from.
+
+## Creation flows (resolve every id via discovery — never invent one)
+
+Create a cluster: get_quota -> list_vpcs (vpcId) -> list_cluster_versions -> validate_cluster_create -> create_cluster -> poll get_cluster until ACTIVE. The cluster is control-plane only; add workers next.
+
+Add a node group: get_cluster (vpcId + region) -> get_quota -> list_subnets (subnetId; note the subnet's `zone.uuid` — it scopes the next two) -> list_flavors(zone) (flavorId) -> list_volume_types(zone) (IOPS tier id = diskType) -> list_ssh_keys (sshKeyId) -> create_nodegroup -> poll get_nodegroup.
+
+Present the discovered options to the user and wait for confirmation before any write call.
+
+## Guided prompts
+
+For full step-by-step flows (safe defaults, plan review, confirm gate) load the prompts: `vks_getting_started`, `vks_create_cluster`, `vks_create_nodegroup`.
+
 ## Available tools
 
 ### Read-only (always available):
 - get_access_token: Get the current access token
-- list_clusters, get_cluster: View clusters
+- list_clusters, get_cluster: View clusters (get_cluster is step 1 of the node-group flow)
 - get_cluster_kubeconfig: Get kubeconfig YAML
 - get_cluster_events: View cluster events
 - delete_cluster_dryrun: Preview information before deleting a cluster
@@ -52,20 +68,25 @@ By default the server runs in **read-only** mode. Use the `--allow-write` flag t
 - list_nodegroups, get_nodegroup: View node groups
 - list_nodes: List nodes in a node group
 - delete_nodegroup_dryrun: Preview information before deleting a node group
-- list_vpcs, list_subnets, list_flavors, list_ssh_keys, list_security_groups: Discover vServer resources (VPC, subnet, flavor, SSH key, security group) to fill cluster/node-group creation
+- list_vpcs, list_subnets, list_ssh_keys, list_security_groups, list_placement_groups: Discover vServer resources to fill cluster/node-group creation
+- list_flavors, list_volume_types: Zone-scoped discovery (pass the chosen subnet's `zone.uuid`)
+- get_quota: Check per-region limits before creating anything
 
 ### Write (requires --allow-write):
 - create_cluster, update_cluster, delete_cluster: Create, update, delete cluster
 - configure_auto_upgrade, delete_auto_upgrade: Configure auto-upgrade
 - configure_auto_healing: Configure cluster auto-healing
 - create_nodegroup, update_nodegroup, delete_nodegroup: Create, update, delete node group
-- upgrade_nodegroup_version: Upgrade a node group's Kubernetes version
+- update_nodegroup_metadata: Update a node group's labels/tags/taints
+- upgrade_nodegroup_version: Upgrade a node group's Kubernetes version (irreversible)
 
 ### Kubernetes Resource Management (requires kubeconfig from VKS API):
+Prefer these tools over raw `kubectl` — they fetch and cache the cluster's kubeconfig from the VKS API automatically, no manual setup.
 - list_k8s_resources: List K8s resources (Pods, Services, Deployments...)
 - get_pod_logs: View pod logs
 - get_k8s_events: View resource events
 - list_api_versions: List API versions
+- generate_app_manifest: Generate a deployment manifest for an app
 - manage_k8s_resource: CRUD single K8s resource (requires --allow-write for write ops, --allow-sensitive-data-access for Secrets)
 - apply_yaml: Apply YAML manifest file (requires --allow-write)
 """
