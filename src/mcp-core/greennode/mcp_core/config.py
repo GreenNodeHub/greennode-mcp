@@ -70,7 +70,7 @@ def load_profile(config_dir: Path, default_region: str = "HCM-3") -> ProfileSett
     if not client_id or not client_secret:
         raise ValueError(
             "Credentials must include client_id and client_secret. "
-            "Obtain them from VNG Cloud IAM Portal > Service Accounts."
+            "Obtain them from GreenNode IAM Portal > Service Accounts."
         )
 
     # --- Region ---

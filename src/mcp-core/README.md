@@ -6,7 +6,7 @@ Shared core for GreenNode MCP servers. Product servers
 | Module | Provides |
 |--------|----------|
 | `config` | `load_profile()` — `~/.greenode` credentials/config INI + `GRN_*` env overrides |
-| `auth` | `TokenManager` — VNG IAM client-credentials token, auto-refresh (camelCase API) |
+| `auth` | `TokenManager` — GreenNode IAM client-credentials token, auto-refresh (camelCase API) |
 | `http` | `BaseClient` — retry on 5xx/timeout (1s→2s→4s), auto-refresh on 401, 30s timeout |
 | `validators` | `validate_id()` — safe resource-ID check before URL construction |
 | `cache` | `DiscoveryCache` — per-tool TTL cache with `refresh` bypass |

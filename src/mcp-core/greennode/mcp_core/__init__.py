@@ -4,7 +4,7 @@ Product servers (src/<product>-mcp-server) import from here instead of
 copying config/auth/HTTP plumbing:
 
 - config:     load_profile() — ~/.greenode credentials/config + GRN_* env overrides
-- auth:       TokenManager — VNG IAM client-credentials token with auto-refresh
+- auth:       TokenManager — GreenNode IAM client-credentials token with auto-refresh
 - http:       BaseClient — retry on 5xx/timeout, auto-refresh on 401
 - validators: validate_id — safe resource-ID validation for URL construction
 - cache:      DiscoveryCache — short-lived per-tool TTL cache with refresh bypass

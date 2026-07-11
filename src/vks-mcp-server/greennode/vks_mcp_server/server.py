@@ -33,7 +33,7 @@ CONFIG_PATH = Path.home() / ".greenode"
 SERVER_INSTRUCTIONS = """
 # GreenNode MCP Server
 
-MCP Server for VNG Kubernetes Service (VKS).
+MCP Server for GreenNode Kubernetes Service (VKS).
 
 ## IMPORTANT: Operating mode
 
@@ -222,7 +222,7 @@ def create_server(jwt_config: JwtAuthConfig | None = None, auth_debug: bool = Fa
 def _build_parser() -> argparse.ArgumentParser:
     """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
-        description="GreenNode MCP Server -- manage VNG Kubernetes Service via MCP"
+        description="GreenNode MCP Server -- manage GreenNode Kubernetes Service via MCP"
     )
     parser.add_argument(
         "--allow-write",

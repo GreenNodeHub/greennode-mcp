@@ -1,4 +1,4 @@
-"""VNG Cloud IAM token management shared by all GreenNode MCP servers."""
+"""GreenNode IAM token management shared by all GreenNode MCP servers."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class TokenManager:
     """Manages IAM access tokens with auto-refresh via client credentials.
 
     Works with any config object exposing ``client_id`` and ``client_secret``.
-    Note: the VNG IAM API uses camelCase fields (``grantType``, ``accessToken``,
+    Note: the GreenNode IAM API uses camelCase fields (``grantType``, ``accessToken``,
     ``expiresIn``) — not the snake_case OAuth2 standard.
     """
 

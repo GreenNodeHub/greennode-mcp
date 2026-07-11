@@ -1,7 +1,7 @@
 # GreenNode VKS MCP Server
 
 An MCP (Model Context Protocol) server that gives AI assistants (Claude, Cursor,
-Gemini, etc.) tools to manage **VKS — VNG Kubernetes Service** clusters and the
+Gemini, etc.) tools to manage **VKS — GreenNode Kubernetes Service** clusters and the
 Kubernetes resources inside them.
 
 - **38 tools** across 6 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s

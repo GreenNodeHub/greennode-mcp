@@ -6,7 +6,7 @@ Product-specific guidance for `src/vks-mcp-server`. Monorepo-wide conventions
 
 ## Product overview
 
-MCP server for VKS (VNG Kubernetes Service) clusters and the Kubernetes
+MCP server for VKS (GreenNode Kubernetes Service) clusters and the Kubernetes
 resources inside them.
 
 - **38 tools** across 6 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s

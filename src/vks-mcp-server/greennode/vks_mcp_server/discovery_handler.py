@@ -625,7 +625,7 @@ class DiscoveryHandler:
         - create_nodegroup flow: present this list and let the user choose (VKS
           uses one key per node group). IMPORTANT: do NOT pick a key silently.
         - If empty, the user has no key in this region — tell them to create one
-          in the VNG Cloud console (vServer -> SSH Keys), then retry with
+          in the GreenNode console (vServer -> SSH Keys), then retry with
           refresh=true. Do NOT invent an id.
         - Use the chosen `id` as `sshKeyId` in create_nodegroup.
         """

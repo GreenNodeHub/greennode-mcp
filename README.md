@@ -1,6 +1,6 @@
 # GreenNode MCP
 
-A monorepo of **MCP (Model Context Protocol) servers** for VNG Cloud products,
+A monorepo of **MCP (Model Context Protocol) servers** for GreenNode products,
 organized as a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/).
 Each product is an independent project under `src/`, sharing the `greennode`
 Python namespace.
@@ -10,7 +10,7 @@ Python namespace.
 | Project | Package | Description |
 |---------|---------|-------------|
 | [`src/mcp-core`](src/mcp-core) | `greennode.mcp_core` | Shared core (config/profile loading, IAM auth, HTTP client with retry/401, validators, discovery cache) — product servers import it instead of copying plumbing. |
-| [`src/vks-mcp-server`](src/vks-mcp-server) | `greennode.vks_mcp_server` | **38 tools + 3 prompts** for managing VKS (VNG Kubernetes Service): clusters, node groups, resource discovery (name→ID), quota, and in-cluster Kubernetes resources. EKS-style `verb_noun` tool names, structured (JSON) outputs, read-only by default. |
+| [`src/vks-mcp-server`](src/vks-mcp-server) | `greennode.vks_mcp_server` | **38 tools + 3 prompts** for managing VKS (GreenNode Kubernetes Service): clusters, node groups, resource discovery (name→ID), quota, and in-cluster Kubernetes resources. EKS-style `verb_noun` tool names, structured (JSON) outputs, read-only by default. |
 
 More servers will be added as sibling projects under `src/`.
 

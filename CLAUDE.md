@@ -6,7 +6,7 @@ guidance lives in each package's own CLAUDE.md** (e.g.
 
 ## Project overview
 
-MCP (Model Context Protocol) servers for VNG Cloud products, giving AI
+MCP (Model Context Protocol) servers for GreenNode products, giving AI
 assistants (Claude, Cursor, Gemini, etc.) tools to manage cloud resources.
 Organized as a **uv workspace** (root `pyproject.toml`, `members = ["src/*"]`),
 mirroring the AWS Labs MCP layout.
@@ -63,7 +63,7 @@ GitHub Actions live in `.github/workflows/`:
 - **Tool naming**: EKS-style `verb_noun` (`list_clusters`, `get_nodegroup`, `create_cluster`), matching the AWS Labs MCP convention and mapping 1:1 to greennode-cli command names (`list-clusters` → `list_clusters`). Never `noun_verb`.
 - Import shared plumbing from `greennode.mcp_core` — do not copy config/auth/HTTP/validator/cache code into a product package.
 
-## VNG Cloud platform quirks
+## GreenNode platform quirks
 
 - **IAM API uses camelCase**: `grantType`, `accessToken`, `expiresIn` (not snake_case OAuth2 standard) — handled by `mcp_core.auth.TokenManager`.
 - Product API quirks (pagination base, status codes, field casing) belong in the **package** CLAUDE.md.
