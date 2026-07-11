@@ -133,3 +133,29 @@ async def test_create_nodegroup_prompt_zone_chained_discovery():
     assert "zone" in text
     assert "type_name" not in text  # param removed — NVME fixed, user picks an IOPS tier
     assert "IOPS" in text
+
+
+@pytest.mark.asyncio
+async def test_create_nodegroup_prompt_question_order():
+    """Prompt asks in the agreed order: name/numNodes, public/private, os, subnet,
+    secgroups, flavor, volume, ssh key, autoscale, upgrade, placement, metadata."""
+    server = create_server()
+    text = await _prompt_text(server, "vks_create_nodegroup", {})
+    anchors = [
+        "numNodes",
+        "enablePrivateNodes",
+        "ubuntu",  # the os question (ubuntu|linux|rocky)
+        "list_subnets",
+        "list_security_groups",
+        "list_flavors",
+        "list_volume_types",
+        "list_ssh_keys",
+        "autoScaleConfig",
+        "upgradeConfig",
+        "placementGroupConfigDto",
+        "labels",
+    ]
+    positions = [text.index(a) for a in anchors]
+    assert positions == sorted(positions), (
+        f"question order broken: {[a for _, a in sorted(zip(positions, anchors))]}"
+    )

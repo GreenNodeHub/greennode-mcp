@@ -210,3 +210,46 @@ async def test_create_nodegroup_offers_optional_config_groups(all_tools_mcp):
     # security defaults spelled out as consequences
     assert "public" in desc.lower()
     assert "unencrypted" in desc.lower() or "not encrypted" in desc.lower()
+
+
+@pytest.mark.asyncio
+async def test_create_nodegroup_question_order(all_tools_mcp):
+    """The user-facing question order: name/numNodes -> public/private -> os -> subnet
+    -> secgroups -> flavor -> volume -> ssh key -> autoscale -> upgrade ->
+    placement -> labels/taints/tags."""
+    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
+    desc = tools["create_nodegroup"].description
+    anchors = [
+        "numNodes",
+        "enablePrivateNodes",
+        "ubuntu",  # the os question (ubuntu|linux|rocky)
+        "list_subnets",
+        "list_security_groups",
+        "list_flavors",
+        "list_volume_types",
+        "list_ssh_keys",
+        "autoScaleConfig",
+        "upgradeConfig",
+        "placementGroupConfigDto",
+        "labels",
+    ]
+    positions = [desc.index(a) for a in anchors]
+    assert positions == sorted(positions), (
+        f"question order broken: {[a for _, a in sorted(zip(positions, anchors))]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_nodegroup_one_setting_per_question_and_full_plan(all_tools_mcp):
+    """Field-test regressions: agents bundled public/private with os in one
+    question, merged several optional groups into one multi-select, and asked
+    for confirmation without showing the plan. The description must forbid
+    all three explicitly."""
+    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
+    desc = tools["create_nodegroup"].description
+    low = desc.lower()
+    assert "one setting per question" in low
+    assert "bundle" in low or "combine" in low  # anti-bundling stated
+    # full plan must be shown BEFORE asking to confirm
+    assert "full body" in low
+    assert "never ask" in low and "confirm" in low

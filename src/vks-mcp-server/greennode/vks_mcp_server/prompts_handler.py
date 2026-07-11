@@ -4,9 +4,9 @@ from __future__ import annotations
 
 
 _GETTING_STARTED = """\
-# VKS (VNG Kubernetes Service) — Bắt đầu
+# VKS (GreenNode Kubernetes Service) — Bắt đầu
 
-VKS là Kubernetes managed của GreenNode/VNG Cloud. Bạn mô tả nhu cầu bằng
+VKS là Kubernetes managed của GreenNode. Bạn mô tả nhu cầu bằng
 ngôn ngữ tự nhiên; trợ lý tự khám phá tài nguyên, chọn default an toàn, và
 xác nhận trước khi thực thi. Bạn KHÔNG cần biết ID tài nguyên thô.
 
@@ -21,7 +21,7 @@ xác nhận trước khi thực thi. Bạn KHÔNG cần biết ID tài nguyên t
 1. MCP server `greennode-mcp` đã cấu hình trong client. Thao tác đọc chạy mặc định;
    tạo/sửa/xoá/scale cần chạy server với `--allow-write` (nếu write lỗi vì read-only,
    báo người dùng khởi động lại với `--allow-write`).
-2. Xác thực qua `~/.greenode/` (VNG Cloud IAM bearer token). Cấu hình bằng
+2. Xác thực qua `~/.greenode/` (GreenNode IAM bearer token). Cấu hình bằng
    `grn configure` (ghi `~/.greenode/credentials` + `config`). Thứ tự ưu tiên:
    env (`GRN_CLIENT_ID`, `GRN_CLIENT_SECRET`, `GRN_PROJECT_ID`, `GRN_DEFAULT_REGION`)
    → file profile (`GRN_PROFILE`, mặc định `default`). `project_id` cần cho discovery;
@@ -117,42 +117,44 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
 1. Xác thực (`get_access_token`); lỗi auth → hướng dẫn `grn configure`.
 2. Resolve cluster (nếu chưa có cluster_id) qua `list_clusters`. Check `get_quota`
    nếu nghi ngờ chạm giới hạn (max node groups/cluster, max nodes/node group).
-3. Discovery theo chuỗi (zone-scoped — chạy mọi discovery ở region của cluster):
-   a. `get_cluster` → lấy `vpcId` và region của cluster.
-   b. `list_subnets vpc_id=<vpcId>` → trình danh sách cho user chọn → `subnetId`
-      (zone của subnet quyết định flavor và volume type — hai tool dưới tự suy ra).
-   c. `list_flavors cluster_id=<id> subnet_id=<subnetId>` (lọc `need` nếu rõ nhu cầu)
-      → user chọn → `flavorId`.
-   d. `list_volume_types cluster_id=<id> subnet_id=<subnetId>` → user chọn bậc IOPS
-      → `id` là `diskType` (**ID volume type**, không phải chuỗi "SSD"; NVME cố định).
-   e. `list_ssh_keys`; tuỳ chọn `list_security_groups`, `list_placement_groups`.
-   Truyền `refresh: true` nếu người dùng vừa tạo tài nguyên ở console.
-4. Chọn default an toàn (đánh dấu `[auto]`, cho sửa) — KHÔNG tự chọn thầm
-   subnet/flavor/diskType/sshKey khi có nhiều lựa chọn, phải hỏi:
-   - Subnet: nếu VPC chỉ có đúng 1 subnet ACTIVE → `[auto]`; nhiều hơn → bắt buộc hỏi.
-   - Flavor: gợi ý flavor nhỏ nhất theo vCPU/RAM trong zone đã chọn (dev/test).
-   - Disk: gợi ý bậc IOPS thấp nhất từ `list_volume_types`; `100` GB (20–5000).
-     numNodes: `1` (0–10; prod/HA gợi ý 3).
-   - os: `ubuntu` (hoặc `linux`, `rocky`). SSH key: key đang có (VKS dùng 1 key).
-   - Tên node group: đề xuất `<cluster>-ng`; nếu quá 15 ký tự/không hợp lệ → `default-ng`.
-5. Hỏi user TỪNG NHÓM tuỳ chọn — mỗi nhóm một câu ngắn "Bạn có muốn cấu hình X
-   không?", không được bỏ qua thầm lặng:
-   - Mạng/bảo mật: `enablePrivateNodes` (mặc định false → node có IP public),
-     `enabledEncryptionVolume` (mặc định false → đĩa không mã hoá),
-     `securityGroups` (id từ `list_security_groups`), `secondarySubnets`.
-   - Scaling: `autoScaleConfig` (minSize/maxSize — liên quan numNodes).
-   - Metadata lập lịch: `labels` / `taints` / `tags`.
-   - Placement: `placementGroupConfigDto` (type=NEW + tên, hoặc type=EXISTING
-     + id từ `list_placement_groups`).
-6. Trình plan đầy đủ (mỗi field + `[auto]`/`[bạn chọn]`); cho sửa field.
-7. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác = điều chỉnh, trình lại plan.
-8. Gọi `create_nodegroup` với body dạng:
+3. `get_cluster` → lấy `vpcId` và region của cluster (mọi discovery chạy ở region đó).
+4. Hỏi user THEO ĐÚNG THỨ TỰ dưới đây — mỗi câu hỏi CHỈ MỘT cấu hình. KHÔNG gộp
+   hai cấu hình vào một câu (vd. không hỏi public/private chung với os); KHÔNG gộp
+   nhiều bước tuỳ chọn vào một câu chọn-nhiều — mỗi bước là một câu hỏi riêng
+   ("Bạn có muốn cấu hình X không?"). Không bỏ qua bước nào thầm lặng. KHÔNG tự
+   chọn thầm subnet/flavor/diskType/sshKey khi có nhiều lựa chọn:
+   a. Tên node group: đề xuất `<cluster>-ng`; quá 15 ký tự/không hợp lệ → `default-ng`.
+      numNodes: gợi ý `1` (0–10; prod/HA gợi ý 3).
+   b. Public/private: `enablePrivateNodes` (mặc định false → node có IP public).
+   c. os: `ubuntu` (mặc định; hoặc `linux`, `rocky`).
+   d. `list_subnets vpc_id=<vpcId>` → user chọn → `subnetId` (zone của subnet quyết
+      định flavor và volume type — hai tool dưới tự suy ra). VPC chỉ có đúng 1 subnet
+      ACTIVE → `[auto]`; nhiều hơn → bắt buộc hỏi.
+   e. Tuỳ chọn: `securityGroups` (id từ `list_security_groups`), `secondarySubnets`.
+   f. `list_flavors cluster_id=<id> subnet_id=<subnetId>` (lọc `need` nếu rõ nhu cầu)
+      → user chọn → `flavorId`; gợi ý flavor nhỏ nhất theo vCPU/RAM (dev/test).
+   g. Volume: `list_volume_types cluster_id=<id> subnet_id=<subnetId>` → user chọn bậc
+      IOPS → `id` là `diskType` (**ID volume type**, không phải chuỗi "SSD"; NVME cố
+      định); gợi ý bậc thấp nhất. diskSize: `100` GB (20–5000).
+      Hỏi `enabledEncryptionVolume` (mặc định false → đĩa không mã hoá).
+   h. `list_ssh_keys` → user chọn → `sshKeyId` (VKS dùng 1 key).
+   i. Tuỳ chọn: `autoScaleConfig` (minSize/maxSize — liên quan numNodes).
+   j. Tuỳ chọn: `upgradeConfig` (chiến lược nâng cấp; mặc định SURGE 1/0).
+   k. Tuỳ chọn: `placementGroupConfigDto` (type=NEW + tên, hoặc type=EXISTING
+      + id từ `list_placement_groups`).
+   l. Tuỳ chọn: `labels` / `taints` / `tags`.
+   Truyền `refresh: true` cho discovery nếu người dùng vừa tạo tài nguyên ở console.
+5. Trình plan ĐẦY ĐỦ trước khi hỏi xác nhận — bảng mọi field + giá trị, đánh dấu
+   `[auto]`/`[bạn chọn]`; cho sửa field. KHÔNG được hỏi "Xác nhận tạo?" khi chưa
+   show toàn bộ cấu hình.
+6. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác = điều chỉnh, trình lại plan.
+7. Gọi `create_nodegroup` với body dạng:
    `{{"name","numNodes","flavorId","diskSize","diskType":"<id từ list_volume_types>","subnetId":"<subnet đã chọn>","os":"ubuntu","enablePrivateNodes":false,"securityGroups":[...],"sshKeyId":...}}`
-   cộng các nhóm user đã chọn ở bước 5; `upgradeConfig` mặc định SURGE 1/0.
-9. Poll `get_nodegroup` tới `ACTIVE` (~10 phút, báo mỗi lần đổi trạng thái). Timeout/`ERROR` → kiểm tra và báo nguyên nhân.
+   cộng các mục user đã chọn ở bước 4.
+8. Poll `get_nodegroup` tới `ACTIVE` (~10 phút, báo mỗi lần đổi trạng thái). Timeout/`ERROR` → kiểm tra và báo nguyên nhân.
 
 ## Lưu ý
-- Không có SSH key (`list_ssh_keys` rỗng) → dừng, hướng dẫn tạo key ở VNG Cloud console (vServer → SSH Keys), rồi resume với `list_ssh_keys refresh=true`.
+- Không có SSH key (`list_ssh_keys` rỗng) → dừng, hướng dẫn tạo key ở GreenNode console (vServer → SSH Keys), rồi resume với `list_ssh_keys refresh=true`.
 - Scale/sửa: `update_nodegroup` nhận body **partial** — chỉ `numNodes`,
   `securityGroups`, `autoScaleConfig`, `upgradeConfig`; body rỗng bị từ chối.
   Đổi labels/tags/taints: dùng `update_nodegroup_metadata` (endpoint riêng).

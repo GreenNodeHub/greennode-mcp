@@ -193,30 +193,37 @@ class NodeGroupHandler:
         - Server must run with --allow-write
 
         ## Workflow (run every discovery call in the cluster's region)
-        1. get_cluster(cluster_id) -> the cluster's `vpcId` and region.
-        2. list_subnets(vpc_id) -> user picks a subnet -> `subnetId`. Its
-           availability zone scopes flavors and volume types — the next two
-           tools derive it themselves.
-        3. list_flavors(cluster_id, subnet_id) -> user picks -> `flavorId`.
-        4. list_volume_types(cluster_id, subnet_id) -> user picks an IOPS tier
-           -> `diskType` (a volume-type id, never a string like "SSD").
-        5. list_ssh_keys -> user picks -> `sshKeyId`.
-        6. get_quota to check node-group/node limits before starting.
-        7. Ask the user, group by group, whether they want to configure the
-           optional settings — one short question each ("Do you want to
-           configure X?"), never skip silently:
-           - Networking/security: enablePrivateNodes (default false = nodes
-             get PUBLIC IPs), enabledEncryptionVolume (default false = disks
-             unencrypted), securityGroups (ids via list_security_groups).
-           - Scaling: autoScaleConfig (min/max — interacts with numNodes).
-           - Scheduling metadata: labels, taints, tags.
-           - Placement: placementGroupConfigDto (ids via
-             list_placement_groups, type=EXISTING).
-        8. Present the FULL body — every field with its value, defaults marked
-           — and wait for explicit confirmation before calling.
-
-        `os` sets the node OS image (top level); `upgradeConfig` controls surge
-        behaviour.
+        Ask the user in THIS order — ONE setting per question. Never bundle
+        two settings into one question (e.g. public/private together with
+        os), and never merge several optional steps into one multi-select —
+        each step below is its own question. Never skip a step silently.
+        1. get_cluster(cluster_id) -> the cluster's `vpcId` and region;
+           get_quota to check node-group/node limits before starting.
+        2. Ask `name` and `numNodes` (0-10).
+        3. Ask public/private: enablePrivateNodes (default false = nodes get
+           PUBLIC IPs).
+        4. Ask `os`: ubuntu (default) | linux | rocky.
+        5. list_subnets(vpc_id) -> user picks a subnet -> `subnetId`. Its
+           availability zone scopes flavors and volume types — the tools
+           derive it themselves.
+        6. Optional: securityGroups (ids via list_security_groups);
+           secondarySubnets if needed.
+        7. list_flavors(cluster_id, subnet_id) -> user picks -> `flavorId`.
+        8. Volume settings: list_volume_types(cluster_id, subnet_id) -> user
+           picks an IOPS tier -> `diskType` (a volume-type id, never a string
+           like "SSD"); ask `diskSize` (20-5000 GB); ask
+           enabledEncryptionVolume (default false = disks unencrypted).
+        9. list_ssh_keys -> user picks -> `sshKeyId`.
+        10. Optional: autoScaleConfig (min/max — interacts with numNodes).
+        11. Optional: upgradeConfig (surge behaviour; default SURGE
+            maxSurge=1 / maxUnavailable=0).
+        12. Optional: placementGroupConfigDto (ids via list_placement_groups,
+            type=EXISTING).
+        13. Optional: scheduling metadata — labels, taints, tags.
+        14. Present the FULL body — every field with its value, defaults
+            marked — THEN ask for confirmation. Never ask "confirm?" without
+            having shown the complete plan first, and wait for explicit
+            confirmation before calling.
 
         IMPORTANT: resolve every id above via the discovery tools — never
         invent one. Full guided flow: prompt `vks_create_nodegroup`.
