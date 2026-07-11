@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.6.0...vks-mcp-server-v0.7.0) (2026-07-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* list_flavors and list_volume_types now take cluster_id + subnet_id; the zone and region parameters are gone.
+* list_clusters and list_nodes no longer accept page/pageSize (they always return the full collection).
+* discovery output schemas slimmed (fields dropped); list_flavors and list_volume_types now require zone; list_volume_types lost type_name.
+
+### Features
+
+* discovery tools guide the zone-scoped create flows (AWS-pattern descriptions) ([#23](https://github.com/vngcloud/greennode-mcp/issues/23)) ([f48f17f](https://github.com/vngcloud/greennode-mcp/commit/f48f17f0208597800de2343d418753b4697e707b))
+* list_flavors/list_volume_types derive region+zone from cluster_id+subnet_id ([#27](https://github.com/vngcloud/greennode-mcp/issues/27)) ([92d411e](https://github.com/vngcloud/greennode-mcp/commit/92d411ebc468503a4b3b2714b961ba736ad0bd4e))
+* main VKS tools join the guided flows (descriptions, fetch-all paging, region echo) ([#25](https://github.com/vngcloud/greennode-mcp/issues/25)) ([dff73f2](https://github.com/vngcloud/greennode-mcp/commit/dff73f23d0d72b3c8dfecf8d6c73c3e2c20d4f8e))
+* SERVER_INSTRUCTIONS teach the creation chains, region model, and prompts ([#26](https://github.com/vngcloud/greennode-mcp/issues/26)) ([58d26cf](https://github.com/vngcloud/greennode-mcp/commit/58d26cfe6fe148611ceb19e071f3949b899fe069))
+
 ## [0.6.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.5.0...vks-mcp-server-v0.6.0) (2026-07-07)
 
 
