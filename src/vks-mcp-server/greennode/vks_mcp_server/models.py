@@ -851,8 +851,12 @@ class NodeGroupSpec(BaseModel):
     numNodes: int = Field(..., ge=0, le=10, description="Number of nodes (0-10)")
     sshKeyId: str = Field(..., description="SSH key ID (from list_ssh_keys)")
     os: Literal["ubuntu", "linux", "rocky"] = Field("ubuntu", description="Node OS image type")
-    enablePrivateNodes: bool = Field(False, description="Whether nodes are private")
-    enabledEncryptionVolume: bool = Field(False, description="Whether to encrypt node volumes")
+    enablePrivateNodes: bool = Field(
+        False, description="false (default) = nodes get PUBLIC IPs; true = private-only nodes"
+    )
+    enabledEncryptionVolume: bool = Field(
+        False, description="false (default) = node disks are NOT encrypted; true = encrypt them"
+    )
     securityGroups: list[str] = Field(
         default_factory=list, description="Security group IDs (from list_security_groups)"
     )

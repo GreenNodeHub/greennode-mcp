@@ -135,17 +135,21 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
      numNodes: `1` (0–10; prod/HA gợi ý 3).
    - os: `ubuntu` (hoặc `linux`, `rocky`). SSH key: key đang có (VKS dùng 1 key).
    - Tên node group: đề xuất `<cluster>-ng`; nếu quá 15 ký tự/không hợp lệ → `default-ng`.
-5. Trình plan đầy đủ (mỗi field + `[auto]`/`[bạn chọn]`); cho sửa field. Nêu rõ các
-   default liên quan bảo mật để user xác nhận: `enablePrivateNodes=false` (node có
-   IP public) và `enabledEncryptionVolume=false` (đĩa không mã hoá).
-6. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác = điều chỉnh, trình lại plan.
-7. Gọi `create_nodegroup` với body dạng:
+5. Hỏi user TỪNG NHÓM tuỳ chọn — mỗi nhóm một câu ngắn "Bạn có muốn cấu hình X
+   không?", không được bỏ qua thầm lặng:
+   - Mạng/bảo mật: `enablePrivateNodes` (mặc định false → node có IP public),
+     `enabledEncryptionVolume` (mặc định false → đĩa không mã hoá),
+     `securityGroups` (id từ `list_security_groups`), `secondarySubnets`.
+   - Scaling: `autoScaleConfig` (minSize/maxSize — liên quan numNodes).
+   - Metadata lập lịch: `labels` / `taints` / `tags`.
+   - Placement: `placementGroupConfigDto` (type=NEW + tên, hoặc type=EXISTING
+     + id từ `list_placement_groups`).
+6. Trình plan đầy đủ (mỗi field + `[auto]`/`[bạn chọn]`); cho sửa field.
+7. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác = điều chỉnh, trình lại plan.
+8. Gọi `create_nodegroup` với body dạng:
    `{{"name","numNodes","flavorId","diskSize","diskType":"<id từ list_volume_types>","subnetId":"<subnet đã chọn>","os":"ubuntu","enablePrivateNodes":false,"securityGroups":[...],"sshKeyId":...}}`
-   Tuỳ chọn nâng cao: `labels`/`taints`/`tags`,
-   `secondarySubnets`, `enabledEncryptionVolume`, `autoScaleConfig`
-   (minSize/maxSize), `placementGroupConfigDto` (type=NEW + tên, hoặc
-   type=EXISTING + id từ `list_placement_groups`), `upgradeConfig` (mặc định SURGE 1/0).
-8. Poll `get_nodegroup` tới `ACTIVE` (~10 phút, báo mỗi lần đổi trạng thái). Timeout/`ERROR` → kiểm tra và báo nguyên nhân.
+   cộng các nhóm user đã chọn ở bước 5; `upgradeConfig` mặc định SURGE 1/0.
+9. Poll `get_nodegroup` tới `ACTIVE` (~10 phút, báo mỗi lần đổi trạng thái). Timeout/`ERROR` → kiểm tra và báo nguyên nhân.
 
 ## Lưu ý
 - Không có SSH key (`list_ssh_keys` rỗng) → dừng, hướng dẫn tạo key ở VNG Cloud console (vServer → SSH Keys), rồi resume với `list_ssh_keys refresh=true`.

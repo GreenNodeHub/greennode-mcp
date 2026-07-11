@@ -186,3 +186,27 @@ async def test_zone_scoped_tools_take_cluster_and_subnet(all_tools_mcp):
         assert "cluster_id" in required and "subnet_id" in required, name
         assert "zone" not in props, f"{name} must not expose zone"
         assert "region" not in props, f"{name} must not expose region (derived)"
+
+
+@pytest.mark.asyncio
+async def test_create_nodegroup_offers_optional_config_groups(all_tools_mcp):
+    """The no-prompt path must ASK the user about each optional config group —
+    a live transcript showed agents otherwise fill required fields and create,
+    silently accepting public nodes and unencrypted disks."""
+    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
+    desc = tools["create_nodegroup"].description
+    # an explicit ask-the-user instruction, before the confirm gate
+    assert "Ask the user" in desc
+    for group in (
+        "enablePrivateNodes",
+        "enabledEncryptionVolume",
+        "securityGroups",
+        "autoScaleConfig",
+        "labels",
+        "taints",
+        "placementGroupConfigDto",
+    ):
+        assert group in desc, f"optional group {group} not offered in description"
+    # security defaults spelled out as consequences
+    assert "public" in desc.lower()
+    assert "unencrypted" in desc.lower() or "not encrypted" in desc.lower()

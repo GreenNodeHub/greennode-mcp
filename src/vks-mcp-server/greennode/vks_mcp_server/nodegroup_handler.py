@@ -177,10 +177,12 @@ class NodeGroupHandler:
             ...,
             description=(
                 "CreateNodeGroupDto body. Required: name, flavorId, diskType, sshKeyId, "
-                "diskSize (20-5000), numNodes (0-10). Optional: os (ubuntu|linux|rocky, "
-                "default ubuntu), enablePrivateNodes, enabledEncryptionVolume, securityGroups, "
-                "upgradeConfig, subnetId, secondarySubnets, labels, taints, tags, "
-                "autoScaleConfig, placementGroupConfigDto."
+                "diskSize (20-5000), numNodes (0-10), subnetId. Optional groups — offer "
+                "each to the user (see the tool's Workflow): os (ubuntu|linux|rocky, "
+                "default ubuntu) and upgradeConfig; networking/security "
+                "(enablePrivateNodes, enabledEncryptionVolume, securityGroups, "
+                "secondarySubnets); scaling (autoScaleConfig); scheduling metadata "
+                "(labels, taints, tags); placement (placementGroupConfigDto)."
             ),
         ),
         region: Region = Field("HCM-3", description="Region override"),
@@ -199,16 +201,25 @@ class NodeGroupHandler:
         4. list_volume_types(cluster_id, subnet_id) -> user picks an IOPS tier
            -> `diskType` (a volume-type id, never a string like "SSD").
         5. list_ssh_keys -> user picks -> `sshKeyId`.
-        6. Optional: list_security_groups -> `securityGroups`;
-           list_placement_groups -> `placementGroupConfigDto` (type=EXISTING);
-           get_quota to check node-group/node limits before starting.
+        6. get_quota to check node-group/node limits before starting.
+        7. Ask the user, group by group, whether they want to configure the
+           optional settings — one short question each ("Do you want to
+           configure X?"), never skip silently:
+           - Networking/security: enablePrivateNodes (default false = nodes
+             get PUBLIC IPs), enabledEncryptionVolume (default false = disks
+             unencrypted), securityGroups (ids via list_security_groups).
+           - Scaling: autoScaleConfig (min/max — interacts with numNodes).
+           - Scheduling metadata: labels, taints, tags.
+           - Placement: placementGroupConfigDto (ids via
+             list_placement_groups, type=EXISTING).
+        8. Present the FULL body — every field with its value, defaults marked
+           — and wait for explicit confirmation before calling.
 
         `os` sets the node OS image (top level); `upgradeConfig` controls surge
         behaviour.
 
-        IMPORTANT: resolve every id above via the discovery tools — never invent
-        one — and present the resolved body to the user for confirmation before
-        calling. Full guided flow: prompt `vks_create_nodegroup`.
+        IMPORTANT: resolve every id above via the discovery tools — never
+        invent one. Full guided flow: prompt `vks_create_nodegroup`.
         """
         validate_id(cluster_id, "cluster_id")
         result = await self.client.post(
