@@ -235,6 +235,7 @@ class NodeGroupSummary(BaseModel):
 class NodeGroupListData(BaseModel):
     """Wrapper for node group list response."""
 
+    region: str = Field("", description="Region these node groups belong to")
     cluster_name: str = Field("", description="Parent cluster name")
     node_groups: list[NodeGroupSummary] = Field(
         default_factory=list, description="List of node groups"
@@ -400,6 +401,7 @@ class NodeItem(BaseModel):
 class NodesData(BaseModel):
     """Wrapper for list_nodes response."""
 
+    region: str = Field("", description="Region these nodes belong to")
     nodegroup_id: str = Field(..., description="Parent node group ID")
     nodes: list[NodeItem] = Field(default_factory=list, description="List of nodes")
 

@@ -91,3 +91,52 @@ async def test_write_tools_marked_writable_with_destructive_hint(all_tools_mcp):
         if a.destructiveHint is not _is_destructive(t.name):
             wrong.append(t.name)
     assert not wrong, f"write tools with wrong readOnly/destructive hints: {wrong}"
+
+
+@pytest.mark.asyncio
+async def test_cluster_read_tools_teach_the_creation_chains(all_tools_mcp):
+    """get_cluster/list_clusters descriptions wire agents into the create flows."""
+    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
+
+    get_desc = tools["get_cluster"].description
+    # get_cluster is step 1 of the create_nodegroup chain: it yields vpcId
+    assert "vpcId" in get_desc or "vpc_id" in get_desc
+    assert "create_nodegroup" in get_desc
+    assert "list_subnets" in get_desc
+
+    list_desc = tools["list_clusters"].description
+    # list_clusters resolves a cluster name to its id; no paging params exposed
+    assert "get_cluster" in list_desc
+    props = tools["list_clusters"].inputSchema["properties"]
+    assert "page" not in props and "pageSize" not in props
+
+
+@pytest.mark.asyncio
+async def test_create_cluster_description_has_discovery_workflow(all_tools_mcp):
+    """create_cluster's ## Workflow sources every required id from discovery."""
+    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
+    desc = tools["create_cluster"].description
+    assert "## Workflow" in desc
+    for name in (
+        "get_quota",
+        "list_vpcs",  # source of the required vpcId
+        "list_cluster_versions",
+        "validate_cluster_create",
+        "vks_create_cluster",  # cross-ref to the full guided prompt
+    ):
+        assert name in desc, f"{name} missing from create_cluster description"
+    # validate runs before create, quota before picking anything
+    assert desc.index("get_quota") < desc.index("list_vpcs")
+    assert desc.index("validate_cluster_create") < desc.rindex("create_cluster")
+
+
+@pytest.mark.asyncio
+async def test_upgrade_nodegroup_description_warns_irreversible(all_tools_mcp):
+    """upgrade_nodegroup_version teaches the version constraint and no-rollback."""
+    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
+    desc = tools["upgrade_nodegroup_version"].description
+    assert "## Workflow" in desc
+    assert "get_cluster" in desc  # control-plane version bounds the worker version
+    assert "update_cluster" in desc  # how to raise that bound first
+    assert "get_nodegroup" in desc  # current version + post-upgrade polling
+    assert "IMPORTANT" in desc

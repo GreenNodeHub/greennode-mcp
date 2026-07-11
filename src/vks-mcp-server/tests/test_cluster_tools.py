@@ -85,15 +85,16 @@ async def test_cluster_list(client):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_cluster_list_with_pagination(client):
-    """list_clusters passes page and pageSize as query params."""
+async def test_cluster_list_empty(client):
+    """An empty region returns an empty ClusterListData without looping."""
     _mock_iam(respx.mock)
-    respx.get(f"{VKS_BASE}/v1/clusters").mock(
-        return_value=httpx.Response(200, json={"items": []}),
+    route = respx.get(f"{VKS_BASE}/v1/clusters").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0}),
     )
-    result = await _cluster_list(client, {"page": 2, "pageSize": 5})
+    result = await _cluster_list(client, {})
     assert isinstance(result, ClusterListData)
     assert result.total == 0
+    assert route.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -414,3 +415,28 @@ def test_create_cluster_dto_rejects_nodegroups():
             cidr="10.96.0.0/16",
             nodeGroups=[{"name": "ng1"}],
         )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_cluster_list_fetches_all_pages(client):
+    """The VKS backend defaults to pageSize=10 and enforces it — a bare call must
+    page through until every cluster is collected, never truncating."""
+    _mock_iam(respx.mock)
+
+    def item(i):
+        return {"name": f"c{i}", "uid": f"uid-{i}", "status": "ACTIVE", "version": "1.28"}
+
+    def responder(request):
+        page = int(request.url.params.get("page", 0))
+        size = int(request.url.params.get("pageSize", 10))
+        all_items = [item(i) for i in range(12)]
+        chunk = all_items[page * size : (page + 1) * size]
+        return httpx.Response(
+            200, json={"items": chunk, "total": 12, "page": page, "pageSize": size}
+        )
+
+    respx.get(f"{VKS_BASE}/v1/clusters").mock(side_effect=responder)
+    result = await _cluster_list(client, {})
+    assert len(result.clusters) == 12
+    assert result.clusters[-1].name == "c11"

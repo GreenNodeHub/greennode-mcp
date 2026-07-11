@@ -13,6 +13,7 @@ from greennode.vks_mcp_server.models import (
     UpdateClusterDto,
     format_cluster_detail,
 )
+from greennode.vks_mcp_server.paging import fetch_all_vks_items
 from greennode.vks_mcp_server.tool_annotations import DESTRUCTIVE, READ, WRITE
 from greennode.vks_mcp_server.validators import validate_id
 from mcp import types
@@ -44,19 +45,13 @@ async def _cluster_list(
     client: VksClient,
     arguments: dict,
 ) -> ClusterListData:
-    params = {}
-    if "page" in arguments:
-        params["page"] = arguments["page"]
-    if "pageSize" in arguments:
-        params["pageSize"] = arguments["pageSize"]
+    """Fetch every cluster in the region (all pages)."""
     region = arguments.get("region")
-
-    data = await client.get("/v1/clusters", region=region, params=params or None)
-    items = data.get("items", data) if isinstance(data, dict) else data
     resolved_region = region or client._config.default_region
+    collected = await fetch_all_vks_items(client, "/v1/clusters", region=region)
     return ClusterListData(
         region=resolved_region,
-        clusters=[ClusterSummary.from_api(c) for c in items],
+        clusters=[ClusterSummary.from_api(c) for c in collected],
     )
 
 
@@ -327,33 +322,47 @@ class ClusterHandler:
 
     async def list_clusters(
         self,
-        page: int | None = Field(None, ge=0, description="Page number (starts at 0)"),
-        pageSize: int | None = Field(
-            None, ge=1, description="Number of clusters per page (default 50)"
-        ),
         region: Region = Field(
             "HCM-3",
-            description="Region: 'HCM-3' or 'HAN'. Defaults to 'HCM-3'.",
+            description=(
+                "Region to list clusters in: 'HCM-3' or 'HAN'. Clusters are "
+                "region-scoped — if the user's cluster is not in the result, "
+                "retry with the other region before concluding it doesn't exist."
+            ),
         ),
     ) -> ClusterListData:
-        """Returns a ClusterListData model (structured) with cluster summaries. Supports pagination."""
-        args = {}
-        if page is not None:
-            args["page"] = page
-        if pageSize is not None:
-            args["pageSize"] = pageSize
-        if region is not None:
-            args["region"] = region
-        return await _cluster_list(self.client, args)
+        """List every VKS cluster in a region (all pages fetched automatically).
+
+        Returns ClusterListData: the queried `region` plus ClusterSummary items
+        {id, name, status, version, ...}. Use this to resolve a cluster name the
+        user mentions to its `id`, then call get_cluster for full detail —
+        exactly one match: use it; several matches: list them and ask the user.
+        """
+        return await _cluster_list(self.client, {"region": region})
 
     async def get_cluster(
         self,
         cluster_id: str = Field(
-            ..., description="VKS Cluster ID, e.g. 'k8s-2ff9b24c-a58c-497c-b526-79630b0d3c92'"
+            ...,
+            description=(
+                "VKS Cluster ID, e.g. 'k8s-2ff9b24c-a58c-497c-b526-79630b0d3c92'. "
+                "Resolve it from a name via list_clusters."
+            ),
         ),
-        region: Region = Field("HCM-3", description="Region override"),
+        region: Region = Field("HCM-3", description="Region the cluster lives in"),
     ) -> ClusterDetail:
-        """Returns a ClusterDetail model (structured) with all cluster properties."""
+        """Get full detail of one VKS cluster.
+
+        Returns ClusterDetail (structured): status, version, network type, the
+        cluster's `vpc_id` and `subnet_id`, plugin toggles, and whitelist CIDRs.
+
+        ## Workflow
+        - create_nodegroup flow, step 1: this tool is the source of `vpc_id`
+          (feed it to list_subnets) — and run every later discovery call in
+          this cluster's region.
+        - After create/update/delete operations, poll this tool until `status`
+          is ACTIVE (or the cluster is gone).
+        """
         return await _cluster_get(self.client, {"cluster_id": cluster_id, "region": region})
 
     async def create_cluster(
@@ -375,16 +384,23 @@ class ClusterHandler:
         ),
         region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
-        """Create a new VKS cluster.
+        """Create a new VKS cluster (control plane only — workers come later).
 
         ## Requirements
         - Server must run with --allow-write
-        - Call validate_cluster_create first; fix any reported errors before creating
 
-        ## Workflow
-        1. list_cluster_versions   -> choose version / releaseChannel
-        2. validate_cluster_create -> confirm the body is valid
-        3. create_cluster
+        ## Workflow (run every discovery call in the target region)
+        1. get_quota -> stop if `num_clusters` already equals `max_clusters`.
+        2. list_vpcs -> user picks -> `vpcId`.
+        3. list_cluster_versions -> pick `version` / `releaseChannel`.
+        4. CILIUM_NATIVE_ROUTING only: list_subnets(vpc_id) -> `secondarySubnets`.
+        5. validate_cluster_create with the body -> fix every reported error.
+        6. create_cluster, then poll get_cluster until `status` is ACTIVE
+           (~15-20 min) and add workers via create_nodegroup.
+
+        IMPORTANT: resolve `vpcId` via list_vpcs — never invent it — and present
+        the resolved body to the user for confirmation before calling. Full
+        guided flow: prompt `vks_create_cluster`.
         """
         args = {"body": body.model_dump(exclude_none=True), "poc": poc, "autoRenewal": autoRenewal}
         if region is not None:

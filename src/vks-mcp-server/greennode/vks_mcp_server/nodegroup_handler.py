@@ -15,6 +15,7 @@ from greennode.vks_mcp_server.models import (
     UpdateNodeGroupDto,
     UpdateNodeGroupMetadataDto,
 )
+from greennode.vks_mcp_server.paging import fetch_all_vks_items
 from greennode.vks_mcp_server.tool_annotations import DESTRUCTIVE, READ, WRITE
 from greennode.vks_mcp_server.validators import validate_id
 from pydantic import Field
@@ -43,9 +44,9 @@ async def _nodegroup_list(
         NodeGroupListData model (structured) with node groups for the cluster.
     """
     validate_id(cluster_id, "cluster_id")
-    items = await client.get(f"/v1/clusters/{cluster_id}/node-groups", region=region)
-    if isinstance(items, dict):
-        items = items.get("items", items.get("nodeGroups", [items]))
+    items = await fetch_all_vks_items(
+        client, f"/v1/clusters/{cluster_id}/node-groups", region=region
+    )
 
     # Try to get cluster name
     cluster_name = cluster_id
@@ -56,6 +57,7 @@ async def _nodegroup_list(
         pass
 
     return NodeGroupListData(
+        region=region or config.default_region,
         cluster_name=cluster_name,
         node_groups=[NodeGroupSummary.from_api(ng) for ng in items],
     )
@@ -321,10 +323,22 @@ class NodeGroupHandler:
         ),
         region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
-        """Upgrade a node group's Kubernetes version.
+        """Upgrade a node group's Kubernetes version (irreversible — no downgrade).
 
         ## Requirements
         - Server must run with --allow-write
+
+        ## Workflow
+        1. get_cluster -> the control plane `version`. A node group can never be
+           newer than the control plane — raise it first via update_cluster if
+           needed.
+        2. get_nodegroup -> current version and `upgradeConfig` (surge behaviour
+           of the rolling node replacement).
+        3. Call this tool, then poll get_nodegroup until `status` is ACTIVE again.
+
+        IMPORTANT: this rolls every node in the group and cannot be rolled back.
+        Present current -> target version to the user and wait for explicit
+        confirmation before calling.
         """
         validate_id(cluster_id, "cluster_id")
         validate_id(nodegroup_id, "nodegroup_id")
@@ -343,31 +357,21 @@ class NodeGroupHandler:
         self,
         cluster_id: str = Field(..., description="VKS Cluster ID"),
         nodegroup_id: str = Field(..., description="Node Group ID"),
-        page: int | None = Field(None, ge=0, description="Page number (starts at 0)"),
-        pageSize: int | None = Field(None, ge=1, description="Items per page (default 50)"),
-        region: Region = Field("HCM-3", description="Region override"),
+        region: Region = Field("HCM-3", description="Region the cluster lives in"),
     ) -> NodesData:
-        """Returns a NodesData model (structured) with the nodes of a node group."""
+        """List every node of a node group (all pages fetched automatically).
+
+        Returns a NodesData model (structured) with the nodes of a node group.
+        """
         validate_id(cluster_id, "cluster_id")
         validate_id(nodegroup_id, "nodegroup_id")
-        params = {}
-        if page is not None:
-            params["page"] = page
-        if pageSize is not None:
-            params["pageSize"] = pageSize
-
-        result = await self.client.get(
+        nodes = await fetch_all_vks_items(
+            self.client,
             f"/v1/clusters/{cluster_id}/node-groups/{nodegroup_id}/nodes",
             region=region,
-            params=params or None,
         )
-
-        if isinstance(result, dict):
-            nodes = result.get("items", result.get("nodes", []))
-        else:
-            nodes = result if isinstance(result, list) else []
-
         return NodesData(
+            region=region or self.config.default_region,
             nodegroup_id=nodegroup_id,
             nodes=[NodeItem.from_api(n) for n in nodes],
         )

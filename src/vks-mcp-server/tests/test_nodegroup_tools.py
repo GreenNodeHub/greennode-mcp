@@ -505,3 +505,46 @@ async def test_create_nodegroup_description_has_zone_chained_workflow(handler_wr
     assert desc.index("list_subnets") < desc.index("list_volume_types")
     assert "zone" in desc
     assert "list_cluster_versions" not in desc  # create_cluster concern, not nodegroup
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_nodegroup_list_fetches_all_pages(config, client):
+    """VKS enforces paging (default pageSize=10) and quota allows 20 node groups
+    per cluster — the list must page through, never truncating."""
+    _mock_iam(respx.mock)
+
+    def item(i):
+        return {"name": f"ng{i}", "uid": f"ng-{i}", "status": "ACTIVE"}
+
+    def responder(request):
+        page = int(request.url.params.get("page", 0))
+        size = int(request.url.params.get("pageSize", 10))
+        all_items = [item(i) for i in range(12)]
+        chunk = all_items[page * size : (page + 1) * size]
+        return httpx.Response(
+            200, json={"items": chunk, "total": 12, "page": page, "pageSize": size}
+        )
+
+    respx.get(f"{VKS_BASE}/v1/clusters/k8s-abc/node-groups").mock(side_effect=responder)
+    respx.get(f"{VKS_BASE}/v1/clusters/k8s-abc").mock(
+        return_value=httpx.Response(200, json={"name": "my-cluster"})
+    )
+    result = await _nodegroup_list(config, client, cluster_id="k8s-abc")
+    assert len(result.node_groups) == 12
+    assert result.node_groups[-1].name == "ng11"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_nodegroup_outputs_echo_region(config, client, handler):
+    """NodeGroupListData echoes the resolved region so wrong-region results are visible."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VKS_BASE}/v1/clusters/k8s-abc/node-groups").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0})
+    )
+    respx.get(f"{VKS_BASE}/v1/clusters/k8s-abc").mock(
+        return_value=httpx.Response(200, json={"name": "my-cluster"})
+    )
+    result = await _nodegroup_list(config, client, cluster_id="k8s-abc")
+    assert result.region == config.default_region

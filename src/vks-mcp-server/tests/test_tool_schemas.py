@@ -85,14 +85,15 @@ async def test_get_pod_logs_numeric_constraints(config, client):
 
 
 @pytest.mark.asyncio
-async def test_cluster_list_pagination_constraints(config, client):
+async def test_cluster_list_has_no_paging_params(config, client):
+    """list_clusters fetches every page itself — agents never paginate."""
     schema = await _schema_for(
         lambda mcp: ClusterHandler(mcp, config, client, allow_write=True),
         "list_clusters",
     )
     props = schema["properties"]
-    assert _minimum(props["page"]) == 0
-    assert _minimum(props["pageSize"]) == 1
+    assert "page" not in props
+    assert "pageSize" not in props
 
 
 @pytest.mark.asyncio
@@ -112,14 +113,15 @@ async def test_cluster_create_body_lists_valid_values(config, client):
 
 
 @pytest.mark.asyncio
-async def test_nodegroup_list_nodes_pagination_constraints(config, client):
+async def test_nodegroup_list_nodes_has_no_paging_params(config, client):
+    """list_nodes fetches every page itself — agents never paginate."""
     schema = await _schema_for(
         lambda mcp: NodeGroupHandler(mcp, config, client, allow_write=True),
         "list_nodes",
     )
     props = schema["properties"]
-    assert _minimum(props["page"]) == 0
-    assert _minimum(props["pageSize"]) == 1
+    assert "page" not in props
+    assert "pageSize" not in props
 
 
 @pytest.mark.asyncio

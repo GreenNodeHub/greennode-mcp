@@ -82,7 +82,9 @@ def _create_cluster_guidance() -> str:
      (theo body của prompt `vks_create_nodegroup`).
    - Tuỳ chọn: `autoUpgradeConfig` (weekdays + time), `autoHealingConfig`
      (enableAutoHealing, maxUnhealthy, unhealthyRange, timeoutUnhealthy 5–180 phút).
-5. Trình plan đầy đủ (mỗi field + `[auto]`/`[bạn chọn]`); cho sửa field.
+5. Trình plan đầy đủ (mỗi field + `[auto]`/`[bạn chọn]`); cho sửa field. Nêu rõ
+   default liên quan bảo mật để user xác nhận: `enablePrivateCluster=false`
+   (API server có endpoint public).
 6. Chạy `validate_cluster_create` với body; có lỗi → sửa rồi validate lại.
 7. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác =
    điều chỉnh, trình lại plan.
