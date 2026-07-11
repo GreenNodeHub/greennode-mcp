@@ -478,3 +478,30 @@ async def test_nodegroup_update_metadata_not_registered_without_write(handler, r
     """Metadata tool is a write op: not registered on a read-only handler."""
     tool_names = {t.name for t in await handler.mcp.list_tools()}
     assert "update_nodegroup_metadata" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_create_nodegroup_description_has_zone_chained_workflow(handler_write):
+    """create_nodegroup's ## Workflow teaches the zone-scoped discovery chain.
+
+    The subnet must be picked first — its zone.uuid scopes both list_flavors and
+    list_volume_types. The old flat list (which even pointed at
+    list_cluster_versions, a create_cluster concern) must be gone.
+    """
+    tools = await handler_write.mcp.list_tools()
+    desc = next(t.description for t in tools if t.name == "create_nodegroup")
+    assert "## Workflow" in desc
+    for name in (
+        "get_cluster",
+        "list_subnets",
+        "list_flavors",
+        "list_volume_types",
+        "list_ssh_keys",
+        "vks_create_nodegroup",  # cross-ref to the full guided prompt
+    ):
+        assert name in desc, f"{name} missing from create_nodegroup description"
+    # subnet first: its zone scopes flavors and volume types
+    assert desc.index("list_subnets") < desc.index("list_flavors")
+    assert desc.index("list_subnets") < desc.index("list_volume_types")
+    assert "zone" in desc
+    assert "list_cluster_versions" not in desc  # create_cluster concern, not nodegroup

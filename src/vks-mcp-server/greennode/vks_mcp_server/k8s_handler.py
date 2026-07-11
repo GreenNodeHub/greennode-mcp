@@ -21,6 +21,7 @@ from greennode.vks_mcp_server.models import (
     PodLogsData,
     ResourceSummary,
 )
+from greennode.vks_mcp_server.tool_annotations import DESTRUCTIVE, READ, WRITE
 from pydantic import Field
 from typing import Any, Dict, Literal, Optional
 
@@ -59,13 +60,15 @@ class K8sHandler:
         self.allow_write = allow_write
         self.allow_sensitive_data_access = allow_sensitive_data_access
 
-        self.mcp.tool(name="list_k8s_resources")(self.list_k8s_resources)
-        self.mcp.tool(name="get_pod_logs")(self.get_pod_logs)
-        self.mcp.tool(name="get_k8s_events")(self.get_k8s_events)
-        self.mcp.tool(name="list_api_versions")(self.list_api_versions)
-        self.mcp.tool(name="manage_k8s_resource")(self.manage_k8s_resource)
-        self.mcp.tool(name="apply_yaml")(self.apply_yaml)
-        self.mcp.tool(name="generate_app_manifest")(self.generate_app_manifest)
+        self.mcp.tool(name="list_k8s_resources", annotations=READ)(self.list_k8s_resources)
+        self.mcp.tool(name="get_pod_logs", annotations=READ)(self.get_pod_logs)
+        self.mcp.tool(name="get_k8s_events", annotations=READ)(self.get_k8s_events)
+        self.mcp.tool(name="list_api_versions", annotations=READ)(self.list_api_versions)
+        self.mcp.tool(name="manage_k8s_resource", annotations=DESTRUCTIVE)(
+            self.manage_k8s_resource
+        )
+        self.mcp.tool(name="apply_yaml", annotations=WRITE)(self.apply_yaml)
+        self.mcp.tool(name="generate_app_manifest", annotations=READ)(self.generate_app_manifest)
 
     async def get_client(self, cluster_id: str, region: str | None = None) -> K8sApis:
         """Get a Kubernetes client for the specified cluster.
@@ -260,7 +263,7 @@ class K8sHandler:
             None,
             description="Field selector to filter resources (e.g., 'metadata.name=my-pod,status.phase=Running').\n            Uses the same syntax as kubectl's --field-selector flag.",
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> KubernetesResourceListData:
         """List Kubernetes resources of a specific kind.
 
@@ -352,7 +355,7 @@ class K8sHandler:
             False,
             description="Return previous terminated container logs. Default: false. Useful to get logs for pods that are restarting.",
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> PodLogsData:
         """Get logs from a pod in a Kubernetes cluster.
 
@@ -425,7 +428,7 @@ class K8sHandler:
             None,
             description="Namespace of the involved object. Required for namespaced resources (like Pods, Deployments).\n            Not required for cluster-scoped resources (like Nodes, PersistentVolumes).",
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> EventsData:
         """Get events related to a specific Kubernetes resource.
 
@@ -494,7 +497,7 @@ class K8sHandler:
     async def list_api_versions(
         self,
         cluster_id: str = Field(..., description="VKS Cluster ID"),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> ApiVersionsData:
         """List all available API versions in the Kubernetes cluster.
 
@@ -558,7 +561,7 @@ class K8sHandler:
             None,
             description="Resource definition as a dictionary. Required for create, replace, and patch operations.\n            For create and replace, this should be a complete resource definition.\n            For patch, this should contain only the fields to update.",
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> KubernetesResourceData:
         """Manage a single Kubernetes resource with various operations.
 
@@ -671,7 +674,7 @@ class K8sHandler:
             True,
             description="Whether to update resources if they already exist (similar to kubectl apply). Set to false to only create new resources.",
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> ApplyYamlData:
         """Apply a Kubernetes YAML from a local file.
 

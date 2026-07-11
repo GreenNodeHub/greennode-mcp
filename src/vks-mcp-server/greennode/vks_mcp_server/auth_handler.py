@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from greennode.vks_mcp_server.auth import TokenManager
 from greennode.vks_mcp_server.config import VksConfig
+from greennode.vks_mcp_server.tool_annotations import READ
 
 
 class AuthHandler:
@@ -13,7 +14,7 @@ class AuthHandler:
         self.mcp = mcp
         self.config = config
         self.token_manager = token_manager
-        self.mcp.tool(name="get_access_token")(self.get_access_token)
+        self.mcp.tool(name="get_access_token", annotations=READ)(self.get_access_token)
 
     async def get_access_token(self) -> str:
         """Retrieves the current access token for VKS/vServer API calls. Returns the token, default region, endpoint URLs. Token auto-refreshes via client credentials."""

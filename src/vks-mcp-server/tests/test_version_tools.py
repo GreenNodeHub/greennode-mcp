@@ -94,7 +94,7 @@ def mock_mcp():
     """Minimal stub for the FastMCP server object used by VersionHandler."""
 
     class _FakeMcp:
-        def tool(self, *, name):
+        def tool(self, *, name, annotations=None):
             def decorator(fn):
                 return fn
 

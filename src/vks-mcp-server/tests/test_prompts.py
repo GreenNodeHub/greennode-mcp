@@ -118,3 +118,18 @@ async def test_create_cluster_prompt_guided_flow():
     assert "HARD GATE" in text
     assert "control plane" in text  # create_cluster is control-plane only
     assert "vks_create_nodegroup" in text  # cross-links the nodegroup flow
+
+
+@pytest.mark.asyncio
+async def test_create_nodegroup_prompt_zone_chained_discovery():
+    """Discovery follows the zone chain: subnet picked first, then zone-scoped tools."""
+    server = create_server()
+    text = await _prompt_text(server, "vks_create_nodegroup", {})
+    assert "get_cluster" in text  # source of vpcId (and the cluster's region)
+    assert "list_subnets" in text
+    # subnet is picked BEFORE flavors/volume types (its zone.uuid scopes both)
+    assert text.index("list_subnets") < text.index("list_flavors")
+    assert text.index("list_subnets") < text.index("list_volume_types")
+    assert "zone" in text
+    assert "type_name" not in text  # param removed — NVME fixed, user picks an IOPS tier
+    assert "IOPS" in text

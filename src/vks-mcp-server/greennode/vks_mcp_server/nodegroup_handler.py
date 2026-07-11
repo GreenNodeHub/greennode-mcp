@@ -15,6 +15,7 @@ from greennode.vks_mcp_server.models import (
     UpdateNodeGroupDto,
     UpdateNodeGroupMetadataDto,
 )
+from greennode.vks_mcp_server.tool_annotations import DESTRUCTIVE, READ, WRITE
 from greennode.vks_mcp_server.validators import validate_id
 from pydantic import Field
 
@@ -110,23 +111,29 @@ class NodeGroupHandler:
         self.allow_write = allow_write
 
         # Read-only tools
-        self.mcp.tool(name="list_nodegroups")(self.list_nodegroups)
-        self.mcp.tool(name="get_nodegroup")(self.get_nodegroup)
-        self.mcp.tool(name="list_nodes")(self.list_nodes)
-        self.mcp.tool(name="delete_nodegroup_dryrun")(self.delete_nodegroup_dryrun)
+        self.mcp.tool(name="list_nodegroups", annotations=READ)(self.list_nodegroups)
+        self.mcp.tool(name="get_nodegroup", annotations=READ)(self.get_nodegroup)
+        self.mcp.tool(name="list_nodes", annotations=READ)(self.list_nodes)
+        self.mcp.tool(name="delete_nodegroup_dryrun", annotations=READ)(
+            self.delete_nodegroup_dryrun
+        )
 
         # Write tools
         if self.allow_write:
-            self.mcp.tool(name="create_nodegroup")(self.create_nodegroup)
-            self.mcp.tool(name="update_nodegroup")(self.update_nodegroup)
-            self.mcp.tool(name="update_nodegroup_metadata")(self.update_nodegroup_metadata)
-            self.mcp.tool(name="delete_nodegroup")(self.delete_nodegroup)
-            self.mcp.tool(name="upgrade_nodegroup_version")(self.upgrade_nodegroup_version)
+            self.mcp.tool(name="create_nodegroup", annotations=WRITE)(self.create_nodegroup)
+            self.mcp.tool(name="update_nodegroup", annotations=WRITE)(self.update_nodegroup)
+            self.mcp.tool(name="update_nodegroup_metadata", annotations=WRITE)(
+                self.update_nodegroup_metadata
+            )
+            self.mcp.tool(name="delete_nodegroup", annotations=DESTRUCTIVE)(self.delete_nodegroup)
+            self.mcp.tool(name="upgrade_nodegroup_version", annotations=DESTRUCTIVE)(
+                self.upgrade_nodegroup_version
+            )
 
     async def list_nodegroups(
         self,
         cluster_id: str = Field(..., description="VKS Cluster ID"),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> NodeGroupListData:
         """Lists all node groups in a VKS cluster.
 
@@ -146,7 +153,7 @@ class NodeGroupHandler:
         nodegroup_id: str = Field(
             ..., description="Node Group ID, e.g. 'ng-f5674ebc-30be-47e2-b4ef-5d4474deae58'"
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> NodeGroupDetail:
         """Gets full detail of a specific node group.
 
@@ -174,16 +181,31 @@ class NodeGroupHandler:
                 "autoScaleConfig, placementGroupConfigDto."
             ),
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Create a new node group in a VKS cluster.
 
         ## Requirements
         - Server must run with --allow-write
 
-        ## Workflow
-        - Discover inputs first: list_flavors, list_ssh_keys, list_security_groups, list_cluster_versions.
-        - `os` sets the node OS image (top level); `upgradeConfig` controls surge behaviour.
+        ## Workflow (run every discovery call in the cluster's region)
+        1. get_cluster(cluster_id) -> the cluster's `vpcId` and region.
+        2. list_subnets(vpc_id) -> user picks a subnet -> `subnetId`. Note its
+           `zone.uuid` — it scopes both flavors and volume types below.
+        3. list_flavors(zone) -> user picks -> `flavorId`.
+        4. list_volume_types(zone) -> user picks an IOPS tier -> `diskType`
+           (a volume-type id, never a string like "SSD").
+        5. list_ssh_keys -> user picks -> `sshKeyId`.
+        6. Optional: list_security_groups -> `securityGroups`;
+           list_placement_groups -> `placementGroupConfigDto` (type=EXISTING);
+           get_quota to check node-group/node limits before starting.
+
+        `os` sets the node OS image (top level); `upgradeConfig` controls surge
+        behaviour.
+
+        IMPORTANT: resolve every id above via the discovery tools — never invent
+        one — and present the resolved body to the user for confirmation before
+        calling. Full guided flow: prompt `vks_create_nodegroup`.
         """
         validate_id(cluster_id, "cluster_id")
         result = await self.client.post(
@@ -205,7 +227,7 @@ class NodeGroupHandler:
                 "update_nodegroup_metadata."
             ),
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Update a node group's size, security groups, autoscaling, or upgrade config.
 
@@ -242,7 +264,7 @@ class NodeGroupHandler:
                 "labels, tags, taints."
             ),
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Update a node group's labels, tags, and taints.
 
@@ -268,7 +290,7 @@ class NodeGroupHandler:
         self,
         cluster_id: str = Field(..., description="VKS Cluster ID"),
         nodegroup_id: str = Field(..., description="Node Group ID to delete. IRREVERSIBLE."),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Delete a node group. IRREVERSIBLE.
 
@@ -297,7 +319,7 @@ class NodeGroupHandler:
             ...,
             description="Target Kubernetes version. Use list_cluster_versions to see valid versions.",
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Upgrade a node group's Kubernetes version.
 
@@ -323,7 +345,7 @@ class NodeGroupHandler:
         nodegroup_id: str = Field(..., description="Node Group ID"),
         page: int | None = Field(None, ge=0, description="Page number (starts at 0)"),
         pageSize: int | None = Field(None, ge=1, description="Items per page (default 50)"),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> NodesData:
         """Returns a NodesData model (structured) with the nodes of a node group."""
         validate_id(cluster_id, "cluster_id")
@@ -354,7 +376,7 @@ class NodeGroupHandler:
         self,
         cluster_id: str = Field(..., description="VKS Cluster ID"),
         nodegroup_id: str = Field(..., description="Node Group ID to preview deletion for"),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Preview what will be deleted when deleting a node group."""
         return await _nodegroup_delete_dryrun(

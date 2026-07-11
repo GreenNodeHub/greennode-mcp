@@ -134,18 +134,37 @@ def test_format_cluster_detail():
     assert "vpc-0011223344" in result
 
 
-def test_vpc_item_from_api_maps_display_name():
+def test_vpc_item_is_minimal_id_name_projection():
+    """VpcItem carries only id + name — a choice list for the user, not VPC management."""
     item = VpcItem.from_api(
         {"id": "net-1", "displayName": "prod-vpc", "cidr": "10.0.0.0/16", "status": "ACTIVE"}
     )
-    assert item.id == "net-1"
-    assert item.name == "prod-vpc"
-    assert item.cidr == "10.0.0.0/16"
+    assert item.model_dump() == {"id": "net-1", "name": "prod-vpc"}
 
 
-def test_subnet_item_uses_uuid_as_id():
-    item = SubnetItem.from_api({"uuid": "sub-9", "name": "s1", "cidr": "10.0.1.0/24"})
-    assert item.id == "sub-9"
+def test_subnet_item_is_minimal_projection():
+    """SubnetItem carries id + name + zone + secondary_subnets — no cidr/status."""
+    item = SubnetItem.from_api(
+        {
+            "uuid": "sub-9",
+            "name": "s1",
+            "cidr": "10.0.1.0/24",
+            "status": "ACTIVE",
+            "zone": {"uuid": "zone-a", "name": "HCM03-1A", "isDefault": True},
+        }
+    )
+    assert item.model_dump() == {
+        "id": "sub-9",
+        "name": "s1",
+        "zone": {"uuid": "zone-a", "name": "HCM03-1A"},
+        "secondary_subnets": [],
+    }
+
+
+def test_subnet_item_zone_absent():
+    """A subnet with no zone yields zone=None."""
+    item = SubnetItem.from_api({"uuid": "sub-0", "name": "s0"})
+    assert item.zone is None
 
 
 def test_subnet_item_exposes_secondary_subnets():
@@ -169,25 +188,12 @@ def test_subnet_item_exposes_secondary_subnets():
     assert SubnetItem.from_api({"uuid": "sub-0"}).secondary_subnets == []
 
 
-def test_volume_type_item_maps_api_fields():
-    """VolumeTypeItem maps id/name/iops/size bounds; id is the diskType value."""
+def test_volume_type_item_is_minimal_id_iops():
+    """VolumeTypeItem carries only {id, iops} — id is the diskType, user picks by iops."""
     item = VolumeTypeItem.from_api(
-        {
-            "id": "vtype-abc",
-            "name": "ssd-io1",
-            "iops": 3000,
-            "minSize": 20,
-            "maxSize": 2000,
-            "throughPut": 250,
-        },
-        type_zone="SSD",
+        {"id": "vtype-abc", "name": "3000", "iops": 3000, "minSize": 20, "maxSize": 2000}
     )
-    assert item.id == "vtype-abc"
-    assert item.name == "ssd-io1"
-    assert item.type_zone == "SSD"
-    assert item.iops == 3000
-    assert item.min_size_gb == 20
-    assert item.max_size_gb == 2000
+    assert item.model_dump() == {"id": "vtype-abc", "iops": 3000}
 
 
 def test_quota_data_maps_api_fields():

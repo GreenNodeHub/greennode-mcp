@@ -13,6 +13,7 @@ from greennode.vks_mcp_server.models import (
     UpdateClusterDto,
     format_cluster_detail,
 )
+from greennode.vks_mcp_server.tool_annotations import DESTRUCTIVE, READ, WRITE
 from greennode.vks_mcp_server.validators import validate_id
 from mcp import types
 from pydantic import Field
@@ -300,21 +301,29 @@ class ClusterHandler:
         self.allow_write = allow_write
 
         # Read-only tools (always registered)
-        self.mcp.tool(name="list_clusters")(self.list_clusters)
-        self.mcp.tool(name="get_cluster")(self.get_cluster)
-        self.mcp.tool(name="get_cluster_kubeconfig")(self.get_cluster_kubeconfig)
-        self.mcp.tool(name="get_cluster_events")(self.get_cluster_events)
-        self.mcp.tool(name="delete_cluster_dryrun")(self.delete_cluster_dryrun)
-        self.mcp.tool(name="validate_cluster_create")(self.validate_cluster_create)
+        self.mcp.tool(name="list_clusters", annotations=READ)(self.list_clusters)
+        self.mcp.tool(name="get_cluster", annotations=READ)(self.get_cluster)
+        self.mcp.tool(name="get_cluster_kubeconfig", annotations=READ)(self.get_cluster_kubeconfig)
+        self.mcp.tool(name="get_cluster_events", annotations=READ)(self.get_cluster_events)
+        self.mcp.tool(name="delete_cluster_dryrun", annotations=READ)(self.delete_cluster_dryrun)
+        self.mcp.tool(name="validate_cluster_create", annotations=READ)(
+            self.validate_cluster_create
+        )
 
         # Write tools (only registered if allow_write is True)
         if self.allow_write:
-            self.mcp.tool(name="create_cluster")(self.create_cluster)
-            self.mcp.tool(name="update_cluster")(self.update_cluster)
-            self.mcp.tool(name="delete_cluster")(self.delete_cluster)
-            self.mcp.tool(name="configure_auto_upgrade")(self.configure_auto_upgrade)
-            self.mcp.tool(name="delete_auto_upgrade")(self.delete_auto_upgrade)
-            self.mcp.tool(name="configure_auto_healing")(self.configure_auto_healing)
+            self.mcp.tool(name="create_cluster", annotations=WRITE)(self.create_cluster)
+            self.mcp.tool(name="update_cluster", annotations=WRITE)(self.update_cluster)
+            self.mcp.tool(name="delete_cluster", annotations=DESTRUCTIVE)(self.delete_cluster)
+            self.mcp.tool(name="configure_auto_upgrade", annotations=WRITE)(
+                self.configure_auto_upgrade
+            )
+            self.mcp.tool(name="delete_auto_upgrade", annotations=DESTRUCTIVE)(
+                self.delete_auto_upgrade
+            )
+            self.mcp.tool(name="configure_auto_healing", annotations=WRITE)(
+                self.configure_auto_healing
+            )
 
     async def list_clusters(
         self,
@@ -322,8 +331,9 @@ class ClusterHandler:
         pageSize: int | None = Field(
             None, ge=1, description="Number of clusters per page (default 50)"
         ),
-        region: Region | None = Field(
-            None, description="Region override, e.g. 'HCM-3' or 'HAN'. Defaults to config region"
+        region: Region = Field(
+            "HCM-3",
+            description="Region: 'HCM-3' or 'HAN'. Defaults to 'HCM-3'.",
         ),
     ) -> ClusterListData:
         """Returns a ClusterListData model (structured) with cluster summaries. Supports pagination."""
@@ -341,7 +351,7 @@ class ClusterHandler:
         cluster_id: str = Field(
             ..., description="VKS Cluster ID, e.g. 'k8s-2ff9b24c-a58c-497c-b526-79630b0d3c92'"
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> ClusterDetail:
         """Returns a ClusterDetail model (structured) with all cluster properties."""
         return await _cluster_get(self.client, {"cluster_id": cluster_id, "region": region})
@@ -363,7 +373,7 @@ class ClusterHandler:
         autoRenewal: bool = Field(
             True, description="Enable auto-renewal for cluster subscription"
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Create a new VKS cluster.
 
@@ -394,7 +404,7 @@ class ClusterHandler:
                 "release channel are NOT editable here."
             ),
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Update a VKS cluster's Kubernetes version, node whitelist CIDRs, and plugins.
 
@@ -419,7 +429,7 @@ class ClusterHandler:
         cluster_id: str = Field(
             ..., description="Cluster ID to delete. IRREVERSIBLE. Use delete_cluster_dryrun first."
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Delete a VKS cluster. IRREVERSIBLE.
 
@@ -438,7 +448,7 @@ class ClusterHandler:
     async def get_cluster_kubeconfig(
         self,
         cluster_id: str = Field(..., description="Cluster ID to get kubeconfig for"),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Gets the kubeconfig YAML for a VKS cluster. Returns raw YAML text."""
         result = await _cluster_get_kubeconfig(
@@ -452,7 +462,7 @@ class ClusterHandler:
         cluster_id: str = Field(..., description="Cluster ID"),
         page: int | None = Field(None, ge=0, description="Page number (starts at 0)"),
         pageSize: int | None = Field(None, ge=1, description="Items per page (default 20)"),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Gets events for a VKS cluster. Returns a markdown table of events."""
         args = {"cluster_id": cluster_id}
@@ -472,7 +482,7 @@ class ClusterHandler:
             ..., description="Comma-separated days of week for auto-upgrade, e.g. 'Mon,Wed,Fri'"
         ),
         time: str = Field(..., description="Time of day in HH:mm format, e.g. '03:00'"),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Configure the auto-upgrade schedule for a VKS cluster.
 
@@ -488,7 +498,7 @@ class ClusterHandler:
     async def delete_auto_upgrade(
         self,
         cluster_id: str = Field(..., description="Cluster ID"),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Delete the auto-upgrade configuration for a VKS cluster.
 
@@ -517,7 +527,7 @@ class ClusterHandler:
         timeout_unhealthy: int | None = Field(
             None, ge=5, le=180, description="Minutes before considering a node unhealthy (5-180)"
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Configure auto-healing for a VKS cluster.
 
@@ -543,7 +553,7 @@ class ClusterHandler:
     async def delete_cluster_dryrun(
         self,
         cluster_id: str = Field(..., description="Cluster ID to preview deletion for"),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Preview what will be deleted when deleting a cluster. Shows cluster info and all node groups that will be removed."""
         result = await _cluster_delete_dryrun(

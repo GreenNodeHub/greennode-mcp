@@ -10,6 +10,7 @@ from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.config import load_config
 from greennode.vks_mcp_server.discovery_cache import DiscoveryCache
 from greennode.vks_mcp_server.discovery_handler import (
+    _fetch_all_items,
     _flavor_list,
     _placementgroup_list,
     _quota_get,
@@ -79,8 +80,27 @@ async def test_vpc_list_returns_structured(config, client):
     assert result.region  # region populated
     assert result.vpcs[0].id == "net-1"
     assert result.vpcs[0].name == "prod-vpc"
-    assert result.vpcs[0].cidr == "10.0.0.0/16"
-    assert result.vpcs[0].status == "ACTIVE"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_vpc_list_returns_only_active(config, client):
+    """Non-ACTIVE VPCs are filtered out — they cannot host new clusters."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/networks").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "listData": [
+                    {"id": "net-ok", "displayName": "prod", "status": "ACTIVE"},
+                    {"id": "net-mid", "displayName": "half-baked", "status": "CREATING"},
+                    {"id": "net-bad", "displayName": "gone", "status": "DELETING"},
+                ]
+            },
+        )
+    )
+    result = await _vpc_list(config, client, DiscoveryCache())
+    assert [v.id for v in result.vpcs] == ["net-ok"]
 
 
 @respx.mock
@@ -113,7 +133,24 @@ async def test_subnet_list_returns_structured(config, client):
     assert result.vpc_id == vpc_id
     assert result.subnets[0].id == "sub-1"
     assert result.subnets[0].name == "subnet-a"
-    assert result.subnets[0].cidr == "10.0.1.0/24"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_subnet_list_returns_only_active(config, client):
+    """Non-ACTIVE subnets are filtered out — nodes cannot join them."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/networks/net-1/subnets").mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {"uuid": "sub-ok", "name": "a", "status": "ACTIVE"},
+                {"uuid": "sub-mid", "name": "b", "status": "CREATING"},
+            ],
+        )
+    )
+    result = await _subnet_list(config, client, DiscoveryCache(), vpc_id="net-1")
+    assert [s.id for s in result.subnets] == ["sub-ok"]
 
 
 @pytest.mark.asyncio
@@ -130,63 +167,111 @@ def test_suggest_group_classifies():
     assert _suggest_group({"cpu": 4, "memory": 8, "gpu": 0}) == "Cân bằng"
 
 
+FZ_PATH = f"{VSERVER_BASE}/v1/{PID}/flavor_zones/customs/clusters/master/false"
+
+
+def _mock_flavor_zone(flavors):
+    """Mock the two-step worker-flavor flow: flavor_zones (master=false) -> flavors."""
+    respx.get(FZ_PATH).mock(
+        return_value=httpx.Response(200, json={"listData": [{"id": "fz-1", "name": "z1"}]})
+    )
+    respx.get(f"{VSERVER_BASE}/v1/{PID}/fz-1/flavors").mock(
+        return_value=httpx.Response(200, json={"listData": flavors})
+    )
+
+
 @respx.mock
 @pytest.mark.asyncio
-async def test_flavor_list_returns_structured(config, client):
+async def test_flavor_list_worker_flavors_by_zone(config, client):
+    """Resolve the worker (master=false) flavor zone for the subnet's AZ, list its flavors."""
     _mock_iam(respx.mock)
-    respx.get(f"{VSERVER_BASE}/v1/{PID}/flavors/customs/clusters").mock(
-        return_value=httpx.Response(
-            200,
-            json=[
-                {
-                    "flavorId": "flv-1",
-                    "name": "2c_4g",
-                    "cpu": 2,
-                    "memory": 4,
-                    "gpu": 0,
-                    "group": "standard",
-                },
-                {
-                    "flavorId": "flv-2",
-                    "name": "8c_16g",
-                    "cpu": 8,
-                    "memory": 16,
-                    "gpu": 0,
-                    "group": "standard",
-                },
-            ],
-        )
+    _mock_flavor_zone(
+        [
+            {
+                "flavorId": "flv-1",
+                "name": "2c_4g",
+                "cpu": 2,
+                "memory": 4,
+                "gpu": 0,
+                "remainingVms": 5,
+            },
+            {
+                "flavorId": "flv-2",
+                "name": "8c_16g",
+                "cpu": 8,
+                "memory": 16,
+                "gpu": 0,
+                "remainingVms": 3,
+            },
+        ]
     )
-    result = await _flavor_list(config, client, DiscoveryCache())
+    result = await _flavor_list(config, client, DiscoveryCache(), zone="HCM03-1A")
     assert isinstance(result, FlavorListData)
+    assert result.region == config.default_region
+    assert result.zone == "HCM03-1A"
     assert result.need is None
-    ids = [f.id for f in result.flavors]
-    assert "flv-1" in ids
-    assert "flv-2" in ids
-    groups = [f.group for f in result.flavors]
-    assert "Dev/test" in groups
-    assert "Compute" in groups
+    assert {f.id for f in result.flavors} == {"flv-1", "flv-2"}
+    assert {f.group for f in result.flavors} == {"Dev/test", "Compute"}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_flavor_list_excludes_sold_out(config, client):
+    """Sold-out flavors (isSoldOut or remainingVms == 0) are filtered out."""
+    _mock_iam(respx.mock)
+    _mock_flavor_zone(
+        [
+            {"flavorId": "ok", "name": "a", "cpu": 2, "memory": 4, "gpu": 0, "remainingVms": 5},
+            {
+                "flavorId": "none-left",
+                "name": "b",
+                "cpu": 2,
+                "memory": 4,
+                "gpu": 0,
+                "remainingVms": 0,
+            },
+            {
+                "flavorId": "flagged",
+                "name": "c",
+                "cpu": 2,
+                "memory": 4,
+                "gpu": 0,
+                "remainingVms": 9,
+                "isSoldOut": True,
+            },
+        ]
+    )
+    result = await _flavor_list(config, client, DiscoveryCache(), zone="HCM03-1A")
+    assert [f.id for f in result.flavors] == ["ok"]
 
 
 @respx.mock
 @pytest.mark.asyncio
 async def test_flavor_list_filters_by_need(config, client):
     _mock_iam(respx.mock)
-    respx.get(f"{VSERVER_BASE}/v1/{PID}/flavors/customs/clusters").mock(
-        return_value=httpx.Response(
-            200,
-            json=[
-                {"flavorId": "flv-1", "name": "2c_4g", "cpu": 2, "memory": 4, "gpu": 0},
-                {"flavorId": "flv-2", "name": "8c_16g", "cpu": 8, "memory": 16, "gpu": 0},
-            ],
-        )
+    _mock_flavor_zone(
+        [
+            {
+                "flavorId": "flv-1",
+                "name": "2c_4g",
+                "cpu": 2,
+                "memory": 4,
+                "gpu": 0,
+                "remainingVms": 5,
+            },
+            {
+                "flavorId": "flv-2",
+                "name": "8c_16g",
+                "cpu": 8,
+                "memory": 16,
+                "gpu": 0,
+                "remainingVms": 5,
+            },
+        ]
     )
-    result = await _flavor_list(config, client, DiscoveryCache(), need="Compute")
-    assert isinstance(result, FlavorListData)
+    result = await _flavor_list(config, client, DiscoveryCache(), zone="HCM03-1A", need="Compute")
     assert result.need == "Compute"
-    assert len(result.flavors) == 1
-    assert result.flavors[0].id == "flv-2"
-    assert result.flavors[0].name == "8c_16g"
+    assert [f.id for f in result.flavors] == ["flv-2"]
 
 
 @respx.mock
@@ -201,6 +286,7 @@ async def test_sshkey_list_returns_structured(config, client):
     )
     result = await _sshkey_list(config, client, DiscoveryCache())
     assert isinstance(result, SshKeyListData)
+    assert result.region == config.default_region  # echoes the region actually queried
     assert result.ssh_keys[0].id == "ssh-1"
     assert result.ssh_keys[0].name == "my-key"
 
@@ -238,10 +324,28 @@ async def test_secgroup_list_returns_structured(config, client):
     )
     result = await _secgroup_list(config, client, DiscoveryCache())
     assert isinstance(result, SecgroupListData)
-    assert result.secgroups[0].id == "secg-1"
-    assert result.secgroups[0].name == "default"
-    assert result.secgroups[0].description == "default sg"
-    assert result.secgroups[0].status == "ACTIVE"
+    assert result.region == config.default_region  # echoes the region queried
+    assert result.secgroups[0].model_dump() == {"id": "secg-1", "name": "default"}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_secgroup_list_returns_only_active(config, client):
+    """Non-ACTIVE security groups are filtered out."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/secgroups").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "listData": [
+                    {"id": "sg-ok", "name": "a", "status": "ACTIVE"},
+                    {"id": "sg-bad", "name": "b", "status": "CREATING"},
+                ]
+            },
+        )
+    )
+    result = await _secgroup_list(config, client, DiscoveryCache())
+    assert [g.id for g in result.secgroups] == ["sg-ok"]
 
 
 @respx.mock
@@ -353,61 +457,27 @@ async def test_subnet_list_cache_keyed_by_vpc(config, client, cache):
 @pytest.mark.asyncio
 async def test_flavor_list_cache_keyed_by_need(config, client, cache):
     _mock_iam(respx.mock)
-    route = respx.get(f"{VSERVER_BASE}/v1/{PID}/flavors/customs/clusters").mock(
+    respx.get(FZ_PATH).mock(return_value=httpx.Response(200, json={"listData": [{"id": "fz-1"}]}))
+    route = respx.get(f"{VSERVER_BASE}/v1/{PID}/fz-1/flavors").mock(
         return_value=httpx.Response(
-            200, json=[{"flavorId": "f1", "name": "2c_4g", "cpu": 2, "memory": 4, "gpu": 0}]
+            200,
+            json={
+                "listData": [
+                    {"flavorId": "f1", "cpu": 2, "memory": 4, "gpu": 0, "remainingVms": 5}
+                ]
+            },
         )
     )
-    await _flavor_list(config, client, cache)
-    await _flavor_list(config, client, cache)  # cached (need=None)
-    await _flavor_list(config, client, cache, need="Dev/test")  # different key
+    await _flavor_list(config, client, cache, zone="HCM03-1A")
+    await _flavor_list(config, client, cache, zone="HCM03-1A")  # cached (need=None)
+    await _flavor_list(config, client, cache, zone="HCM03-1A", need="Dev/test")  # different key
     assert route.call_count == 2
 
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_volumetype_list_two_step_fetch(config, client, cache):
-    """list_volume_types fetches type zones, then volume types per zone, tagged by name."""
-    _mock_iam(respx.mock)
-    respx.get(f"{VSERVER_BASE}/v1/{PID}/volume_type_zones").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "volumeTypeZones": [
-                    {"id": "vtz-ssd", "name": "SSD", "zone": "HCM03-1A"},
-                    {"id": "vtz-nvme", "name": "NVMe", "zone": "HCM03-1A"},
-                ]
-            },
-        )
-    )
-    respx.get(f"{VSERVER_BASE}/v1/{PID}/vtz-ssd/volume_types").mock(
-        return_value=httpx.Response(
-            200,
-            json={
-                "volumeTypes": [
-                    {"id": "vt-1", "name": "ssd-io1", "iops": 3000, "minSize": 20, "maxSize": 2000}
-                ]
-            },
-        )
-    )
-    respx.get(f"{VSERVER_BASE}/v1/{PID}/vtz-nvme/volume_types").mock(
-        return_value=httpx.Response(
-            200,
-            json={"volumeTypes": [{"id": "vt-2", "name": "nvme-io1", "iops": 8000}]},
-        )
-    )
-    result = await _volumetype_list(config, client, cache)
-    assert isinstance(result, VolumeTypeListData)
-    assert {v.id for v in result.volume_types} == {"vt-1", "vt-2"}
-    by_id = {v.id: v for v in result.volume_types}
-    assert by_id["vt-1"].type_zone == "SSD"
-    assert by_id["vt-2"].type_zone == "NVMe"
-
-
-@respx.mock
-@pytest.mark.asyncio
-async def test_volumetype_list_filters_by_type_name(config, client, cache):
-    """type_name filter only fetches the matching type zone (case-insensitive)."""
+async def test_volumetype_list_picks_nvme_zone_only(config, client, cache):
+    """Given a subnet's AZ zone, resolve the NVME volume-type-zone and list its types."""
     _mock_iam(respx.mock)
     respx.get(f"{VSERVER_BASE}/v1/{PID}/volume_type_zones").mock(
         return_value=httpx.Response(
@@ -415,21 +485,57 @@ async def test_volumetype_list_filters_by_type_name(config, client, cache):
             json={
                 "volumeTypeZones": [
                     {"id": "vtz-ssd", "name": "SSD"},
-                    {"id": "vtz-nvme", "name": "NVMe"},
+                    {"id": "vtz-nvme", "name": "NVME"},
                 ]
             },
         )
     )
     ssd_route = respx.get(f"{VSERVER_BASE}/v1/{PID}/vtz-ssd/volume_types").mock(
-        return_value=httpx.Response(200, json={"volumeTypes": [{"id": "vt-1", "name": "ssd"}]})
+        return_value=httpx.Response(200, json={"volumeTypes": [{"id": "vt-ssd", "iops": 1}]})
     )
-    nvme_route = respx.get(f"{VSERVER_BASE}/v1/{PID}/vtz-nvme/volume_types").mock(
-        return_value=httpx.Response(200, json={"volumeTypes": [{"id": "vt-2"}]})
+    respx.get(f"{VSERVER_BASE}/v1/{PID}/vtz-nvme/volume_types").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "volumeTypes": [
+                    {
+                        "id": "vtype-3k",
+                        "name": "3000",
+                        "iops": 3000,
+                        "minSize": 1,
+                        "maxSize": 30000,
+                    },
+                    {"id": "vtype-5k", "name": "5000", "iops": 5000},
+                ]
+            },
+        )
     )
-    result = await _volumetype_list(config, client, cache, type_name="ssd")
-    assert ssd_route.called
-    assert not nvme_route.called
-    assert [v.id for v in result.volume_types] == ["vt-1"]
+    result = await _volumetype_list(config, client, cache, zone="HCM03-1A")
+    assert isinstance(result, VolumeTypeListData)
+    assert result.zone == "HCM03-1A"
+    assert result.region == config.default_region
+    assert not ssd_route.called  # SSD zone is skipped; NVME hardcoded
+    assert [v.model_dump() for v in result.volume_types] == [
+        {"id": "vtype-3k", "iops": 3000},
+        {"id": "vtype-5k", "iops": 5000},
+    ]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_volumetype_list_scopes_zones_by_subnet_zone(config, client, cache):
+    """The volume_type_zones lookup is filtered by the subnet's zone uuid."""
+    _mock_iam(respx.mock)
+    route = respx.get(f"{VSERVER_BASE}/v1/{PID}/volume_type_zones").mock(
+        return_value=httpx.Response(
+            200, json={"volumeTypeZones": [{"id": "vtz-nvme", "name": "NVME"}]}
+        )
+    )
+    respx.get(f"{VSERVER_BASE}/v1/{PID}/vtz-nvme/volume_types").mock(
+        return_value=httpx.Response(200, json={"volumeTypes": []})
+    )
+    await _volumetype_list(config, client, cache, zone="HCM03-1B")
+    assert route.calls.last.request.url.params.get("zoneId") == "HCM03-1B"
 
 
 @respx.mock
@@ -448,8 +554,9 @@ async def test_quota_get_returns_structured(config, client):
             },
         )
     )
-    result = await _quota_get(client)
+    result = await _quota_get(client, region="HCM-3")
     assert isinstance(result, QuotaData)
+    assert result.region == "HCM-3"  # echoes the region queried
     assert result.max_clusters == 10
     assert result.num_clusters == 3
 
@@ -482,4 +589,95 @@ async def test_placementgroup_list_returns_structured(config, client, cache):
     pg = result.placement_groups[0]
     assert pg.id == "sg-uuid-1"  # uuid, not the integer serverGroupId
     assert pg.name == "pg-web"
-    assert pg.policy == "AFFINITY"
+    assert pg.model_dump() == {"id": "sg-uuid-1", "name": "pg-web"}  # minimal projection
+
+
+# ---------------------------------------------------------------------------
+# Pagination safety net: _fetch_all_items
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_all_items_single_call_when_server_returns_all(config, client):
+    """vServer's normal behaviour: one response holds everything (totalPage=0)."""
+    _mock_iam(respx.mock)
+    route = respx.get(f"{VSERVER_BASE}/v2/{PID}/things").mock(
+        return_value=httpx.Response(
+            200,
+            json={"listData": [{"id": 1}, {"id": 2}], "totalItem": 2, "totalPage": 0},
+        )
+    )
+    items = await _fetch_all_items(client, f"/v2/{PID}/things")
+    assert [i["id"] for i in items] == [1, 2]
+    assert route.call_count == 1  # no extra pages fetched
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_all_items_paginates_when_truncated(config, client):
+    """If a response reports more items than returned, page through the rest."""
+    _mock_iam(respx.mock)
+
+    def responder(request):
+        page = request.url.params.get("page")  # None on the initial unpaged call
+        pages = {
+            None: {"listData": [{"id": 1}, {"id": 2}], "totalItem": 5},  # looks truncated
+            "1": {"listData": [{"id": 1}, {"id": 2}], "totalItem": 5},
+            "2": {"listData": [{"id": 3}, {"id": 4}], "totalItem": 5},
+            "3": {"listData": [{"id": 5}], "totalItem": 5},
+        }
+        return httpx.Response(200, json=pages[page])
+
+    # first (unpaged) call also looks truncated -> triggers pagination from page 1
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/things").mock(side_effect=responder)
+    items = await _fetch_all_items(client, f"/v2/{PID}/things", page_size=2)
+    assert [i["id"] for i in items] == [1, 2, 3, 4, 5]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_all_items_handles_bare_list(config, client):
+    """A non-enveloped (bare array) response is returned as-is."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/things").mock(
+        return_value=httpx.Response(200, json=[{"id": "a"}])
+    )
+    items = await _fetch_all_items(client, f"/v2/{PID}/things")
+    assert items == [{"id": "a"}]
+
+
+# ---------------------------------------------------------------------------
+# project_id is region-scoped
+# ---------------------------------------------------------------------------
+
+HAN_VSERVER = "https://han-1.api.vngcloud.vn/vserver/vserver-gateway"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_require_project_id_is_per_region(config, client):
+    """Each region has its own project_id; the configured one is HCM-3-only."""
+    _mock_iam(respx.mock)
+    config.project_id = "pro-hcm"  # configured value belongs to the default region (HCM-3)
+    respx.get(f"{HAN_VSERVER}/v1/projects").mock(
+        return_value=httpx.Response(200, json={"projects": [{"projectId": "pro-han"}]})
+    )
+    # default region → configured value, no fetch
+    assert await _require_project_id(config, client) == "pro-hcm"
+    # HAN → fetched from the HAN endpoint, not the HCM-3 configured id
+    assert await _require_project_id(config, client, region="HAN") == "pro-han"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_require_project_id_caches_per_region(config, client):
+    """A region's project_id is fetched once, then cached (no configured default)."""
+    _mock_iam(respx.mock)
+    config.project_id = None
+    route = respx.get(f"{HAN_VSERVER}/v1/projects").mock(
+        return_value=httpx.Response(200, json={"projects": [{"projectId": "pro-han"}]})
+    )
+    assert await _require_project_id(config, client, region="HAN") == "pro-han"
+    assert await _require_project_id(config, client, region="HAN") == "pro-han"
+    assert route.call_count == 1  # cached, not refetched

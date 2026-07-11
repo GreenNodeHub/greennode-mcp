@@ -19,6 +19,7 @@ resources inside them.
 - **API returns 202** for most successful operations (not 200)
 - **The greennode-cli is the source of truth for the current API** — the bundled `~/.greenode/mcp-specs/vks.json` OpenAPI file is stale
 - Discovery (vpc/subnet/flavor/sshkey/secgroup/volume-type/placement-group) goes to the **vServer API** (token-only auth); `project_id` is auto-discovered from `GET /v1/projects` when unset
+- **vServer list pagination is effectively a no-op**: `page`/`size` query params are ignored and every list endpoint returns the full set in one response (envelope reports `page=0 / pageSize=0 / totalPage=0`, `len(listData) == totalItem`). Discovery fetchers go through `_fetch_all_items`, which uses that single-call fast path but pages explicitly as a safety net if a response ever reports `totalItem > len(listData)` — so results never truncate silently as an account grows.
 
 ## Server flags
 

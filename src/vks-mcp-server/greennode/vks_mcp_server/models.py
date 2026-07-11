@@ -448,51 +448,61 @@ def format_cluster_detail(c: dict) -> str:
 
 
 class VpcItem(BaseModel):
-    """A VPC/network from vServer."""
+    """An ACTIVE VPC/network — minimal projection for the user to choose from."""
 
-    id: str = Field(..., description="VPC/network ID (use as vpcId)")
-    name: str = Field("", description="VPC display name")
-    cidr: str = Field("", description="CIDR range")
-    status: str = Field("", description="VPC status")
+    id: str = Field(..., description="VPC/network ID — use as `vpcId` in create_cluster")
+    name: str = Field("", description="VPC display name — show this to the user")
 
     @classmethod
     def from_api(cls, v: dict) -> VpcItem:
         """Build a VpcItem from a raw vServer network dict."""
-        return cls(
-            id=v.get("id", ""),
-            name=v.get("displayName", ""),
-            cidr=v.get("cidr", ""),
-            status=v.get("status", ""),
-        )
+        return cls(id=v.get("id", ""), name=v.get("displayName", ""))
 
 
 class VpcListData(BaseModel):
-    """Wrapper for list_vpcs response."""
+    """Wrapper for list_vpcs response (ACTIVE VPCs only)."""
 
     region: str = Field(..., description="Region name")
-    vpcs: list[VpcItem] = Field(default_factory=list, description="List of VPCs")
+    vpcs: list[VpcItem] = Field(
+        default_factory=list, description="ACTIVE VPCs (non-ACTIVE ones are filtered out)"
+    )
+
+
+class ZoneRef(BaseModel):
+    """Availability-zone reference (uuid + name), from a subnet's `zone`."""
+
+    uuid: str = Field("", description="Zone UUID — flavors/volume types are zone-scoped by this")
+    name: str = Field("", description="Zone name, e.g. 'HCM03-1A' — show this to the user")
 
 
 class SubnetItem(BaseModel):
-    """A subnet of a VPC from vServer."""
+    """An ACTIVE subnet of a VPC — minimal projection for the user to choose from."""
 
-    id: str = Field(..., description="Subnet ID (use as subnetId)")
-    name: str = Field("", description="Subnet name")
-    cidr: str = Field("", description="CIDR range")
-    status: str = Field("", description="Subnet status")
+    id: str = Field(
+        ..., description="Subnet ID — use as `subnetId` in create_cluster / create_nodegroup"
+    )
+    name: str = Field("", description="Subnet name — show this to the user")
+    zone: Optional[ZoneRef] = Field(
+        None,
+        description="Availability zone of this subnet — flavors and volume types are scoped to it",
+    )
     secondary_subnets: list[str] = Field(
         default_factory=list,
-        description="Secondary subnet IDs (use as secondarySubnets for CILIUM_NATIVE_ROUTING)",
+        description="Secondary subnet IDs — use as `secondarySubnets` for CILIUM_NATIVE_ROUTING",
     )
 
     @classmethod
     def from_api(cls, s: dict) -> SubnetItem:
         """Build a SubnetItem from a raw vServer subnet dict (id is 'uuid')."""
+        zone = s.get("zone")
         return cls(
             id=s.get("uuid", ""),
             name=s.get("name", ""),
-            cidr=s.get("cidr", ""),
-            status=s.get("status", ""),
+            zone=(
+                ZoneRef(uuid=zone.get("uuid", ""), name=zone.get("name", ""))
+                if isinstance(zone, dict)
+                else None
+            ),
             secondary_subnets=[
                 ss.get("uuid", "") if isinstance(ss, dict) else str(ss)
                 for ss in (s.get("secondarySubnets") or [])
@@ -501,10 +511,12 @@ class SubnetItem(BaseModel):
 
 
 class SubnetListData(BaseModel):
-    """Wrapper for list_subnets response."""
+    """Wrapper for list_subnets response (ACTIVE subnets only)."""
 
     vpc_id: str = Field(..., description="Parent VPC ID")
-    subnets: list[SubnetItem] = Field(default_factory=list, description="List of subnets")
+    subnets: list[SubnetItem] = Field(
+        default_factory=list, description="ACTIVE subnets (non-ACTIVE ones are filtered out)"
+    )
 
 
 class FlavorItem(BaseModel):
@@ -531,10 +543,14 @@ class FlavorItem(BaseModel):
 
 
 class FlavorListData(BaseModel):
-    """Wrapper for list_flavors response."""
+    """Wrapper for list_flavors response (available worker flavors of one zone)."""
 
+    region: str = Field(..., description="Region these flavors belong to")
+    zone: str = Field("", description="Availability-zone uuid these flavors belong to")
     need: str | None = Field(None, description="Applied need-group filter, if any")
-    flavors: list[FlavorItem] = Field(default_factory=list, description="List of flavors")
+    flavors: list[FlavorItem] = Field(
+        default_factory=list, description="Available flavors (sold-out ones filtered out)"
+    )
 
 
 class SshKeyItem(BaseModel):
@@ -552,51 +568,43 @@ class SshKeyItem(BaseModel):
 class SshKeyListData(BaseModel):
     """Wrapper for list_ssh_keys response."""
 
+    region: str = Field(..., description="Region these keys belong to (echoes the query region)")
     ssh_keys: list[SshKeyItem] = Field(default_factory=list, description="List of SSH keys")
 
 
 class SecgroupItem(BaseModel):
-    """A security group from vServer."""
+    """An ACTIVE security group — minimal projection {id, name}."""
 
-    id: str = Field(..., description="Security group ID (use in securityGroups)")
-    name: str = Field("", description="Security group name")
-    description: str = Field("", description="Description")
-    status: str = Field("", description="Status")
+    id: str = Field(..., description="Security group ID — use in `securityGroups`")
+    name: str = Field("", description="Security group name — show this to the user")
 
     @classmethod
     def from_api(cls, g: dict) -> SecgroupItem:
         """Build a SecgroupItem from a raw vServer security-group dict."""
-        return cls(
-            id=g.get("id", ""),
-            name=g.get("name", ""),
-            description=g.get("description", ""),
-            status=g.get("status", ""),
-        )
+        return cls(id=g.get("id", ""), name=g.get("name", ""))
 
 
 class SecgroupListData(BaseModel):
-    """Wrapper for list_security_groups response."""
+    """Wrapper for list_security_groups response (ACTIVE only)."""
 
-    secgroups: list[SecgroupItem] = Field(default_factory=list, description="Security groups")
+    region: str = Field(..., description="Region these groups belong to (echoes the query region)")
+    secgroups: list[SecgroupItem] = Field(
+        default_factory=list, description="ACTIVE security groups (non-ACTIVE filtered out)"
+    )
 
 
 class PlacementGroupItem(BaseModel):
-    """A placement group (vServer server group)."""
+    """A placement group (vServer server group) — minimal projection {id, name}."""
 
-    id: str = Field(..., description="Placement group UUID (use as placementGroupId)")
-    name: str = Field("", description="Placement group name")
-    policy: str = Field("", description="Placement policy name, e.g. 'AFFINITY'")
-    description: str = Field("", description="Description")
+    id: str = Field(
+        ..., description="Placement group UUID — use as `placementGroupId` with type=EXISTING"
+    )
+    name: str = Field("", description="Placement group name — show this to the user")
 
     @classmethod
     def from_api(cls, g: dict) -> PlacementGroupItem:
         """Build a PlacementGroupItem from a raw vServer server-group dict."""
-        return cls(
-            id=g.get("uuid", ""),
-            name=g.get("name", ""),
-            policy=g.get("policyName", g.get("policyId", "")),
-            description=g.get("description", ""),
-        )
+        return cls(id=g.get("uuid", ""), name=g.get("name", ""))
 
 
 class PlacementGroupListData(BaseModel):
@@ -608,42 +616,31 @@ class PlacementGroupListData(BaseModel):
 
 
 class VolumeTypeItem(BaseModel):
-    """A volume type from vServer. Its id is the diskType value for node groups."""
+    """An NVME volume type — the user picks one by IOPS; its id is the diskType."""
 
-    id: str = Field(..., description="Volume type ID (use as diskType)")
-    name: str = Field("", description="Volume type name")
-    type_zone: str = Field("", description="Volume type zone name, e.g. 'SSD'")
-    iops: int | str = Field("", description="IOPS")
-    min_size_gb: int | str = Field("", description="Minimum size in GB")
-    max_size_gb: int | str = Field("", description="Maximum size in GB")
-    throughput: int | str = Field("", description="Throughput (MB/s)")
+    id: str = Field(..., description="Volume type ID — use as `diskType` in create_nodegroup")
+    iops: int | str = Field("", description="Provisioned IOPS — what the user chooses by")
 
     @classmethod
-    def from_api(cls, v: dict, type_zone: str = "") -> VolumeTypeItem:
+    def from_api(cls, v: dict) -> VolumeTypeItem:
         """Build a VolumeTypeItem from a raw vServer volume-type dict."""
-        return cls(
-            id=v.get("id", ""),
-            name=v.get("name", ""),
-            type_zone=type_zone,
-            iops=v.get("iops", ""),
-            min_size_gb=v.get("minSize", ""),
-            max_size_gb=v.get("maxSize", ""),
-            throughput=v.get("throughPut", ""),
-        )
+        return cls(id=v.get("id", ""), iops=v.get("iops", ""))
 
 
 class VolumeTypeListData(BaseModel):
-    """Wrapper for list_volume_types response."""
+    """Wrapper for list_volume_types response (NVME volume types of one zone)."""
 
-    zone_id: str | None = Field(None, description="Applied availability-zone filter, if any")
+    region: str = Field(..., description="Region these volume types belong to")
+    zone: str = Field("", description="Availability-zone uuid these volume types belong to")
     volume_types: list[VolumeTypeItem] = Field(
-        default_factory=list, description="List of volume types"
+        default_factory=list, description="NVME volume types, one per IOPS tier"
     )
 
 
 class QuotaData(BaseModel):
-    """VKS quota for the current user (get_quota response)."""
+    """VKS quota for the current user in one region (get_quota response)."""
 
+    region: str = Field("", description="Region this quota applies to (echoes the query region)")
     max_clusters: int | str = Field("", description="Maximum number of clusters allowed")
     num_clusters: int | str = Field("", description="Number of clusters currently in use")
     max_node_groups_per_cluster: int | str = Field(
@@ -652,9 +649,10 @@ class QuotaData(BaseModel):
     max_nodes_per_node_group: int | str = Field("", description="Maximum nodes per node group")
 
     @classmethod
-    def from_api(cls, q: dict) -> QuotaData:
+    def from_api(cls, q: dict, region: str = "") -> QuotaData:
         """Build a QuotaData from the raw VKS quota dict."""
         return cls(
+            region=region,
             max_clusters=q.get("maxClusters", ""),
             num_clusters=q.get("numClusters", ""),
             max_node_groups_per_cluster=q.get("maxNodeGroupsPerCluster", ""),

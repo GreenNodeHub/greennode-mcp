@@ -39,7 +39,8 @@ ALLOWED_VERBS = {
 # docstring. *_dryrun previews are read-only and exempt.
 WRITE_PREFIXES = ("create_", "update_", "delete_", "configure_", "upgrade_")
 
-_TOOL_NAME_RE = re.compile(r'\.tool\(\s*name="([a-z0-9_]+)"\s*\)')
+# name may be followed by other kwargs (e.g. annotations=READ)
+_TOOL_NAME_RE = re.compile(r'\.tool\(\s*name="([a-z0-9_]+)"')
 
 
 def _packages() -> list[Path]:

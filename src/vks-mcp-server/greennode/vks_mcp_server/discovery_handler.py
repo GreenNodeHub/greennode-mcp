@@ -22,6 +22,7 @@ from greennode.vks_mcp_server.models import (
     VpcItem,
     VpcListData,
 )
+from greennode.vks_mcp_server.tool_annotations import READ
 from greennode.vks_mcp_server.validators import validate_id
 from pydantic import Field
 
@@ -31,26 +32,35 @@ async def _require_project_id(
 ) -> str:
     """Return the project_id, auto-discovering it from vServer when not configured.
 
-    Resolution order: configured value (GRN_PROJECT_ID / credentials file) first;
-    otherwise fetch it from vServer ``GET /v1/projects``. Each user has exactly one
-    project, so the single returned project is used and cached on the config so
-    later tool calls don't refetch.
+    project_id is **region-scoped**: each region exposes a different project via
+    its own vServer endpoint. Resolution: for the default region, use the
+    configured value (GRN_PROJECT_ID / credentials file) if present; otherwise
+    fetch ``GET /v1/projects`` at that region's endpoint. Results are cached per
+    region so later calls don't refetch.
     """
-    if config.project_id:
+    resolved_region = region or config.default_region
+
+    # The configured project_id (GRN_PROJECT_ID / credentials file) belongs to the
+    # DEFAULT region only — vServer gives each region its own project_id.
+    if resolved_region == config.default_region and config.project_id:
         return config.project_id
+    if resolved_region in config.project_id_by_region:
+        return config.project_id_by_region[resolved_region]
 
     data = await client.vserver_get("/v1/projects", region=region)
     projects = _as_list(data, "projects")
     if not projects or not isinstance(projects[0], dict):
         raise ValueError(
-            "Could not determine project_id: vServer returned no project. "
-            "Set GRN_PROJECT_ID or run 'grn configure'."
+            f"Could not determine project_id for region '{resolved_region}': vServer "
+            "returned no project. Set GRN_PROJECT_ID or run 'grn configure'."
         )
     pid = projects[0].get("projectId")
     if not pid:
         raise ValueError("Could not determine project_id from the vServer response.")
 
-    config.project_id = pid  # cache for subsequent tool calls
+    config.project_id_by_region[resolved_region] = pid  # cache per region
+    if resolved_region == config.default_region:
+        config.project_id = pid  # populate the default-region slot too
     return pid
 
 
@@ -69,6 +79,46 @@ def _as_list(data, *wrapper_keys):
     return []
 
 
+async def _fetch_all_items(
+    client: VksClient,
+    path: str,
+    region: str | None = None,
+    params: dict | None = None,
+    page_size: int = 500,
+) -> list:
+    """Fetch every item from a vServer list endpoint, never truncating.
+
+    vServer currently returns the full list in a single response — paging params
+    are ignored and the envelope reports ``page=0 / pageSize=0 / totalPage=0``,
+    with ``len(listData) == totalItem``. We rely on that fast path (one call).
+
+    Defensive net: if a response ever reports more items than it returned
+    (``totalItem > len(listData)`` — i.e. the backend starts enforcing paging),
+    we re-fetch from page 1 with an explicit ``page``/``size`` and collect every
+    page, so results are never silently cut off as an account grows.
+    """
+    first = await client.vserver_get(path, region=region, params=params or None)
+    items = _as_list(first, "listData", "data")
+    if not isinstance(first, dict):
+        return items
+    total = first.get("totalItem")
+    if not isinstance(total, int) or len(items) >= total:
+        return items
+
+    # Backend truncated — page through explicitly (discard the partial first read).
+    collected: list = []
+    page = 1
+    while True:
+        paged = {**(params or {}), "page": page, "size": page_size}
+        data = await client.vserver_get(path, region=region, params=paged)
+        batch = _as_list(data, "listData", "data")
+        collected.extend(batch)
+        page_total = data.get("totalItem", total) if isinstance(data, dict) else total
+        if not batch or len(collected) >= page_total:
+            return collected
+        page += 1
+
+
 async def _vpc_list(
     config: VksConfig,
     client: VksClient,
@@ -81,8 +131,9 @@ async def _vpc_list(
     resolved_region = region or config.default_region
 
     async def fetch() -> VpcListData:
-        data = await client.vserver_get(f"/v2/{pid}/networks", region=region)
-        items = _as_list(data, "listData")
+        raw = await _fetch_all_items(client, f"/v2/{pid}/networks", region=region)
+        # Only ACTIVE VPCs can host new clusters/node groups.
+        items = [v for v in raw if v.get("status") == "ACTIVE"]
         return VpcListData(
             region=resolved_region,
             vpcs=[VpcItem.from_api(v) for v in items],
@@ -106,8 +157,9 @@ async def _subnet_list(
     resolved_region = region or config.default_region
 
     async def fetch() -> SubnetListData:
-        data = await client.vserver_get(f"/v2/{pid}/networks/{vpc_id}/subnets", region=region)
-        items = _as_list(data, "listData")
+        raw = await _fetch_all_items(client, f"/v2/{pid}/networks/{vpc_id}/subnets", region=region)
+        # Only ACTIVE subnets can receive new nodes.
+        items = [s for s in raw if s.get("status") == "ACTIVE"]
         return SubnetListData(
             vpc_id=vpc_id,
             subnets=[SubnetItem.from_api(s) for s in items],
@@ -133,32 +185,68 @@ def _suggest_group(flavor: dict) -> str:
     return "Cân bằng"
 
 
+def _flavor_available(f: dict) -> bool:
+    """A flavor is usable only if not sold out and has remaining capacity."""
+    if f.get("isSoldOut"):
+        return False
+    remaining = f.get("remainingVms")
+    return remaining is None or remaining > 0
+
+
 async def _flavor_list(
     config: VksConfig,
     client: VksClient,
     cache: DiscoveryCache,
+    zone: str,
     region: str | None = None,
     need: str | None = None,
     refresh: bool = False,
 ) -> FlavorListData:
-    """Fetch cluster flavors as structured data, optionally filtered by deployment-need group (cached)."""
+    """Fetch available worker flavors for an availability zone (cached).
+
+    Two-step vServer flow, both internal: (1)
+    ``GET /flavor_zones/customs/clusters/master/false?zoneId=<zone>`` → the worker
+    (non-master) flavor-zone(s) of that AZ; (2) ``GET /{flavor_zone_id}/flavors``
+    → the flavors. *zone* is the subnet's ``zone.uuid`` (from list_subnets).
+    Sold-out flavors are excluded; each item's **id** is the ``flavorId``.
+    """
     pid = await _require_project_id(config, client, region)
     resolved_region = region or config.default_region
 
     async def fetch() -> FlavorListData:
-        data = await client.vserver_get(f"/v1/{pid}/flavors/customs/clusters", region=region)
-        items = _as_list(data, "listData")
+        zones = _as_list(
+            await client.vserver_get(
+                f"/v1/{pid}/flavor_zones/customs/clusters/master/false",
+                region=region,
+                params={"zoneId": zone},
+            ),
+            "flavorZones",
+            "listData",
+            "data",
+        )
         flavors = []
-        for f in items:
-            group = _suggest_group(f)
-            if need and group.lower() != need.lower():
+        for fz in zones:
+            fzid = fz.get("id")
+            if not fzid:
                 continue
-            flavors.append(FlavorItem.from_api(f, group))
-        return FlavorListData(need=need, flavors=flavors)
+            raw = _as_list(
+                await client.vserver_get(f"/v1/{pid}/{fzid}/flavors", region=region),
+                "flavors",
+                "listData",
+                "data",
+            )
+            for f in raw:
+                if not _flavor_available(f):
+                    continue
+                group = _suggest_group(f)
+                if need and group.lower() != need.lower():
+                    continue
+                flavors.append(FlavorItem.from_api(f, group))
+        return FlavorListData(region=resolved_region, zone=zone, need=need, flavors=flavors)
 
     # Normalize need for the key: the filter compares case-insensitively, so
     # "Dev/test" and "dev/test" must share a cache slot.
-    key = ("list_flavors", resolved_region, pid, need.lower() if need else None)
+    key = ("list_flavors", resolved_region, pid, zone, need.lower() if need else None)
     return await cache.get_or_fetch("list_flavors", key, fetch, refresh)
 
 
@@ -174,11 +262,12 @@ async def _sshkey_list(
     resolved_region = region or config.default_region
 
     async def fetch() -> SshKeyListData:
-        data = await client.vserver_get(
-            f"/v2/{pid}/sshKeys", region=region, params={"page": 1, "size": 100}
+        items = await _fetch_all_items(
+            client, f"/v2/{pid}/sshKeys", region=region, params={"page": 1, "size": 500}
         )
-        items = _as_list(data, "listData")
-        return SshKeyListData(ssh_keys=[SshKeyItem.from_api(k) for k in items])
+        return SshKeyListData(
+            region=resolved_region, ssh_keys=[SshKeyItem.from_api(k) for k in items]
+        )
 
     key = ("list_ssh_keys", resolved_region, pid)
     return await cache.get_or_fetch("list_ssh_keys", key, fetch, refresh)
@@ -196,9 +285,12 @@ async def _secgroup_list(
     resolved_region = region or config.default_region
 
     async def fetch() -> SecgroupListData:
-        data = await client.vserver_get(f"/v2/{pid}/secgroups", region=region)
-        items = _as_list(data, "listData")
-        return SecgroupListData(secgroups=[SecgroupItem.from_api(g) for g in items])
+        raw = await _fetch_all_items(client, f"/v2/{pid}/secgroups", region=region)
+        # Only ACTIVE security groups can be attached to new nodes.
+        items = [g for g in raw if g.get("status") == "ACTIVE"]
+        return SecgroupListData(
+            region=resolved_region, secgroups=[SecgroupItem.from_api(g) for g in items]
+        )
 
     key = ("list_security_groups", resolved_region, pid)
     return await cache.get_or_fetch("list_security_groups", key, fetch, refresh)
@@ -220,8 +312,7 @@ async def _placementgroup_list(
     resolved_region = region or config.default_region
 
     async def fetch() -> PlacementGroupListData:
-        data = await client.vserver_get(f"/v2/{pid}/serverGroups", region=region)
-        items = _as_list(data, "listData", "data")
+        items = await _fetch_all_items(client, f"/v2/{pid}/serverGroups", region=region)
         return PlacementGroupListData(
             placement_groups=[PlacementGroupItem.from_api(g) for g in items]
         )
@@ -230,61 +321,54 @@ async def _placementgroup_list(
     return await cache.get_or_fetch("list_placement_groups", key, fetch, refresh)
 
 
+# Node groups use NVME disks; SSD volume types are not offered via this tool.
+_VOLUME_TYPE_NAME = "NVME"
+
+
 async def _volumetype_list(
     config: VksConfig,
     client: VksClient,
     cache: DiscoveryCache,
-    zone_id: str | None = None,
-    type_name: str | None = None,
+    zone: str,
     region: str | None = None,
     refresh: bool = False,
 ) -> VolumeTypeListData:
-    """Fetch volume types as structured data (cached).
+    """Fetch the NVME volume types available in an availability zone (cached).
 
-    Two-step vServer flow: list volume-type zones (optionally scoped to *zone_id*),
-    then fetch the volume types of each zone (or only the zone matching *type_name*,
-    case-insensitively). The volume type **id** is the ``diskType`` value for
-    cluster/node-group creation.
+    Two-step vServer flow, both internal: (1) ``GET /volume_type_zones?zoneId=<zone>``
+    → pick the entry named NVME to get its volume-type-zone id; (2)
+    ``GET /{that_id}/volume_types`` → the IOPS tiers. *zone* is the subnet's
+    ``zone.uuid`` (from list_subnets). Each item's **id** is the ``diskType``.
     """
     pid = await _require_project_id(config, client, region)
     resolved_region = region or config.default_region
 
     async def fetch() -> VolumeTypeListData:
-        params = {"zoneId": zone_id} if zone_id else None
         zones_data = await client.vserver_get(
-            f"/v1/{pid}/volume_type_zones", region=region, params=params
+            f"/v1/{pid}/volume_type_zones", region=region, params={"zoneId": zone}
         )
         zones = _as_list(zones_data, "volumeTypeZones", "data", "listData")
-        if type_name:
-            zones = [z for z in zones if z.get("name", "").lower() == type_name.lower()]
-
+        nvme = next((z for z in zones if z.get("name", "").upper() == _VOLUME_TYPE_NAME), None)
         volume_types: list[VolumeTypeItem] = []
-        for zone in zones:
-            zone_uuid = zone.get("id", "")
-            if not zone_uuid:
-                continue
+        if nvme and nvme.get("id"):
             vt_data = await client.vserver_get(
-                f"/v1/{pid}/{zone_uuid}/volume_types", region=region
+                f"/v1/{pid}/{nvme['id']}/volume_types", region=region
             )
-            for vt in _as_list(vt_data, "volumeTypes", "data", "listData"):
-                volume_types.append(VolumeTypeItem.from_api(vt, type_zone=zone.get("name", "")))
+            volume_types = [
+                VolumeTypeItem.from_api(vt)
+                for vt in _as_list(vt_data, "volumeTypes", "data", "listData")
+            ]
+        return VolumeTypeListData(region=resolved_region, zone=zone, volume_types=volume_types)
 
-        return VolumeTypeListData(zone_id=zone_id, volume_types=volume_types)
-
-    key = (
-        "list_volume_types",
-        resolved_region,
-        pid,
-        zone_id,
-        type_name.lower() if type_name else None,
-    )
+    key = ("list_volume_types", resolved_region, pid, zone)
     return await cache.get_or_fetch("list_volume_types", key, fetch, refresh)
 
 
 async def _quota_get(client: VksClient, region: str | None = None) -> QuotaData:
     """Fetch the VKS quota for the current user (not cached: changes after creates)."""
     data = await client.get("/v1/quota", region=region)
-    return QuotaData.from_api(data if isinstance(data, dict) else {})
+    resolved_region = region or client._config.default_region
+    return QuotaData.from_api(data if isinstance(data, dict) else {}, region=resolved_region)
 
 
 class DiscoveryHandler:
@@ -296,126 +380,301 @@ class DiscoveryHandler:
         self.client = client
         self.cache = cache
 
-        self.mcp.tool(name="list_vpcs")(self.list_vpcs)
-        self.mcp.tool(name="list_subnets")(self.list_subnets)
-        self.mcp.tool(name="list_flavors")(self.list_flavors)
-        self.mcp.tool(name="list_ssh_keys")(self.list_ssh_keys)
-        self.mcp.tool(name="list_security_groups")(self.list_security_groups)
-        self.mcp.tool(name="list_volume_types")(self.list_volume_types)
-        self.mcp.tool(name="list_placement_groups")(self.list_placement_groups)
-        self.mcp.tool(name="get_quota")(self.get_quota)
+        self.mcp.tool(name="list_vpcs", annotations=READ)(self.list_vpcs)
+        self.mcp.tool(name="list_subnets", annotations=READ)(self.list_subnets)
+        self.mcp.tool(name="list_flavors", annotations=READ)(self.list_flavors)
+        self.mcp.tool(name="list_ssh_keys", annotations=READ)(self.list_ssh_keys)
+        self.mcp.tool(name="list_security_groups", annotations=READ)(self.list_security_groups)
+        self.mcp.tool(name="list_volume_types", annotations=READ)(self.list_volume_types)
+        self.mcp.tool(name="list_placement_groups", annotations=READ)(self.list_placement_groups)
+        self.mcp.tool(name="get_quota", annotations=READ)(self.get_quota)
 
     async def list_vpcs(
         self,
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field(
+            "HCM-3",
+            description=(
+                "Region to list VPCs from ('HCM-3' or 'HAN'); defaults to the configured "
+                "region. IMPORTANT: a cluster lives in the same region as its VPC — use "
+                "the region the user wants the cluster in."
+            ),
+        ),
         refresh: bool = Field(
             False,
-            description="Bypass the short-lived cache and fetch fresh from vServer (use after creating a resource in the console).",
+            description=(
+                "Bypass the short-lived cache and refetch from vServer. Set true after "
+                "the user creates or deletes a VPC in the console mid-conversation."
+            ),
         ),
     ) -> VpcListData:
-        """List VPCs (networks) in the project. Use the ID as `vpcId` when creating a cluster."""
+        """List ACTIVE VPCs (networks) in the project.
+
+        Returns minimal items {id, name}; non-ACTIVE VPCs are excluded because
+        they cannot host new clusters or node groups.
+
+        ## Workflow
+        - create_cluster flow, step 1: present this list to the user and let them
+          choose. IMPORTANT: do NOT pick a VPC silently when more than one exists.
+        - Use the chosen `id` as `vpcId` in create_cluster, and as `vpc_id` in
+          list_subnets to enumerate its subnets.
+        """
         return await _vpc_list(
             self.config, self.client, self.cache, region=region, refresh=refresh
         )
 
     async def list_subnets(
         self,
-        vpc_id: str = Field(..., description="VPC/network ID (from list_vpcs)"),
-        region: Region | None = Field(None, description="Region override"),
+        vpc_id: str = Field(
+            ...,
+            description=(
+                "VPC/network ID to enumerate. For create_cluster: the id the user chose "
+                "from list_vpcs. For create_nodegroup: the cluster's own VPC — get it "
+                "from get_cluster(cluster_id).vpc_id, do not ask the user for it."
+            ),
+        ),
+        region: Region = Field(
+            "HCM-3",
+            description=(
+                "Region ('HCM-3' or 'HAN'); defaults to 'HCM-3'. "
+                "IMPORTANT: when working against an existing cluster, pass that "
+                "cluster's region."
+            ),
+        ),
         refresh: bool = Field(
             False,
-            description="Bypass the short-lived cache and fetch fresh from vServer (use after creating a resource in the console).",
+            description=(
+                "Bypass the short-lived cache and refetch from vServer. Set true after "
+                "the user creates or deletes a subnet in the console mid-conversation."
+            ),
         ),
     ) -> SubnetListData:
-        """List subnets of a VPC. Use the ID as `subnetId` when creating a cluster."""
+        """List ACTIVE subnets of a VPC.
+
+        Returns minimal items {id, name, zone, secondary_subnets}; non-ACTIVE
+        subnets are excluded because nodes cannot join them.
+
+        ## Workflow
+        - create_nodegroup flow, step 1: call get_cluster first for the cluster's
+          vpc_id, then present this list to the user and let them choose.
+          IMPORTANT: do NOT pick a subnet silently when more than one exists.
+        - The chosen subnet's `zone.uuid` scopes the next steps: pass it to
+          list_flavors and list_volume_types (flavors/disk types differ per zone).
+        - Use the chosen `id` as `subnetId`; use its `secondary_subnets` as
+          `secondarySubnets` when networkType is CILIUM_NATIVE_ROUTING.
+        """
         return await _subnet_list(
             self.config, self.client, self.cache, vpc_id=vpc_id, region=region, refresh=refresh
         )
 
     async def list_flavors(
         self,
+        zone: str = Field(
+            ...,
+            description=(
+                "Availability-zone uuid of the chosen subnet — take it from the "
+                "selected subnet's `zone.uuid` in list_subnets (e.g. 'HCM03-1A'). "
+                "Flavors are zone-scoped, so this must match the node group's subnet."
+            ),
+        ),
         need: str | None = Field(
             None,
-            description="Filter by deployment need group: Dev/test, Cân bằng, Compute, RAM cao, AI/GPU",
+            description=(
+                "Optional deployment-need filter: Dev/test, Cân bằng, Compute, "
+                "RAM cao, AI/GPU. Omit to list all, then help the user pick by vCPU/RAM."
+            ),
         ),
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field(
+            "HCM-3",
+            description="Region ('HCM-3' or 'HAN'); defaults to 'HCM-3'. Use the cluster's region.",
+        ),
         refresh: bool = Field(
             False,
-            description="Bypass the short-lived cache and fetch fresh from vServer (use after creating a resource in the console).",
+            description="Bypass the short-lived cache and refetch from vServer.",
         ),
     ) -> FlavorListData:
-        """List cluster flavors, each tagged with a suggested deployment-need group (optionally filtered by `need`). Use the ID as `flavorId`."""
+        """List available worker flavors (node sizes) in a subnet's zone.
+
+        Returns {region, zone, need, flavors[{id, name, vcpu, ram_gb, gpu, group}]};
+        sold-out flavors are excluded. Each flavor is tagged with a suggested
+        deployment-need `group`. The tool resolves the worker flavor-zone
+        internally, so you only pass the subnet's zone.
+
+        ## Workflow
+        - create_nodegroup flow, after the user picks a subnet: pass that subnet's
+          `zone.uuid` here, present flavors (by vCPU/RAM, optionally filtered by
+          `need`), and let the user choose. IMPORTANT: do NOT pick a flavor silently.
+        - Use the chosen flavor's `id` as `flavorId` in create_nodegroup.
+        """
         return await _flavor_list(
-            self.config, self.client, self.cache, region=region, need=need, refresh=refresh
+            self.config,
+            self.client,
+            self.cache,
+            zone=zone,
+            region=region,
+            need=need,
+            refresh=refresh,
         )
 
     async def list_ssh_keys(
         self,
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field(
+            "HCM-3",
+            description=(
+                "Which region to list SSH keys from ('HCM-3' or 'HAN'). "
+                "IMPORTANT: SSH keys are region-scoped. If the user names a region, "
+                "pass it here. In a cluster/node-group flow, pass the cluster's region "
+                "(from get_cluster). Omit only when neither is known — it then defaults "
+                "to 'HCM-3', and the response's `region` field says which."
+            ),
+        ),
         refresh: bool = Field(
             False,
-            description="Bypass the short-lived cache and fetch fresh from vServer (use after creating a resource in the console).",
+            description=(
+                "Bypass the short-lived cache and refetch from vServer. Set true after "
+                "the user creates an SSH key in the console mid-conversation."
+            ),
         ),
     ) -> SshKeyListData:
-        """List SSH keys in the project. Use the ID as `sshKeyId` when creating a node group."""
+        """List SSH keys in the project, for one region.
+
+        Returns {region, ssh_keys[{id, name}]}. The `region` field echoes which
+        region was queried — check it matches what the user wanted before using
+        the keys (a wrong/empty result usually means the wrong region).
+
+        ## Workflow
+        - create_nodegroup flow: present this list and let the user choose (VKS
+          uses one key per node group). IMPORTANT: do NOT pick a key silently.
+        - If empty, the user has no key in this region — tell them to create one
+          in the VNG Cloud console (vServer -> SSH Keys), then retry with
+          refresh=true. Do NOT invent an id.
+        - Use the chosen `id` as `sshKeyId` in create_nodegroup.
+        """
         return await _sshkey_list(
             self.config, self.client, self.cache, region=region, refresh=refresh
         )
 
     async def list_security_groups(
         self,
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field(
+            "HCM-3",
+            description=(
+                "Which region to list security groups from ('HCM-3' or 'HAN'). "
+                "IMPORTANT: security groups are region-scoped. If the user names a "
+                "region, pass it; in a cluster/node-group flow, pass the cluster's "
+                "region (from get_cluster). Defaults to 'HCM-3'."
+            ),
+        ),
         refresh: bool = Field(
             False,
-            description="Bypass the short-lived cache and fetch fresh from vServer (use after creating a resource in the console).",
+            description=(
+                "Bypass the short-lived cache and refetch from vServer. Set true after "
+                "the user creates a security group in the console mid-conversation."
+            ),
         ),
     ) -> SecgroupListData:
-        """List security groups. Use IDs in `securityGroups` when creating a node group."""
+        """List ACTIVE security groups in the project, for one region.
+
+        Returns {region, secgroups[{id, name}]}; non-ACTIVE groups are excluded.
+        The `region` field echoes which region was queried — check it matches
+        what the user wanted before using the ids.
+
+        ## Workflow
+        - create_nodegroup flow (optional): security groups are optional on a node
+          group. If the user wants them, present this list and let them choose one
+          or more. IMPORTANT: do NOT pick silently.
+        - Use the chosen `id`(s) in the `securityGroups` array of create_nodegroup.
+        """
         return await _secgroup_list(
             self.config, self.client, self.cache, region=region, refresh=refresh
         )
 
     async def list_volume_types(
         self,
-        zone_id: str | None = Field(
-            None, description="Availability-zone ID filter (omit to list all zones)"
+        zone: str = Field(
+            ...,
+            description=(
+                "Availability-zone uuid of the chosen subnet — take it from the "
+                "selected subnet's `zone.uuid` in list_subnets (e.g. 'HCM03-1A'). "
+                "Volume types are zone-scoped, so this must match the node group's subnet."
+            ),
         ),
-        type_name: str | None = Field(
-            None, description="Volume-type-zone name filter, e.g. 'SSD' or 'NVMe'"
+        region: Region = Field(
+            "HCM-3",
+            description=(
+                "Region ('HCM-3' or 'HAN'); defaults to 'HCM-3'. Use the cluster's region."
+            ),
         ),
-        region: Region | None = Field(None, description="Region override"),
         refresh: bool = Field(
             False,
-            description="Bypass the short-lived cache and fetch fresh from vServer (use after creating a resource in the console).",
+            description="Bypass the short-lived cache and refetch from vServer.",
         ),
     ) -> VolumeTypeListData:
-        """List volume types. Use the ID as `diskType` when creating a cluster/node group."""
+        """List the NVME volume types (disk types) available in a subnet's zone.
+
+        Returns {region, zone, volume_types[{id, iops}]}. Node groups use NVME
+        disks; the tool resolves the NVME volume-type-zone internally, so you only
+        pass the subnet's zone. The user picks by **IOPS**.
+
+        ## Workflow
+        - create_nodegroup flow, after the user picks a subnet: pass that subnet's
+          `zone.uuid` here, present the IOPS options, and let the user choose.
+          IMPORTANT: do NOT pick an IOPS tier silently.
+        - Use the chosen item's `id` as `diskType` in create_nodegroup.
+        """
         return await _volumetype_list(
-            self.config,
-            self.client,
-            self.cache,
-            zone_id=zone_id,
-            type_name=type_name,
-            region=region,
-            refresh=refresh,
+            self.config, self.client, self.cache, zone=zone, region=region, refresh=refresh
         )
 
     async def list_placement_groups(
         self,
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field(
+            "HCM-3",
+            description="Region ('HCM-3' or 'HAN'); defaults to 'HCM-3'.",
+        ),
         refresh: bool = Field(
             False,
-            description="Bypass the short-lived cache and fetch fresh from vServer (use after creating a resource in the console).",
+            description=(
+                "Bypass the short-lived cache and refetch from vServer. Set true after "
+                "the user creates a placement group in the console mid-conversation."
+            ),
         ),
     ) -> PlacementGroupListData:
-        """List placement groups (server groups). Use the ID as `placementGroupId` with placementGroupConfigDto type=EXISTING."""
+        """List placement groups (vServer server groups) in the project.
+
+        Returns minimal items {id, name}. Only needed for the advanced
+        create_nodegroup option `placementGroupConfigDto` with type=EXISTING.
+
+        ## Workflow
+        - Optional step, only when the user wants to place nodes in an EXISTING
+          placement group. Present this list and let them choose.
+          IMPORTANT: do NOT pick a placement group silently.
+        - Use the chosen `id` as `placementGroupConfigDto.placementGroupId`
+          (with `type="EXISTING"`). For a brand-new group, skip this tool and use
+          `type="NEW"` + a name instead.
+        """
         return await _placementgroup_list(
             self.config, self.client, self.cache, region=region, refresh=refresh
         )
 
     async def get_quota(
         self,
-        region: Region | None = Field(None, description="Region override"),
+        region: Region = Field(
+            "HCM-3",
+            description=(
+                "Which region's quota to check ('HCM-3' or 'HAN'). "
+                "IMPORTANT: quota is per-region. Pass the region the cluster/node "
+                "group will be created in. Defaults to 'HCM-3'."
+            ),
+        ),
     ) -> QuotaData:
-        """Get the VKS quota for the current user (max/used clusters, node groups, nodes). Check before creating."""
+        """Get the current user's VKS quota for one region.
+
+        Returns {region, max_clusters, num_clusters, max_node_groups_per_cluster,
+        max_nodes_per_node_group}. The `region` field echoes which region was
+        queried.
+
+        ## Workflow
+        - Call before create_cluster / create_nodegroup to catch a full quota
+          early (e.g. num_clusters == max_clusters) instead of failing mid-create.
+        """
         return await _quota_get(self.client, region=region)

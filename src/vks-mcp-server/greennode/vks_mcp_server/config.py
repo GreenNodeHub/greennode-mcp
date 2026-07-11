@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from greennode.mcp_core.config import load_profile
 from pathlib import Path
 from typing import Literal
@@ -28,6 +28,9 @@ class VksConfig:
     default_region: str
     regions: dict[str, RegionEndpoints]
     project_id: str | None = None
+    # vServer project_id is region-scoped; resolved lazily per region (see
+    # discovery_handler._require_project_id). Not loaded from config.
+    project_id_by_region: dict[str, str] = field(default_factory=dict)
 
     def get_endpoints(self, region: str | None = None) -> RegionEndpoints:
         """Return endpoints for the given region.

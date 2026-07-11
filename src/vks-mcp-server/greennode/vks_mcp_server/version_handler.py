@@ -6,6 +6,7 @@ from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.config import Region, VksConfig
 from greennode.vks_mcp_server.discovery_cache import DiscoveryCache
 from greennode.vks_mcp_server.models import VersionItem, VersionsData
+from greennode.vks_mcp_server.tool_annotations import READ
 from pydantic import Field
 
 
@@ -63,12 +64,12 @@ class VersionHandler:
         self.client = client
         self.cache = cache
 
-        self.mcp.tool(name="list_cluster_versions")(self.list_cluster_versions)
+        self.mcp.tool(name="list_cluster_versions", annotations=READ)(self.list_cluster_versions)
 
     async def list_cluster_versions(
         self,
-        region: Region | None = Field(
-            None, description="Region override (default: config region)"
+        region: Region = Field(
+            "HCM-3", description="Region: 'HCM-3' or 'HAN'. Defaults to 'HCM-3'."
         ),
         refresh: bool = Field(
             False,

@@ -115,20 +115,30 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
 1. Xác thực (`get_access_token`); lỗi auth → hướng dẫn `grn configure`.
 2. Resolve cluster (nếu chưa có cluster_id) qua `list_clusters`. Check `get_quota`
    nếu nghi ngờ chạm giới hạn (max node groups/cluster, max nodes/node group).
-3. Discovery: `list_flavors` (lọc theo nhu cầu nếu cần), `list_ssh_keys`, `list_security_groups`,
-   `list_volume_types` (lấy ID loại đĩa — `diskType` là **ID volume type**, không phải
-   chuỗi "SSD"). Truyền `refresh: true` nếu người dùng vừa tạo tài nguyên ở console.
-4. Chọn default an toàn (đánh dấu `[auto]`, cho sửa):
-   - Flavor: mặc định `list_flavors need=Dev/test` rồi lấy nhỏ nhất theo vCPU/RAM (rỗng → `list_flavors` không lọc, lấy nhỏ nhất).
-   - Disk: `list_volume_types type_name=SSD` → lấy `id` làm `diskType`; `100` GB (20–5000).
+3. Discovery theo chuỗi (zone-scoped — chạy mọi discovery ở region của cluster):
+   a. `get_cluster` → lấy `vpcId` và region của cluster.
+   b. `list_subnets vpc_id=<vpcId>` → trình danh sách cho user chọn → `subnetId`;
+      ghi lại `zone.uuid` của subnet — nó quyết định flavor và volume type bên dưới.
+   c. `list_flavors zone=<zone.uuid>` (lọc `need` nếu rõ nhu cầu) → user chọn → `flavorId`.
+   d. `list_volume_types zone=<zone.uuid>` → user chọn bậc IOPS → `id` là `diskType`
+      (**ID volume type**, không phải chuỗi "SSD"; loại đĩa NVME cố định).
+   e. `list_ssh_keys`; tuỳ chọn `list_security_groups`, `list_placement_groups`.
+   Truyền `refresh: true` nếu người dùng vừa tạo tài nguyên ở console.
+4. Chọn default an toàn (đánh dấu `[auto]`, cho sửa) — KHÔNG tự chọn thầm
+   subnet/flavor/diskType/sshKey khi có nhiều lựa chọn, phải hỏi:
+   - Subnet: nếu VPC chỉ có đúng 1 subnet ACTIVE → `[auto]`; nhiều hơn → bắt buộc hỏi.
+   - Flavor: gợi ý flavor nhỏ nhất theo vCPU/RAM trong zone đã chọn (dev/test).
+   - Disk: gợi ý bậc IOPS thấp nhất từ `list_volume_types`; `100` GB (20–5000).
      numNodes: `1` (0–10; prod/HA gợi ý 3).
    - os: `ubuntu` (hoặc `linux`, `rocky`). SSH key: key đang có (VKS dùng 1 key).
    - Tên node group: đề xuất `<cluster>-ng`; nếu quá 15 ký tự/không hợp lệ → `default-ng`.
-5. Trình plan đầy đủ (mỗi field + `[auto]`/`[bạn chọn]`); cho sửa field.
+5. Trình plan đầy đủ (mỗi field + `[auto]`/`[bạn chọn]`); cho sửa field. Nêu rõ các
+   default liên quan bảo mật để user xác nhận: `enablePrivateNodes=false` (node có
+   IP public) và `enabledEncryptionVolume=false` (đĩa không mã hoá).
 6. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác = điều chỉnh, trình lại plan.
 7. Gọi `create_nodegroup` với body dạng:
-   `{{"name","numNodes","flavorId","diskSize","diskType":"<id từ list_volume_types>","os":"ubuntu","enablePrivateNodes":false,"securityGroups":[...],"sshKeyId":...}}`
-   Tuỳ chọn nâng cao: `labels`/`taints`/`tags`, `subnetId` (private subnet),
+   `{{"name","numNodes","flavorId","diskSize","diskType":"<id từ list_volume_types>","subnetId":"<subnet đã chọn>","os":"ubuntu","enablePrivateNodes":false,"securityGroups":[...],"sshKeyId":...}}`
+   Tuỳ chọn nâng cao: `labels`/`taints`/`tags`,
    `secondarySubnets`, `enabledEncryptionVolume`, `autoScaleConfig`
    (minSize/maxSize), `placementGroupConfigDto` (type=NEW + tên, hoặc
    type=EXISTING + id từ `list_placement_groups`), `upgradeConfig` (mặc định SURGE 1/0).
