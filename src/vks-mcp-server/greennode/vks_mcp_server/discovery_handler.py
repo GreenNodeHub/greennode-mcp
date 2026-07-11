@@ -169,6 +169,78 @@ async def _subnet_list(
     return await cache.get_or_fetch("list_subnets", key, fetch, refresh)
 
 
+async def _locate_cluster(
+    config: VksConfig,
+    client: VksClient,
+    cache: DiscoveryCache,
+    cluster_id: str,
+    refresh: bool = False,
+) -> tuple[str, str]:
+    """Find which region hosts *cluster_id*; return ``(region, vpc_id)``.
+
+    The VKS API is region-scoped, so the cluster is looked up in the default
+    region first, then the remaining ones. Cached: a cluster never moves.
+    """
+    regions = [config.default_region] + [r for r in config.regions if r != config.default_region]
+
+    async def fetch() -> tuple[str, str]:
+        errors: list[str] = []
+        for region in regions:
+            try:
+                data = await client.get(f"/v1/clusters/{cluster_id}", region=region)
+            except RuntimeError as exc:
+                errors.append(f"{region}: {exc}")
+                continue
+            vpc_id = data.get("vpcId", "") if isinstance(data, dict) else ""
+            return (region, vpc_id)
+        raise ValueError(
+            f"Cluster '{cluster_id}' was not found in any region "
+            f"({', '.join(regions)}). Check the id via list_clusters. "
+            f"Details: {'; '.join(errors)}"
+        )
+
+    key = ("cluster_locate", cluster_id)
+    return await cache.get_or_fetch("cluster_locate", key, fetch, refresh)
+
+
+async def _resolve_zone_context(
+    config: VksConfig,
+    client: VksClient,
+    cache: DiscoveryCache,
+    cluster_id: str,
+    subnet_id: str,
+    refresh: bool = False,
+) -> tuple[str, str]:
+    """Derive ``(region, zone_uuid)`` for zone-scoped discovery.
+
+    The cluster pins the region and VPC; the chosen subnet (which must belong
+    to that VPC) pins the availability zone. Doing this server-side means
+    agents never juggle region/zone values across calls — they pass the two
+    ids they already hold, and a mismatch is impossible.
+    """
+    validate_id(cluster_id, "cluster_id")
+    validate_id(subnet_id, "subnet_id")
+    region, vpc_id = await _locate_cluster(config, client, cache, cluster_id, refresh)
+    if not vpc_id:
+        raise ValueError(f"Cluster '{cluster_id}' reports no VPC — cannot derive a zone.")
+
+    subnets = await _subnet_list(config, client, cache, vpc_id, region, refresh)
+    subnet = next((s for s in subnets.subnets if s.id == subnet_id), None)
+    if subnet is None:
+        available = ", ".join(s.id for s in subnets.subnets) or "none"
+        raise ValueError(
+            f"Subnet '{subnet_id}' is not an ACTIVE subnet of cluster '{cluster_id}' "
+            f"(VPC {vpc_id}). Pick one via list_subnets(vpc_id='{vpc_id}'); "
+            f"available: {available}."
+        )
+    if subnet.zone is None or not subnet.zone.uuid:
+        raise ValueError(
+            f"Subnet '{subnet_id}' has no availability zone — it cannot host node-group "
+            "resources; pick a different subnet via list_subnets."
+        )
+    return (region, subnet.zone.uuid)
+
+
 def _suggest_group(flavor: dict) -> str:
     """Classify a flavor into a deployment-need group."""
     cpu = float(flavor.get("cpu") or 0)
@@ -468,12 +540,20 @@ class DiscoveryHandler:
 
     async def list_flavors(
         self,
-        zone: str = Field(
+        cluster_id: str = Field(
             ...,
             description=(
-                "Availability-zone uuid of the chosen subnet — take it from the "
-                "selected subnet's `zone.uuid` in list_subnets (e.g. 'HCM03-1A'). "
-                "Flavors are zone-scoped, so this must match the node group's subnet."
+                "VKS cluster the node group will belong to. Its region and VPC "
+                "anchor the lookup — the tool locates the cluster itself, so no "
+                "region parameter is needed."
+            ),
+        ),
+        subnet_id: str = Field(
+            ...,
+            description=(
+                "Subnet the user chose via list_subnets (must belong to the "
+                "cluster's VPC). Its availability zone scopes the flavors — the "
+                "tool derives the zone itself."
             ),
         ),
         need: str | None = Field(
@@ -483,34 +563,34 @@ class DiscoveryHandler:
                 "RAM cao, AI/GPU. Omit to list all, then help the user pick by vCPU/RAM."
             ),
         ),
-        region: Region = Field(
-            "HCM-3",
-            description="Region ('HCM-3' or 'HAN'); defaults to 'HCM-3'. Use the cluster's region.",
-        ),
         refresh: bool = Field(
             False,
             description="Bypass the short-lived cache and refetch from vServer.",
         ),
     ) -> FlavorListData:
-        """List available worker flavors (node sizes) in a subnet's zone.
+        """List worker flavors (node sizes) available to a cluster's chosen subnet.
 
         Returns {region, zone, need, flavors[{id, name, vcpu, ram_gb, gpu, group}]};
         sold-out flavors are excluded. Each flavor is tagged with a suggested
-        deployment-need `group`. The tool resolves the worker flavor-zone
-        internally, so you only pass the subnet's zone.
+        deployment-need `group`. Region and availability zone are derived from
+        the cluster and subnet server-side — a mismatch is impossible.
 
         ## Workflow
-        - create_nodegroup flow, after the user picks a subnet: pass that subnet's
-          `zone.uuid` here, present flavors (by vCPU/RAM, optionally filtered by
-          `need`), and let the user choose. IMPORTANT: do NOT pick a flavor silently.
+        - create_nodegroup flow, after the user picks a subnet in list_subnets:
+          call this with the cluster id and that subnet id, present flavors
+          (by vCPU/RAM, optionally filtered by `need`), and let the user choose.
+          IMPORTANT: do NOT pick a flavor silently.
         - Use the chosen flavor's `id` as `flavorId` in create_nodegroup.
         """
+        resolved_region, zone = await _resolve_zone_context(
+            self.config, self.client, self.cache, cluster_id, subnet_id, refresh
+        )
         return await _flavor_list(
             self.config,
             self.client,
             self.cache,
             zone=zone,
-            region=region,
+            region=resolved_region,
             need=need,
             refresh=refresh,
         )
@@ -590,18 +670,20 @@ class DiscoveryHandler:
 
     async def list_volume_types(
         self,
-        zone: str = Field(
+        cluster_id: str = Field(
             ...,
             description=(
-                "Availability-zone uuid of the chosen subnet — take it from the "
-                "selected subnet's `zone.uuid` in list_subnets (e.g. 'HCM03-1A'). "
-                "Volume types are zone-scoped, so this must match the node group's subnet."
+                "VKS cluster the node group will belong to. Its region and VPC "
+                "anchor the lookup — the tool locates the cluster itself, so no "
+                "region parameter is needed."
             ),
         ),
-        region: Region = Field(
-            "HCM-3",
+        subnet_id: str = Field(
+            ...,
             description=(
-                "Region ('HCM-3' or 'HAN'); defaults to 'HCM-3'. Use the cluster's region."
+                "Subnet the user chose via list_subnets (must belong to the "
+                "cluster's VPC). Its availability zone scopes the volume types — "
+                "the tool derives the zone itself."
             ),
         ),
         refresh: bool = Field(
@@ -609,20 +691,29 @@ class DiscoveryHandler:
             description="Bypass the short-lived cache and refetch from vServer.",
         ),
     ) -> VolumeTypeListData:
-        """List the NVME volume types (disk types) available in a subnet's zone.
+        """List NVME volume types (disk types) available to a cluster's chosen subnet.
 
         Returns {region, zone, volume_types[{id, iops}]}. Node groups use NVME
-        disks; the tool resolves the NVME volume-type-zone internally, so you only
-        pass the subnet's zone. The user picks by **IOPS**.
+        disks; region and availability zone are derived from the cluster and
+        subnet server-side — a mismatch is impossible. The user picks by **IOPS**.
 
         ## Workflow
-        - create_nodegroup flow, after the user picks a subnet: pass that subnet's
-          `zone.uuid` here, present the IOPS options, and let the user choose.
-          IMPORTANT: do NOT pick an IOPS tier silently.
+        - create_nodegroup flow, after the user picks a subnet in list_subnets:
+          call this with the cluster id and that subnet id, present the IOPS
+          options, and let the user choose. IMPORTANT: do NOT pick an IOPS tier
+          silently.
         - Use the chosen item's `id` as `diskType` in create_nodegroup.
         """
+        resolved_region, zone = await _resolve_zone_context(
+            self.config, self.client, self.cache, cluster_id, subnet_id, refresh
+        )
         return await _volumetype_list(
-            self.config, self.client, self.cache, zone=zone, region=region, refresh=refresh
+            self.config,
+            self.client,
+            self.cache,
+            zone=zone,
+            region=resolved_region,
+            refresh=refresh,
         )
 
     async def list_placement_groups(

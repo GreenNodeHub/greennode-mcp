@@ -192,11 +192,12 @@ class NodeGroupHandler:
 
         ## Workflow (run every discovery call in the cluster's region)
         1. get_cluster(cluster_id) -> the cluster's `vpcId` and region.
-        2. list_subnets(vpc_id) -> user picks a subnet -> `subnetId`. Note its
-           `zone.uuid` — it scopes both flavors and volume types below.
-        3. list_flavors(zone) -> user picks -> `flavorId`.
-        4. list_volume_types(zone) -> user picks an IOPS tier -> `diskType`
-           (a volume-type id, never a string like "SSD").
+        2. list_subnets(vpc_id) -> user picks a subnet -> `subnetId`. Its
+           availability zone scopes flavors and volume types — the next two
+           tools derive it themselves.
+        3. list_flavors(cluster_id, subnet_id) -> user picks -> `flavorId`.
+        4. list_volume_types(cluster_id, subnet_id) -> user picks an IOPS tier
+           -> `diskType` (a volume-type id, never a string like "SSD").
         5. list_ssh_keys -> user picks -> `sshKeyId`.
         6. Optional: list_security_groups -> `securityGroups`;
            list_placement_groups -> `placementGroupConfigDto` (type=EXISTING);

@@ -119,11 +119,12 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
    nếu nghi ngờ chạm giới hạn (max node groups/cluster, max nodes/node group).
 3. Discovery theo chuỗi (zone-scoped — chạy mọi discovery ở region của cluster):
    a. `get_cluster` → lấy `vpcId` và region của cluster.
-   b. `list_subnets vpc_id=<vpcId>` → trình danh sách cho user chọn → `subnetId`;
-      ghi lại `zone.uuid` của subnet — nó quyết định flavor và volume type bên dưới.
-   c. `list_flavors zone=<zone.uuid>` (lọc `need` nếu rõ nhu cầu) → user chọn → `flavorId`.
-   d. `list_volume_types zone=<zone.uuid>` → user chọn bậc IOPS → `id` là `diskType`
-      (**ID volume type**, không phải chuỗi "SSD"; loại đĩa NVME cố định).
+   b. `list_subnets vpc_id=<vpcId>` → trình danh sách cho user chọn → `subnetId`
+      (zone của subnet quyết định flavor và volume type — hai tool dưới tự suy ra).
+   c. `list_flavors cluster_id=<id> subnet_id=<subnetId>` (lọc `need` nếu rõ nhu cầu)
+      → user chọn → `flavorId`.
+   d. `list_volume_types cluster_id=<id> subnet_id=<subnetId>` → user chọn bậc IOPS
+      → `id` là `diskType` (**ID volume type**, không phải chuỗi "SSD"; NVME cố định).
    e. `list_ssh_keys`; tuỳ chọn `list_security_groups`, `list_placement_groups`.
    Truyền `refresh: true` nếu người dùng vừa tạo tài nguyên ở console.
 4. Chọn default an toàn (đánh dấu `[auto]`, cho sửa) — KHÔNG tự chọn thầm

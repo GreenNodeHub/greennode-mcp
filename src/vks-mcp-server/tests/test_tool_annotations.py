@@ -171,3 +171,18 @@ def test_server_instructions_teach_flows_regions_and_prompts():
     # guided prompts are discoverable
     for p in ("vks_getting_started", "vks_create_cluster", "vks_create_nodegroup"):
         assert p in text, f"prompt {p} missing"
+
+
+@pytest.mark.asyncio
+async def test_zone_scoped_tools_take_cluster_and_subnet(all_tools_mcp):
+    """list_flavors / list_volume_types derive region+zone server-side from ids
+    the agent already holds — no zone/region juggling across calls."""
+    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
+    for name in ("list_flavors", "list_volume_types"):
+        schema = tools[name].inputSchema
+        props = schema["properties"]
+        required = schema.get("required", [])
+        assert "cluster_id" in props and "subnet_id" in props, name
+        assert "cluster_id" in required and "subnet_id" in required, name
+        assert "zone" not in props, f"{name} must not expose zone"
+        assert "region" not in props, f"{name} must not expose region (derived)"

@@ -681,3 +681,124 @@ async def test_require_project_id_caches_per_region(config, client):
     assert await _require_project_id(config, client, region="HAN") == "pro-han"
     assert await _require_project_id(config, client, region="HAN") == "pro-han"
     assert route.call_count == 1  # cached, not refetched
+
+
+# ---------------------------------------------------------------------------
+# _resolve_zone_context: derive (region, zone) from cluster_id + subnet_id
+# ---------------------------------------------------------------------------
+
+VKS_BASE_HCM = "https://vks.api.vngcloud.vn"
+VKS_BASE_HAN = "https://vks-han-1.api.vngcloud.vn"
+VSERVER_BASE_HAN = "https://han-1.api.vngcloud.vn/vserver/vserver-gateway"
+
+
+def _mock_cluster(base, cluster_id, vpc_id, status=200):
+    body = {"uid": cluster_id, "vpcId": vpc_id} if status == 200 else {"message": "not found"}
+    return respx.get(f"{base}/v1/clusters/{cluster_id}").mock(
+        return_value=httpx.Response(status, json=body)
+    )
+
+
+def _mock_subnets(vserver_base, vpc_id, subnets):
+    return respx.get(f"{vserver_base}/v2/{PID}/networks/{vpc_id}/subnets").mock(
+        return_value=httpx.Response(200, json={"listData": subnets, "totalItem": len(subnets)})
+    )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_resolve_zone_context_default_region(config, client):
+    """cluster in the default region: one locate call, zone read off the subnet."""
+    from greennode.vks_mcp_server.discovery_handler import _resolve_zone_context
+
+    _mock_iam(respx.mock)
+    _mock_cluster(VKS_BASE_HCM, "k8s-abc", "net-1")
+    _mock_subnets(
+        VSERVER_BASE,
+        "net-1",
+        [
+            {
+                "uuid": "sub-1",
+                "name": "s1",
+                "status": "ACTIVE",
+                "zone": {"uuid": "HCM03-1A", "name": "1A"},
+            }
+        ],
+    )
+    region, zone = await _resolve_zone_context(
+        config, client, DiscoveryCache(), cluster_id="k8s-abc", subnet_id="sub-1"
+    )
+    assert region == "HCM-3"
+    assert zone == "HCM03-1A"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_resolve_zone_context_locates_other_region(config, client):
+    """cluster missing in the default region: fall through to HAN and use its endpoints."""
+    from greennode.vks_mcp_server.discovery_handler import _resolve_zone_context
+
+    _mock_iam(respx.mock)
+    _mock_cluster(VKS_BASE_HCM, "k8s-han", "x", status=404)
+    _mock_cluster(VKS_BASE_HAN, "k8s-han", "net-9")
+    respx.get(f"{VSERVER_BASE_HAN}/v1/projects").mock(
+        return_value=httpx.Response(200, json=[{"projectId": PID}])
+    )
+    _mock_subnets(
+        VSERVER_BASE_HAN,
+        "net-9",
+        [
+            {
+                "uuid": "sub-9",
+                "name": "s9",
+                "status": "ACTIVE",
+                "zone": {"uuid": "HAN01-1A", "name": "1A"},
+            }
+        ],
+    )
+    region, zone = await _resolve_zone_context(
+        config, client, DiscoveryCache(), cluster_id="k8s-han", subnet_id="sub-9"
+    )
+    assert region == "HAN"
+    assert zone == "HAN01-1A"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_resolve_zone_context_cluster_nowhere(config, client):
+    """cluster in no region: a clear error naming the regions tried."""
+    from greennode.vks_mcp_server.discovery_handler import _resolve_zone_context
+
+    _mock_iam(respx.mock)
+    _mock_cluster(VKS_BASE_HCM, "k8s-ghost", "x", status=404)
+    _mock_cluster(VKS_BASE_HAN, "k8s-ghost", "x", status=404)
+    with pytest.raises(ValueError, match="HCM-3.*HAN|HAN.*HCM-3"):
+        await _resolve_zone_context(
+            config, client, DiscoveryCache(), cluster_id="k8s-ghost", subnet_id="sub-1"
+        )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_resolve_zone_context_subnet_not_in_vpc(config, client):
+    """subnet not in the cluster's VPC: actionable error pointing at list_subnets."""
+    from greennode.vks_mcp_server.discovery_handler import _resolve_zone_context
+
+    _mock_iam(respx.mock)
+    _mock_cluster(VKS_BASE_HCM, "k8s-abc", "net-1")
+    _mock_subnets(
+        VSERVER_BASE,
+        "net-1",
+        [
+            {
+                "uuid": "sub-other",
+                "name": "s1",
+                "status": "ACTIVE",
+                "zone": {"uuid": "HCM03-1A", "name": "1A"},
+            }
+        ],
+    )
+    with pytest.raises(ValueError, match="list_subnets"):
+        await _resolve_zone_context(
+            config, client, DiscoveryCache(), cluster_id="k8s-abc", subnet_id="sub-wrong"
+        )

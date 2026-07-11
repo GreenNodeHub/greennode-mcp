@@ -47,7 +47,7 @@ Every resource is region-scoped: `HCM-3` (default) or `HAN`. Clusters, SSH keys,
 
 Create a cluster: get_quota -> list_vpcs (vpcId) -> list_cluster_versions -> validate_cluster_create -> create_cluster -> poll get_cluster until ACTIVE. The cluster is control-plane only; add workers next.
 
-Add a node group: get_cluster (vpcId + region) -> get_quota -> list_subnets (subnetId; note the subnet's `zone.uuid` — it scopes the next two) -> list_flavors(zone) (flavorId) -> list_volume_types(zone) (IOPS tier id = diskType) -> list_ssh_keys (sshKeyId) -> create_nodegroup -> poll get_nodegroup.
+Add a node group: get_cluster (vpcId + region) -> get_quota -> list_subnets (user picks a subnetId; its zone scopes the next two) -> list_flavors(cluster_id, subnet_id) (flavorId) -> list_volume_types(cluster_id, subnet_id) (IOPS tier id = diskType) -> list_ssh_keys (sshKeyId) -> create_nodegroup -> poll get_nodegroup.
 
 Present the discovered options to the user and wait for confirmation before any write call.
 
@@ -69,7 +69,7 @@ For full step-by-step flows (safe defaults, plan review, confirm gate) load the 
 - list_nodes: List nodes in a node group
 - delete_nodegroup_dryrun: Preview information before deleting a node group
 - list_vpcs, list_subnets, list_ssh_keys, list_security_groups, list_placement_groups: Discover vServer resources to fill cluster/node-group creation
-- list_flavors, list_volume_types: Zone-scoped discovery (pass the chosen subnet's `zone.uuid`)
+- list_flavors, list_volume_types: Zone-scoped discovery (pass cluster_id + the chosen subnet_id; region and zone are derived server-side)
 - get_quota: Check per-region limits before creating anything
 
 ### Write (requires --allow-write):
