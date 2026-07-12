@@ -19,6 +19,7 @@ from greennode.vks_mcp_server.discovery_cache import DiscoveryCache
 from greennode.vks_mcp_server.discovery_handler import DiscoveryHandler
 from greennode.vks_mcp_server.k8s_handler import K8sHandler
 from greennode.vks_mcp_server.nodegroup_handler import NodeGroupHandler
+from greennode.vks_mcp_server.prompts_handler import PromptsHandler
 from greennode.vks_mcp_server.version_handler import VersionHandler
 from mcp.server.fastmcp import FastMCP
 
@@ -54,6 +55,7 @@ def all_tools_mcp(sample_config):
     DiscoveryHandler(mcp, config, client, cache)
     VersionHandler(mcp, config, client, cache)
     K8sHandler(mcp, config, client, allow_write=True, allow_sensitive_data_access=True)
+    PromptsHandler(mcp)
     return mcp
 
 
@@ -122,7 +124,7 @@ async def test_create_cluster_description_has_discovery_workflow(all_tools_mcp):
         "list_vpcs",  # source of the required vpcId
         "list_cluster_versions",
         "validate_cluster_create",
-        "vks_create_cluster",  # cross-ref to the full guided prompt
+        "get_creation_guide",  # cross-ref to the on-demand guide tool
     ):
         assert name in desc, f"{name} missing from create_cluster description"
     # validate runs before create, quota before picking anything
@@ -188,74 +190,6 @@ async def test_zone_scoped_tools_take_cluster_and_subnet(all_tools_mcp):
         assert "region" not in props, f"{name} must not expose region (derived)"
 
 
-@pytest.mark.asyncio
-async def test_create_nodegroup_offers_optional_config_groups(all_tools_mcp):
-    """The no-prompt path must ASK the user about each optional config group —
-    a live transcript showed agents otherwise fill required fields and create,
-    silently accepting public nodes and unencrypted disks."""
-    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
-    desc = tools["create_nodegroup"].description
-    # an explicit ask-the-user instruction, before the confirm gate
-    assert "Ask the user" in desc
-    for group in (
-        "enablePrivateNodes",
-        "enabledEncryptionVolume",
-        "securityGroups",
-        "autoScaleConfig",
-        "labels",
-        "taints",
-        "placementGroupConfigDto",
-    ):
-        assert group in desc, f"optional group {group} not offered in description"
-    # security defaults spelled out as consequences
-    assert "public" in desc.lower()
-    assert "unencrypted" in desc.lower() or "not encrypted" in desc.lower()
-
-
-@pytest.mark.asyncio
-async def test_create_nodegroup_question_order(all_tools_mcp):
-    """The user-facing question order: name/numNodes -> public/private -> os -> subnet
-    -> secgroups -> flavor -> volume -> ssh key -> autoscale -> upgrade ->
-    placement -> labels/taints/tags."""
-    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
-    desc = tools["create_nodegroup"].description
-    anchors = [
-        "numNodes",
-        "enablePrivateNodes",
-        "ubuntu",  # the os question (ubuntu|linux|rocky)
-        "list_subnets",
-        "list_security_groups",
-        "list_flavors",
-        "list_volume_types",
-        "list_ssh_keys",
-        "autoScaleConfig",
-        "upgradeConfig",
-        "placementGroupConfigDto",
-        "labels",
-    ]
-    positions = [desc.index(a) for a in anchors]
-    assert positions == sorted(positions), (
-        f"question order broken: {[a for _, a in sorted(zip(positions, anchors))]}"
-    )
-
-
-@pytest.mark.asyncio
-async def test_create_nodegroup_one_setting_per_question_and_full_plan(all_tools_mcp):
-    """Field-test regressions: agents bundled public/private with os in one
-    question, merged several optional groups into one multi-select, and asked
-    for confirmation without showing the plan. The description must forbid
-    all three explicitly."""
-    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
-    desc = tools["create_nodegroup"].description
-    low = desc.lower()
-    assert "one setting per question" in low
-    assert "bundle" in low or "combine" in low  # anti-bundling stated
-    # full plan must be shown BEFORE asking to confirm, in the SAME message
-    assert "full body" in low
-    assert "never ask" in low and "confirm" in low
-    assert "same message" in low
-
-
 CLUSTER_QUESTION_ANCHORS = [
     "get_quota",
     "5-20",  # the name question (length rule)
@@ -275,20 +209,34 @@ CLUSTER_QUESTION_ANCHORS = [
 
 
 @pytest.mark.asyncio
-async def test_create_cluster_question_order_and_rules(all_tools_mcp):
-    """create_cluster gets the same treatment as create_nodegroup: a pinned
-    question order, one setting per question, no merged multi-selects, and
-    the full plan shown before asking to confirm."""
+async def test_get_creation_guide_serves_the_choreography(all_tools_mcp):
+    """get_creation_guide delivers the full question order + rules on demand
+    (Cloudflare-style guidance-as-a-tool), reusing the prompt text verbatim."""
     tools = {t.name: t for t in await all_tools_mcp.list_tools()}
-    desc = tools["create_cluster"].description
-    positions = [desc.index(a) for a in CLUSTER_QUESTION_ANCHORS]
-    assert positions == sorted(positions), (
-        f"question order broken: {[a for _, a in sorted(zip(positions, CLUSTER_QUESTION_ANCHORS))]}"
-    )
-    low = desc.lower()
-    assert "one setting per question" in low
-    assert "bundle" in low or "combine" in low
-    assert "never ask" in low and "confirm" in low
-    assert "same message" in low  # plan and confirm question travel together
-    # azStrategy decides the subnet shape; nodeNetmaskSize belongs to NATIVE_ROUTING
-    assert "nodeNetmaskSize" in desc
+    guide = tools["get_creation_guide"]
+    assert guide.annotations.readOnlyHint is True
+    # description teaches WHEN to call it: first, before any create flow
+    assert "FIRST" in guide.description or "first" in guide.description
+
+    ng = await all_tools_mcp.call_tool("get_creation_guide", {"resource": "nodegroup"})
+    text = ng[0][0].text
+    for anchor in ("numNodes", "enablePrivateNodes", "list_subnets", "list_flavors", "HARD GATE"):
+        assert anchor in text, f"{anchor} missing from nodegroup guide"
+    assert "MỘT cấu hình" in text  # one-setting-per-question rule travels with the guide
+    assert "cùng tin nhắn" in text  # full plan in the same message as the confirm question
+
+    cl = await all_tools_mcp.call_tool("get_creation_guide", {"resource": "cluster"})
+    ctext = cl[0][0].text
+    for anchor in ("azStrategy", "listSubnetIds", "nodeNetmaskSize", "validate_cluster_create"):
+        assert anchor in ctext, f"{anchor} missing from cluster guide"
+
+
+@pytest.mark.asyncio
+async def test_create_docstrings_are_slim_and_point_at_the_guide(all_tools_mcp):
+    """Choreography lives in get_creation_guide; the create docstrings stay
+    lean (the old 14/15-step versions cost ~1k tokens in every session)."""
+    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
+    for name in ("create_nodegroup", "create_cluster"):
+        desc = tools[name].description
+        assert "get_creation_guide" in desc, f"{name} must point at the guide tool"
+        assert len(desc) < 1200, f"{name} description grew back to {len(desc)} chars"

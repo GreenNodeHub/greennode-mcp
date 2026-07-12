@@ -45,6 +45,8 @@ Every resource is region-scoped: `HCM-3` (default) or `HAN`. Clusters, SSH keys,
 
 ## Creation flows (resolve every id via discovery — never invent one)
 
+Before starting either flow, call get_creation_guide(resource="cluster" | "nodegroup") and conduct the conversation exactly as it says (question order, one setting per question, confirm gate).
+
 Create a cluster: get_quota -> list_vpcs (vpcId) -> list_cluster_versions -> validate_cluster_create -> create_cluster -> poll get_cluster until ACTIVE. The cluster is control-plane only; add workers next.
 
 Add a node group: get_cluster (vpcId + region) -> get_quota -> list_subnets (user picks a subnetId; its zone scopes the next two) -> list_flavors(cluster_id, subnet_id) (flavorId) -> list_volume_types(cluster_id, subnet_id) (IOPS tier id = diskType) -> list_ssh_keys (sshKeyId) -> create_nodegroup -> poll get_nodegroup.
@@ -58,6 +60,7 @@ For full step-by-step flows (safe defaults, plan review, confirm gate) load the 
 ## Available tools
 
 ### Read-only (always available):
+- get_creation_guide: Step-by-step guide for the create flows — call it FIRST
 - get_access_token: Get the current access token
 - list_clusters, get_cluster: View clusters (get_cluster is step 1 of the node-group flow)
 - get_cluster_kubeconfig: Get kubeconfig YAML

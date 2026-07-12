@@ -497,7 +497,7 @@ async def test_create_nodegroup_description_has_zone_chained_workflow(handler_wr
         "list_flavors",
         "list_volume_types",
         "list_ssh_keys",
-        "vks_create_nodegroup",  # cross-ref to the full guided prompt
+        "get_creation_guide",  # cross-ref to the on-demand guide tool
     ):
         assert name in desc, f"{name} missing from create_nodegroup description"
     # subnet first: its zone scopes flavors and volume types
@@ -548,3 +548,25 @@ async def test_nodegroup_outputs_echo_region(config, client, handler):
     )
     result = await _nodegroup_list(config, client, cluster_id="k8s-abc")
     assert result.region == config.default_region
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_nodegroup_create_error_teaches_the_guide(handler_write, respx_mock):
+    """A failed create points the agent at get_creation_guide — error-driven
+    guidance, so an agent that skipped the guide learns about it exactly when
+    it goes wrong."""
+    _mock_iam(respx_mock)
+    respx_mock.post(f"{VKS_BASE}/v1/clusters/k8s-abc/node-groups").mock(
+        return_value=httpx.Response(400, json={"message": "subnetId is invalid"})
+    )
+    dto = CreateNodeGroupDto(
+        name="new-ng",
+        flavorId="flav-001",
+        diskSize=100,
+        diskType="vtype-001",
+        numNodes=1,
+        sshKeyId="ssh-001",
+    )
+    with pytest.raises(RuntimeError, match="get_creation_guide"):
+        await handler_write.create_nodegroup(cluster_id="k8s-abc", body=dto, region=None)

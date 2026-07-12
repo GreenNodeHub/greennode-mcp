@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from greennode.vks_mcp_server.tool_annotations import READ
+from pydantic import Field
+from typing import Literal
+
 
 _GETTING_STARTED = """\
 # VKS (GreenNode Kubernetes Service) — Bắt đầu
@@ -181,13 +185,43 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
 
 
 class PromptsHandler:
-    """Register portable VKS guidance prompts on the MCP server."""
+    """Register portable VKS guidance prompts on the MCP server.
+
+    The same choreography is also served as a tool (get_creation_guide):
+    MCP prompts must be loaded by the user, and field tests showed agents
+    run promptless — a tool is something every agent calls on its own.
+    """
 
     def __init__(self, mcp) -> None:
         self.mcp = mcp
         self.mcp.prompt(name="vks_getting_started")(self.vks_getting_started)
         self.mcp.prompt(name="vks_create_cluster")(self.vks_create_cluster)
         self.mcp.prompt(name="vks_create_nodegroup")(self.vks_create_nodegroup)
+        self.mcp.tool(name="get_creation_guide", annotations=READ)(self.get_creation_guide)
+
+    async def get_creation_guide(
+        self,
+        resource: Literal["cluster", "nodegroup"] = Field(
+            ..., description="Which creation flow to get the guide for"
+        ),
+        cluster_id: str | None = Field(
+            None,
+            description=(
+                "For resource='nodegroup': the target cluster id, if already "
+                "known — the guide is then anchored to it."
+            ),
+        ),
+    ) -> str:
+        """Get the step-by-step guide for creating a VKS cluster or node group.
+
+        Returns the question order, the per-question rules, defaults, and the
+        confirm-gate protocol. Call this FIRST, before asking the user
+        anything in a create flow, and conduct the conversation exactly as it
+        says.
+        """
+        if resource == "cluster":
+            return _create_cluster_guidance()
+        return _create_nodegroup_guidance(cluster_id)
 
     async def vks_getting_started(self) -> str:
         """VKS onboarding: what it is, auth setup, regions, naming, tool routing."""

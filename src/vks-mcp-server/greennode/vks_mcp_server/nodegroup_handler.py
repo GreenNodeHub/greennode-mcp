@@ -192,49 +192,34 @@ class NodeGroupHandler:
         ## Requirements
         - Server must run with --allow-write
 
-        ## Workflow (run every discovery call in the cluster's region)
-        Ask the user in THIS order — ONE setting per question. Never bundle
-        two settings into one question (e.g. public/private together with
-        os), and never merge several optional steps into one multi-select —
-        each step below is its own question. Never skip a step silently.
-        1. get_cluster(cluster_id) -> the cluster's `vpcId` and region;
-           get_quota to check node-group/node limits before starting.
-        2. Ask `name` and `numNodes` (0-10).
-        3. Ask public/private: enablePrivateNodes (default false = nodes get
-           PUBLIC IPs).
-        4. Ask `os`: ubuntu (default) | linux | rocky.
-        5. list_subnets(vpc_id) -> user picks a subnet -> `subnetId`. Its
-           availability zone scopes flavors and volume types — the tools
-           derive it themselves.
-        6. Optional: securityGroups (ids via list_security_groups);
-           secondarySubnets if needed.
-        7. list_flavors(cluster_id, subnet_id) -> user picks -> `flavorId`.
-        8. Volume settings: list_volume_types(cluster_id, subnet_id) -> user
-           picks an IOPS tier -> `diskType` (a volume-type id, never a string
-           like "SSD"); ask `diskSize` (20-5000 GB); ask
-           enabledEncryptionVolume (default false = disks unencrypted).
-        9. list_ssh_keys -> user picks -> `sshKeyId`.
-        10. Optional: autoScaleConfig (min/max — interacts with numNodes).
-        11. Optional: upgradeConfig (surge behaviour; default SURGE
-            maxSurge=1 / maxUnavailable=0).
-        12. Optional: placementGroupConfigDto (ids via list_placement_groups,
-            type=EXISTING).
-        13. Optional: scheduling metadata — labels, taints, tags.
-        14. Present the FULL body — every field with its value, defaults
-            marked — in the SAME message as the confirmation question, the
-            table immediately above it. Never ask "confirm?" while only
-            referring back to configuration shown earlier ("the config
-            above"). Wait for explicit confirmation before calling.
+        ## Workflow
+        1. get_creation_guide(resource="nodegroup") -> conduct the whole
+           conversation exactly as it says (question order, one setting per
+           question, confirm gate).
+        2. Resolve ids via discovery, all in the cluster's region:
+           get_cluster (vpcId) -> list_subnets (subnetId; its availability
+           zone scopes the next two) -> list_flavors(cluster_id, subnet_id)
+           (flavorId) -> list_volume_types(cluster_id, subnet_id) (diskType)
+           -> list_ssh_keys (sshKeyId); get_quota before starting.
+        3. Present the FULL body in the same message as the confirmation
+           question, wait for explicit confirmation, then call and poll
+           get_nodegroup until ACTIVE.
 
-        IMPORTANT: resolve every id above via the discovery tools — never
-        invent one. Full guided flow: prompt `vks_create_nodegroup`.
+        IMPORTANT: call get_creation_guide FIRST, and never invent an id —
+        every id above comes from a discovery tool.
         """
         validate_id(cluster_id, "cluster_id")
-        result = await self.client.post(
-            f"/v1/clusters/{cluster_id}/node-groups",
-            region=region,
-            json=body.model_dump(exclude_none=True),
-        )
+        try:
+            result = await self.client.post(
+                f"/v1/clusters/{cluster_id}/node-groups",
+                region=region,
+                json=body.model_dump(exclude_none=True),
+            )
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"{exc}\nTip: call get_creation_guide(resource='nodegroup') for the "
+                "required flow and field rules, then rebuild the body."
+            ) from exc
         return f"Node group created successfully:\n```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
 
     async def update_nodegroup(
