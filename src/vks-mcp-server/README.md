@@ -4,11 +4,12 @@ An MCP (Model Context Protocol) server that gives AI assistants (Claude, Cursor,
 Gemini, etc.) tools to manage **VKS — GreenNode Kubernetes Service** clusters and the
 Kubernetes resources inside them.
 
-- **38 tools** across 6 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s
+- **39 tools** across 7 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s, Guidance
 - Fully **async** (httpx) on the **FastMCP** framework
-- Read-only by default; write and sensitive-data access are opt-in via flags
+- Read-only by default; write and sensitive-data access are opt-in via flags — and the server instructions tell the agent which mode **this** session runs in
+- Every tool declares MCP **ToolAnnotations** (`readOnlyHint`/`destructiveHint`), so clients can auto-approve reads and warn before destructive calls
 - Import package: `greennode.vks_mcp_server`
-- Structured (JSON) output for data tools; FastMCP emits `outputSchema` + `structuredContent`. Region is `Literal["HCM-3", "HAN"]`.
+- Structured (JSON) output for data tools; FastMCP emits `outputSchema` + `structuredContent`. Region is `Literal["HCM-3", "HAN"]`; list outputs echo the region they were fetched from.
 
 ## Installation
 
@@ -110,7 +111,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 
 | Tool | Access | Description |
 |------|--------|-------------|
-| `list_clusters` | read | List clusters (structured summaries, paginated) |
+| `list_clusters` | read | List clusters (structured summaries; every page fetched automatically) |
 | `get_cluster` | read | Full cluster detail (structured) |
 | `get_cluster_kubeconfig` | read | Kubeconfig YAML for a cluster |
 | `get_cluster_events` | read | Cluster events table |
@@ -141,17 +142,26 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 
 | Tool | Feeds | Cache TTL |
 |------|-------|-----------|
-| `list_vpcs` | `vpcId` | 2 min |
-| `list_subnets` | `subnetId`, `secondarySubnets` | 2 min |
-| `list_flavors` | `flavorId` (tagged by deployment-need group) | 30 min |
+| `list_vpcs` | `vpcId` (ACTIVE only) | 2 min |
+| `list_subnets` | `subnetId` / `listSubnetIds`, `secondarySubnets` + each subnet's availability zone (ACTIVE only) | 2 min |
+| `list_flavors` | `flavorId` (tagged by deployment-need group; sold-out excluded) | 30 min |
 | `list_ssh_keys` | `sshKeyId` | 30 s |
-| `list_security_groups` | `securityGroups` | 2 min |
-| `list_volume_types` | `diskType` (a volume-type **ID**, not "SSD") | 30 min |
+| `list_security_groups` | `securityGroups` (ACTIVE only) | 2 min |
+| `list_volume_types` | `diskType` (a volume-type **ID**, not "SSD"; NVME tiers picked by IOPS) | 30 min |
 | `list_placement_groups` | `placementGroupId` (type=EXISTING) | 2 min |
 | `get_quota` | pre-create quota check (max/used clusters, node groups, nodes) | none |
 
 All discovery tools accept `refresh: true` to bypass the cache (e.g. right
-after creating a resource in the console).
+after creating a resource in the console). `list_flavors` and
+`list_volume_types` take `cluster_id` + the chosen `subnet_id` — the server
+locates the cluster (any region) and derives the availability zone itself, so
+a region/zone mismatch is impossible.
+
+### Guidance (1)
+
+| Tool | Description |
+|------|-------------|
+| `get_creation_guide` | On-demand creation choreography for `resource="cluster" \| "nodegroup"`: the pinned question order, one-setting-per-question rules, defaults, and the confirm-gate protocol. Agents call it FIRST in any create flow; failed creates point back at it. |
 
 ### Kubernetes (7)
 
@@ -172,8 +182,12 @@ available (no `--allow-write` needed):
 | Prompt | Purpose |
 |--------|---------|
 | `vks_getting_started` | Onboarding: concepts, auth setup, regions, naming rules, tool routing |
-| `vks_create_cluster` | Guided cluster creation: quota check → discovery → safe defaults → validate → confirm gate → create → poll |
-| `vks_create_nodegroup` | Guided node-group creation (optional `cluster_id` argument): discovery → defaults → confirm gate → create → poll |
+| `vks_create_cluster` | Guided cluster creation: quota check → pinned question order → validate → confirm gate → create → poll |
+| `vks_create_nodegroup` | Guided node-group creation (optional `cluster_id` argument): pinned question order → discovery → confirm gate → create → poll |
+
+The two create guides are also served as the `get_creation_guide` **tool**
+(same text, one source of truth) — prompts must be loaded by the user, while
+agents call tools on their own.
 
 ## Development
 
@@ -204,10 +218,10 @@ same as the CLI — run `grn configure` once if you haven't):
 ```bash
 cd src/vks-mcp-server
 
-# Read-only (27 tools)
+# Read-only (28 tools)
 npx @modelcontextprotocol/inspector uv run vks-mcp-server
 
-# All 38 tools (write + sensitive data)
+# All 39 tools (write + sensitive data)
 npx @modelcontextprotocol/inspector \
   uv run vks-mcp-server --allow-write --allow-sensitive-data-access
 ```

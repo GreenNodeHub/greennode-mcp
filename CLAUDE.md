@@ -87,14 +87,14 @@ format, shared with greennode-cli) via `mcp_core.config.load_profile`.
 
 1. Choose the appropriate handler or create a new one in the package
 2. Define async method with docstring (used as tool description)
-3. Register in handler's `__init__`: `self.mcp.tool(name="tool_name")(self.method)`
+3. Register in handler's `__init__` with annotations: `self.mcp.tool(name="tool_name", annotations=READ)(self.method)` — pick `READ`/`WRITE`/`DESTRUCTIVE` by effect (dry-run delete = READ; an irreversible upgrade = DESTRUCTIVE)
 4. Add `validate_id()` (from `mcp_core`) for any ID args used in URL construction
 5. Check `self.allow_write` for mutating operations
 6. Register handler in `server.py` if new handler class
 7. Add tests in `tests/` (TDD — write them first)
 8. Use `Literal[...]` for parameters with a fixed value set, and `Field(ge=, le=)` for numeric bounds, so the schema is self-documenting
 9. For create/update operations, use typed Pydantic request DTOs with camelCase fields, nested specs, and Literal enums instead of `body: dict`; set `extra="forbid"`
-10. Write structured docstrings (`## Requirements`, `## Workflow`) for create/update/delete tools
+10. Write structured docstrings (`## Requirements`, `## Workflow`) for create/update/delete tools — keep them lean (discovery chain + guardrails); long conversation choreography belongs in an on-demand guidance tool / prompt, not in the docstring (see vks `get_creation_guide`)
 11. For discovery tools (read-only lookups), wrap the fetch in `mcp_core.cache.DiscoveryCache.get_or_fetch`, add a per-tool TTL, and expose a `refresh: bool` parameter
 12. Name the tool `verb_noun`, mirroring the greennode-cli command where one exists
 

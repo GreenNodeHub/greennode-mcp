@@ -9,8 +9,10 @@ Product-specific guidance for `src/vks-mcp-server`. Monorepo-wide conventions
 MCP server for VKS (GreenNode Kubernetes Service) clusters and the Kubernetes
 resources inside them.
 
-- **38 tools** across 6 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s
-- **3 MCP prompts** (`vks_getting_started`, `vks_create_cluster`, `vks_create_nodegroup`) — portable Vietnamese guidance for any MCP client; always available, no `--allow-write` needed
+- **39 tools** across 7 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s, Guidance (PromptsHandler)
+- **3 MCP prompts** (`vks_getting_started`, `vks_create_cluster`, `vks_create_nodegroup`) — portable Vietnamese guidance for any MCP client; always available, no `--allow-write` needed. The two create guides are ALSO served as the `get_creation_guide` tool (same text, one source of truth): prompts must be loaded by the user, tools get called by agents on their own. Edit the guidance in `_create_*_guidance()` — it propagates to both.
+- **Every tool declares ToolAnnotations** (`READ`/`WRITE`/`DESTRUCTIVE` from `tool_annotations.py`), picked by effect, not name (dry-run delete = READ; version upgrade = DESTRUCTIVE). Conventions tests enforce it.
+- **SERVER_INSTRUCTIONS are mode-aware**: `create_server()` appends a runtime addendum (write on/off, sensitive-data on/off) so agents refuse impossible flows up front.
 - **Structured output** — data tools return Pydantic models; FastMCP emits `outputSchema` + `structuredContent` (JSON). Blob tools (`get_access_token`, `get_cluster_kubeconfig`) stay `str`. Region is a fixed `Literal["HCM-3", "HAN"]`.
 
 ## VKS API quirks
@@ -20,6 +22,9 @@ resources inside them.
 - **The greennode-cli is the source of truth for the current API** — the bundled `~/.greenode/mcp-specs/vks.json` OpenAPI file is stale
 - Discovery (vpc/subnet/flavor/sshkey/secgroup/volume-type/placement-group) goes to the **vServer API** (token-only auth); `project_id` is auto-discovered from `GET /v1/projects` when unset
 - **vServer list pagination is effectively a no-op**: `page`/`size` query params are ignored and every list endpoint returns the full set in one response (envelope reports `page=0 / pageSize=0 / totalPage=0`, `len(listData) == totalItem`). Discovery fetchers go through `_fetch_all_items`, which uses that single-call fast path but pages explicitly as a safety net if a response ever reports `totalItem > len(listData)` — so results never truncate silently as an account grows.
+- **VKS list pagination IS enforced** (opposite of vServer): server-side default `pageSize=10` silently truncates bare calls. `list_clusters` / `list_nodegroups` / `list_nodes` go through `paging.fetch_all_vks_items` and never expose paging params.
+- **project_id is region-scoped**: each region's vServer endpoint has its own project. `_require_project_id` resolves + caches per region (`config.project_id_by_region`); the configured `GRN_PROJECT_ID` belongs to the default region only.
+- **Flavors and volume types are zone-scoped** (zone = the chosen subnet's availability zone). `list_flavors` / `list_volume_types` take `cluster_id` + `subnet_id`; `_resolve_zone_context` locates the cluster (tries each region, cached) and derives the zone — agents never pass region/zone. Worker flavors come from the two-step `flavor_zones/customs/clusters/master/false?zoneId=` → `/{fzid}/flavors` flow (the flat `/flavors/customs/clusters` endpoint always returns `[]`); volume types are pinned to NVME, users pick an IOPS tier.
 
 ## Server flags
 
@@ -64,7 +69,9 @@ Node-group write DTOs:
 
 | File | Purpose |
 |------|---------|
-| `server.py` | FastMCP entry point, handler registration, CLI flags, auth modes |
+| `server.py` | FastMCP entry point, handler registration, CLI flags, auth modes, SERVER_INSTRUCTIONS + runtime-mode addendum |
+| `tool_annotations.py` | Shared `READ`/`WRITE`/`DESTRUCTIVE` ToolAnnotations constants |
+| `paging.py` | `fetch_all_vks_items` — fetch-all for VKS's enforced paging |
 | `config.py` | VksConfig + REGIONS endpoints; credential/profile loading delegates to `mcp_core.config.load_profile` |
 | `auth.py` | Re-export of `mcp_core.auth.TokenManager` (IAM client credentials, auto-refresh) |
 | `client.py` | VksClient extends `mcp_core.http.BaseClient` — adds the vServer service and default service `vks` |
@@ -75,9 +82,9 @@ Node-group write DTOs:
 | `k8s_apis.py` | K8s API client wrapper using kubernetes library |
 | `k8s_client_cache.py` | TTL cache for K8s clients (840s) |
 | `version_handler.py` | 1 tool (cluster versions) |
-| `discovery_handler.py` | 8 discovery tools (vpc/subnet/flavor/sshkey/secgroup/volumetype/placementgroup lists + quota) — vServer + VKS quota, name→ID resolution for create bodies |
+| `discovery_handler.py` | 8 discovery tools (vpc/subnet/flavor/sshkey/secgroup/volumetype/placementgroup lists + quota) — vServer + VKS quota, name→ID resolution, `_resolve_zone_context` / `_locate_cluster` |
 | `discovery_cache.py` | Package TTL config on top of `mcp_core.cache.DiscoveryCache` |
-| `prompts_handler.py` | 3 MCP prompts (getting-started, create-cluster, create-nodegroup) |
+| `prompts_handler.py` | 3 MCP prompts + the `get_creation_guide` tool (same guidance text) |
 | `models.py` | Pydantic models + markdown formatters for responses |
 
 ## Testing
