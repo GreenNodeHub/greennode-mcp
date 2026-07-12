@@ -177,3 +177,15 @@ async def test_create_cluster_prompt_question_order_and_rules():
     assert "MỘT cấu hình" in text  # one setting per question
     assert "ĐẦY ĐỦ" in text  # full plan before confirm
     assert "nodeNetmaskSize" in text
+
+
+@pytest.mark.asyncio
+async def test_create_cluster_service_endpoint_only_asked_when_private():
+    """ServiceEndpoint is the private-connectivity mechanism — a public cluster
+    must not be asked about it."""
+    server = create_server()
+    text = await _prompt_text(server, "vks_create_cluster", {})
+    assert "Chỉ khi private" in text
+    # the conditional guard sits on the ServiceEndpoint step itself
+    seg = text[text.index("Chỉ khi private") : text.index("Chỉ khi private") + 200]
+    assert "enabledServiceEndpointPlugin" in seg

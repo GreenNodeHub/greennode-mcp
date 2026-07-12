@@ -82,7 +82,9 @@ def _create_cluster_guidance() -> str:
       riêng "có muốn thêm mô tả không?".
    b. Public/private: `enablePrivateCluster` (mặc định false → API server có
       endpoint public).
-   c. `enabledServiceEndpointPlugin` (mặc định tắt).
+   c. Chỉ khi private (`enablePrivateCluster=true`): hỏi
+      `enabledServiceEndpointPlugin` (mặc định tắt). Cluster public → BỎ QUA
+      bước này, không hỏi.
    d. `list_cluster_versions` → user chọn `version` (ưu tiên bản recommended);
       `releaseChannel` mặc định `STABLE`.
    e. azStrategy: `SINGLE` (mặc định) / `MULTI` (HA).
