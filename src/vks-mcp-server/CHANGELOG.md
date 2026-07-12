@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.7.0...vks-mcp-server-v0.8.0) (2026-07-12)
+
+
+### Features
+
+* create_cluster gets the pinned question order and one-setting rules ([#33](https://github.com/vngcloud/greennode-mcp/issues/33)) ([d3a9d45](https://github.com/vngcloud/greennode-mcp/commit/d3a9d45566472b1efe7856e13046338ad3cec7d1))
+* create_nodegroup asks the user about each optional config group ([#28](https://github.com/vngcloud/greennode-mcp/issues/28)) ([4ee6226](https://github.com/vngcloud/greennode-mcp/commit/4ee62266e151f7193b8da6e610de9eb2e20103d8))
+* get_creation_guide serves the create choreography on demand ([#34](https://github.com/vngcloud/greennode-mcp/issues/34)) ([1a1ecaf](https://github.com/vngcloud/greennode-mcp/commit/1a1ecafe3a1d27c8609edae0ad43aa1921e2016c))
+* node-group questions follow a fixed order, one setting per question ([0385b9a](https://github.com/vngcloud/greennode-mcp/commit/0385b9a5aad768af24a3ca3e7db3584a1d4926f9))
+* SERVER_INSTRUCTIONS carry the session's runtime mode (EKS pattern) ([#36](https://github.com/vngcloud/greennode-mcp/issues/36)) ([1406137](https://github.com/vngcloud/greennode-mcp/commit/140613701f5d54b14dbeb6492f26d9eb03cab32b))
+
+
+### Bug Fixes
+
+* only ask about ServiceEndpoint when the cluster is private ([#35](https://github.com/vngcloud/greennode-mcp/issues/35)) ([77aac6a](https://github.com/vngcloud/greennode-mcp/commit/77aac6ab2583f40b48fe56a887e6f55d12c201b9))
+
+
+### Documentation
+
+* catch READMEs and CLAUDE.md files up with the guidance/paging work ([#37](https://github.com/vngcloud/greennode-mcp/issues/37)) ([9363c59](https://github.com/vngcloud/greennode-mcp/commit/9363c593486832971b62a36aa795d80d24799764))
+
 ## [0.7.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.6.0...vks-mcp-server-v0.7.0) (2026-07-11)
 
 
