@@ -240,3 +240,24 @@ async def test_create_docstrings_are_slim_and_point_at_the_guide(all_tools_mcp):
         desc = tools[name].description
         assert "get_creation_guide" in desc, f"{name} must point at the guide tool"
         assert len(desc) < 1200, f"{name} description grew back to {len(desc)} chars"
+
+
+def test_server_instructions_reflect_runtime_mode():
+    """EKS-pattern mode addendum: the agent learns THIS session's write mode at
+    initialize — a read-only session must say so up front, so the agent refuses
+    a create flow immediately instead of failing after the whole conversation."""
+    from greennode.vks_mcp_server.server import create_server
+
+    ro = create_server(allow_write=False).instructions
+    assert "## This session" in ro
+    assert "read-only" in ro
+    assert "do NOT start" in ro or "Do NOT start" in ro  # refuse create flows up front
+    assert "--allow-write" in ro
+
+    rw = create_server(allow_write=True).instructions
+    assert "## This session" in rw
+    assert "enabled" in rw.lower()
+    assert "confirm" in rw  # writes still go through the confirm gate
+
+    sens = create_server(allow_write=True, allow_sensitive_data_access=True).instructions
+    assert "Secrets" in sens

@@ -178,18 +178,54 @@ def _resolve_auth(args) -> tuple[str, JwtAuthConfig | None, str | None]:
     return mode, jwt_config, api_key
 
 
-def create_server(jwt_config: JwtAuthConfig | None = None, auth_debug: bool = False) -> FastMCP:
+def _mode_addendum(allow_write: bool, allow_sensitive_data_access: bool) -> str:
+    """Runtime-mode addendum for SERVER_INSTRUCTIONS (EKS pattern).
+
+    The server knows this session's mode at startup — telling the agent up
+    front turns "the create fails after the whole guided conversation" into
+    "the agent refuses the flow in its first reply".
+    """
+    if allow_write:
+        write = (
+            "- Write: ENABLED — create/update/delete/scale tools are available. "
+            "Every write still goes through the plan review + explicit user "
+            "confirmation gate."
+        )
+    else:
+        write = (
+            "- Write: OFF — this session is read-only; create/update/delete/scale "
+            "tools are NOT registered. If the user asks for one, do NOT start the "
+            "creation flow or ask any configuration question: tell them immediately "
+            "to restart the server with --allow-write."
+        )
+    if allow_sensitive_data_access:
+        sensitive = "- Sensitive data: ENABLED — Kubernetes Secrets can be read."
+    else:
+        sensitive = (
+            "- Sensitive data: OFF — reading Kubernetes Secrets requires restarting "
+            "with --allow-sensitive-data-access."
+        )
+    return f"\n## This session (runtime mode)\n\n{write}\n{sensitive}\n"
+
+
+def create_server(
+    jwt_config: JwtAuthConfig | None = None,
+    auth_debug: bool = False,
+    allow_write: bool = False,
+    allow_sensitive_data_access: bool = False,
+) -> FastMCP:
     """Create and return a FastMCP server instance.
 
     When jwt_config is provided, the server runs as an OAuth 2.1 Resource Server
     (verify Bearer JWT + emit 401/WWW-Authenticate + Protected Resource Metadata).
     """
+    instructions = SERVER_INSTRUCTIONS + _mode_addendum(allow_write, allow_sensitive_data_access)
     if jwt_config is not None:
         from mcp.server.auth.settings import AuthSettings
 
         server = FastMCP(
             "vks-mcp-server",
-            instructions=SERVER_INSTRUCTIONS,
+            instructions=instructions,
             token_verifier=JwtTokenVerifier(jwt_config),
             auth=AuthSettings(
                 issuer_url=jwt_config.issuer,
@@ -198,7 +234,7 @@ def create_server(jwt_config: JwtAuthConfig | None = None, auth_debug: bool = Fa
             ),
         )
     else:
-        server = FastMCP("vks-mcp-server", instructions=SERVER_INSTRUCTIONS)
+        server = FastMCP("vks-mcp-server", instructions=instructions)
 
     @server.custom_route("/health", methods=["GET"])
     async def health(request: Request) -> Response:
@@ -307,7 +343,12 @@ def main() -> None:
     token_manager = TokenManager(config)
     client = VksClient(config, token_manager)
 
-    mcp = create_server(jwt_config, auth_debug=auth_debug)
+    mcp = create_server(
+        jwt_config,
+        auth_debug=auth_debug,
+        allow_write=args.allow_write,
+        allow_sensitive_data_access=args.allow_sensitive_data_access,
+    )
 
     AuthHandler(mcp, config, token_manager)
     ClusterHandler(mcp, config, client, allow_write=args.allow_write)
