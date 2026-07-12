@@ -69,29 +69,43 @@ def _create_cluster_guidance() -> str:
 1. Xác thực (`get_access_token`); lỗi auth → hướng dẫn `grn configure`.
 2. Check quota: `get_quota` — nếu `num_clusters` đã chạm `max_clusters`, dừng và
    báo người dùng (tránh create fail giữa chừng).
-3. Discovery: `list_vpcs` (chọn VPC), `list_cluster_versions` (chọn version — ưu tiên
-   bản recommended). Nếu dùng `CILIUM_NATIVE_ROUTING`: thêm `list_subnets` để lấy
-   `secondarySubnets` (mỗi subnet trả kèm danh sách `secondary_subnets`).
-4. Chọn default an toàn (đánh dấu `[auto]`, cho sửa):
-   - networkType: `CILIUM_OVERLAY` + `cidr: 10.96.0.0/16` (đơn giản nhất; đổi cidr
-     nếu trùng dải mạng hiện có). TIGERA cũng cần `cidr`;
-     `CILIUM_NATIVE_ROUTING` cần `secondarySubnets`.
-   - releaseChannel: `STABLE`. azStrategy: `SINGLE` (prod/HA cân nhắc `MULTI`).
-   - enablePrivateCluster: `false`. Plugin LB/CSI: bật; serviceEndpoint: tắt.
-   - `create_cluster` chỉ tạo control plane; thêm worker sau bằng `create_nodegroup`
-     (theo body của prompt `vks_create_nodegroup`).
-   - Tuỳ chọn: `autoUpgradeConfig` (weekdays + time), `autoHealingConfig`
-     (enableAutoHealing, maxUnhealthy, unhealthyRange, timeoutUnhealthy 5–180 phút).
-5. Trình plan đầy đủ (mỗi field + `[auto]`/`[bạn chọn]`); cho sửa field. Nêu rõ
-   default liên quan bảo mật để user xác nhận: `enablePrivateCluster=false`
-   (API server có endpoint public).
-6. Chạy `validate_cluster_create` với body; có lỗi → sửa rồi validate lại.
-7. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác =
+3. Hỏi user THEO ĐÚNG THỨ TỰ dưới đây — mỗi câu hỏi CHỈ MỘT cấu hình. KHÔNG gộp
+   hai cấu hình vào một câu; KHÔNG gộp nhiều bước tuỳ chọn vào một câu chọn-nhiều
+   — mỗi bước là một câu hỏi riêng ("Bạn có muốn cấu hình X không?"). Không bỏ
+   qua bước nào thầm lặng:
+   a. Tên cluster (5–20 ký tự: thường + số + gạch nối, đầu/cuối chữ-số);
+      `description` nhập tự do hoặc bỏ trống ngay trong bước này — KHÔNG hỏi
+      riêng "có muốn thêm mô tả không?".
+   b. Public/private: `enablePrivateCluster` (mặc định false → API server có
+      endpoint public).
+   c. `enabledServiceEndpointPlugin` (mặc định tắt).
+   d. `list_cluster_versions` → user chọn `version` (ưu tiên bản recommended);
+      `releaseChannel` mặc định `STABLE`.
+   e. azStrategy: `SINGLE` (mặc định) / `MULTI` (HA).
+   f. `list_vpcs` → user chọn → `vpcId`.
+   g. `list_subnets vpc_id=<vpcId>` → SINGLE: chọn 1 → `subnetId`;
+      MULTI: chọn nhiều → `listSubnetIds`.
+   h. networkType: `CILIUM_OVERLAY` + `cidr: 10.96.0.0/16` (mặc định — đổi cidr
+      nếu trùng dải mạng hiện có); `TIGERA` cũng cần `cidr`;
+      `CILIUM_NATIVE_ROUTING` → chọn `secondarySubnets` (mỗi subnet trả kèm
+      `secondary_subnets`) và hỏi `nodeNetmaskSize`.
+   i. Tuỳ chọn: plugins — `enabledLoadBalancerPlugin`,
+      `enabledBlockStoreCsiPlugin` (mặc định bật cả hai).
+   j. Tuỳ chọn: `autoUpgradeConfig` (weekdays + time).
+   k. Tuỳ chọn: `autoHealingConfig` (enableAutoHealing, maxUnhealthy,
+      unhealthyRange, timeoutUnhealthy 5–180 phút).
+4. Chạy `validate_cluster_create` với body; có lỗi → sửa rồi validate lại.
+5. Trình plan ĐẦY ĐỦ — bảng mọi field + giá trị, đánh dấu `[auto]`/`[bạn chọn]`
+   (gồm cả `poc=false`, `autoRenewal=true`); cho sửa field. Bảng phải nằm NGAY
+   TRONG cùng tin nhắn với câu hỏi xác nhận, ngay phía trên nó — KHÔNG được hỏi
+   "Xác nhận tạo?" mà chỉ tham chiếu "cấu hình trên" từ tin nhắn trước.
+6. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác =
    điều chỉnh, trình lại plan.
-8. Gọi `create_cluster`. Poll `get_cluster` tới `ACTIVE` (~15–20 phút, báo mỗi lần
+7. Gọi `create_cluster` — chỉ tạo control plane; thêm worker sau bằng
+   `create_nodegroup`. Poll `get_cluster` tới `ACTIVE` (~15–20 phút, báo mỗi lần
    đổi trạng thái). Timeout/`ERROR` → xem `get_cluster_events` và báo nguyên nhân.
-9. Sau khi ACTIVE: nếu control-plane-only, tiếp tục luồng `vks_create_nodegroup`
-   để thêm worker; lấy kubeconfig bằng `get_cluster_kubeconfig`.
+8. Sau khi ACTIVE: tiếp tục luồng `vks_create_nodegroup` để thêm worker; lấy
+   kubeconfig bằng `get_cluster_kubeconfig`.
 
 ## Lưu ý
 - Tên cluster 5–20 ký tự (thường + số + gạch nối, đầu/cuối chữ-số).
@@ -144,9 +158,10 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
       + id từ `list_placement_groups`).
    l. Tuỳ chọn: `labels` / `taints` / `tags`.
    Truyền `refresh: true` cho discovery nếu người dùng vừa tạo tài nguyên ở console.
-5. Trình plan ĐẦY ĐỦ trước khi hỏi xác nhận — bảng mọi field + giá trị, đánh dấu
-   `[auto]`/`[bạn chọn]`; cho sửa field. KHÔNG được hỏi "Xác nhận tạo?" khi chưa
-   show toàn bộ cấu hình.
+5. Trình plan ĐẦY ĐỦ — bảng mọi field + giá trị, đánh dấu `[auto]`/`[bạn chọn]`;
+   cho sửa field. Bảng phải nằm NGAY TRONG cùng tin nhắn với câu hỏi xác nhận,
+   ngay phía trên nó — KHÔNG được hỏi "Xác nhận tạo?" mà chỉ tham chiếu "cấu
+   hình trên" từ tin nhắn trước.
 6. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác = điều chỉnh, trình lại plan.
 7. Gọi `create_nodegroup` với body dạng:
    `{{"name","numNodes","flavorId","diskSize","diskType":"<id từ list_volume_types>","subnetId":"<subnet đã chọn>","os":"ubuntu","enablePrivateNodes":false,"securityGroups":[...],"sshKeyId":...}}`

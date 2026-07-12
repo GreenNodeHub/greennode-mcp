@@ -159,3 +159,21 @@ async def test_create_nodegroup_prompt_question_order():
     assert positions == sorted(positions), (
         f"question order broken: {[a for _, a in sorted(zip(positions, anchors))]}"
     )
+
+
+@pytest.mark.asyncio
+async def test_create_cluster_prompt_question_order_and_rules():
+    """Prompt mirrors the cluster question order and the one-setting rules."""
+    from tests.test_tool_annotations import CLUSTER_QUESTION_ANCHORS
+
+    server = create_server()
+    text = await _prompt_text(server, "vks_create_cluster", {})
+    anchors = [a for a in CLUSTER_QUESTION_ANCHORS if a not in ("5-20", "FULL body")]
+    anchors[anchors.index("get_quota")] = "get_quota"
+    positions = [text.index(a) for a in anchors]
+    assert positions == sorted(positions), (
+        f"question order broken: {[a for _, a in sorted(zip(positions, anchors))]}"
+    )
+    assert "MỘT cấu hình" in text  # one setting per question
+    assert "ĐẦY ĐỦ" in text  # full plan before confirm
+    assert "nodeNetmaskSize" in text

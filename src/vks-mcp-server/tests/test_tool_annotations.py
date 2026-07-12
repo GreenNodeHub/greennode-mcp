@@ -250,6 +250,45 @@ async def test_create_nodegroup_one_setting_per_question_and_full_plan(all_tools
     low = desc.lower()
     assert "one setting per question" in low
     assert "bundle" in low or "combine" in low  # anti-bundling stated
-    # full plan must be shown BEFORE asking to confirm
+    # full plan must be shown BEFORE asking to confirm, in the SAME message
     assert "full body" in low
     assert "never ask" in low and "confirm" in low
+    assert "same message" in low
+
+
+CLUSTER_QUESTION_ANCHORS = [
+    "get_quota",
+    "5-20",  # the name question (length rule)
+    "enablePrivateCluster",
+    "ServiceEndpoint",
+    "list_cluster_versions",
+    "azStrategy",
+    "list_vpcs",
+    "listSubnetIds",  # subnet step: subnetId (SINGLE) / listSubnetIds (MULTI)
+    "CILIUM_OVERLAY",  # the networkType question
+    "LoadBalancer",
+    "autoUpgradeConfig",
+    "autoHealingConfig",
+    "validate_cluster_create",
+    "FULL body",
+]
+
+
+@pytest.mark.asyncio
+async def test_create_cluster_question_order_and_rules(all_tools_mcp):
+    """create_cluster gets the same treatment as create_nodegroup: a pinned
+    question order, one setting per question, no merged multi-selects, and
+    the full plan shown before asking to confirm."""
+    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
+    desc = tools["create_cluster"].description
+    positions = [desc.index(a) for a in CLUSTER_QUESTION_ANCHORS]
+    assert positions == sorted(positions), (
+        f"question order broken: {[a for _, a in sorted(zip(positions, CLUSTER_QUESTION_ANCHORS))]}"
+    )
+    low = desc.lower()
+    assert "one setting per question" in low
+    assert "bundle" in low or "combine" in low
+    assert "never ask" in low and "confirm" in low
+    assert "same message" in low  # plan and confirm question travel together
+    # azStrategy decides the subnet shape; nodeNetmaskSize belongs to NATIVE_ROUTING
+    assert "nodeNetmaskSize" in desc

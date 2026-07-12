@@ -390,17 +390,43 @@ class ClusterHandler:
         - Server must run with --allow-write
 
         ## Workflow (run every discovery call in the target region)
+        Ask the user in THIS order — ONE setting per question. Never bundle
+        two settings into one question, and never merge several optional
+        steps into one multi-select — each step below is its own question.
+        Never skip a step silently.
         1. get_quota -> stop if `num_clusters` already equals `max_clusters`.
-        2. list_vpcs -> user picks -> `vpcId`.
-        3. list_cluster_versions -> pick `version` / `releaseChannel`.
-        4. CILIUM_NATIVE_ROUTING only: list_subnets(vpc_id) -> `secondarySubnets`.
-        5. validate_cluster_create with the body -> fix every reported error.
-        6. create_cluster, then poll get_cluster until `status` is ACTIVE
-           (~15-20 min) and add workers via create_nodegroup.
+        2. Ask `name` (5-20 chars: lowercase + digits + hyphens, letter/digit
+           at both ends); `description` is free-text the user may type or
+           leave blank in the same step — do NOT ask a separate "do you want
+           a description?" yes/no question.
+        3. Ask public/private: enablePrivateCluster (default false = the API
+           server endpoint is PUBLIC).
+        4. Ask enabledServiceEndpointPlugin (default off).
+        5. list_cluster_versions -> user picks `version` (prefer the
+           recommended one); `releaseChannel` defaults to STABLE.
+        6. Ask azStrategy: SINGLE (default) | MULTI (HA).
+        7. list_vpcs -> user picks -> `vpcId`.
+        8. list_subnets(vpc_id) -> SINGLE: user picks one -> `subnetId`;
+           MULTI: user picks several -> `listSubnetIds`.
+        9. Ask networkType: CILIUM_OVERLAY + `cidr` (default, e.g.
+           10.96.0.0/16) | TIGERA + `cidr` | CILIUM_NATIVE_ROUTING -> pick
+           `secondarySubnets` from list_subnets and ask `nodeNetmaskSize`.
+        10. Optional: plugins — enabledLoadBalancerPlugin,
+            enabledBlockStoreCsiPlugin (both default on).
+        11. Optional: autoUpgradeConfig (weekdays + time).
+        12. Optional: autoHealingConfig.
+        13. validate_cluster_create with the body -> fix every reported error.
+        14. Present the FULL body — every field with its value, defaults
+            marked — in the SAME message as the confirmation question, the
+            table immediately above it. Never ask "confirm?" while only
+            referring back to configuration shown earlier ("the config
+            above").
+        15. create_cluster, then poll get_cluster until `status` is ACTIVE
+            (~15-20 min) and add workers via create_nodegroup.
 
-        IMPORTANT: resolve `vpcId` via list_vpcs — never invent it — and present
-        the resolved body to the user for confirmation before calling. Full
-        guided flow: prompt `vks_create_cluster`.
+        IMPORTANT: resolve `vpcId` and every subnet id via the discovery
+        tools — never invent one. Full guided flow: prompt
+        `vks_create_cluster`.
         """
         args = {"body": body.model_dump(exclude_none=True), "poc": poc, "autoRenewal": autoRenewal}
         if region is not None:

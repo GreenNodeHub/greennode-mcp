@@ -221,9 +221,10 @@ class NodeGroupHandler:
             type=EXISTING).
         13. Optional: scheduling metadata — labels, taints, tags.
         14. Present the FULL body — every field with its value, defaults
-            marked — THEN ask for confirmation. Never ask "confirm?" without
-            having shown the complete plan first, and wait for explicit
-            confirmation before calling.
+            marked — in the SAME message as the confirmation question, the
+            table immediately above it. Never ask "confirm?" while only
+            referring back to configuration shown earlier ("the config
+            above"). Wait for explicit confirmation before calling.
 
         IMPORTANT: resolve every id above via the discovery tools — never
         invent one. Full guided flow: prompt `vks_create_nodegroup`.
