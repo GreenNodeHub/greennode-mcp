@@ -494,8 +494,6 @@ class DiscoveryHandler:
     ) -> VpcListData:
         """List ACTIVE VPCs (networks) in the project.
 
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
-
         Returns minimal items {id, name, enabled_dns}; non-ACTIVE VPCs are
         excluded because they cannot host new clusters or node groups.
 
@@ -539,8 +537,6 @@ class DiscoveryHandler:
         ),
     ) -> SubnetListData:
         """List ACTIVE subnets of a VPC.
-
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
 
         Returns minimal items {id, name, zone, secondary_subnets}; non-ACTIVE
         subnets are excluded because nodes cannot join them.
@@ -590,8 +586,6 @@ class DiscoveryHandler:
     ) -> FlavorListData:
         """List worker flavors (node sizes) available to a cluster's chosen subnet.
 
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
-
         Returns {region, zone, need, flavors[{id, name, vcpu, ram_gb, gpu, group}]};
         sold-out flavors are excluded. Each flavor is tagged with a suggested
         deployment-need `group`. Region and availability zone are derived from
@@ -639,8 +633,6 @@ class DiscoveryHandler:
     ) -> SshKeyListData:
         """List SSH keys in the project, for one region.
 
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
-
         Returns {region, ssh_keys[{id, name}]}. The `region` field echoes which
         region was queried — check it matches what the user wanted before using
         the keys (a wrong/empty result usually means the wrong region).
@@ -677,8 +669,6 @@ class DiscoveryHandler:
         ),
     ) -> SecgroupListData:
         """List ACTIVE security groups in the project, for one region.
-
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
 
         Returns {region, secgroups[{id, name}]}; non-ACTIVE groups are excluded.
         The `region` field echoes which region was queried — check it matches
@@ -719,8 +709,6 @@ class DiscoveryHandler:
     ) -> VolumeTypeListData:
         """List NVME volume types (disk types) available to a cluster's chosen subnet.
 
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
-
         Returns {region, zone, volume_types[{id, iops}]}. Node groups use NVME
         disks; region and availability zone are derived from the cluster and
         subnet server-side — a mismatch is impossible. The user picks by **IOPS**.
@@ -759,8 +747,6 @@ class DiscoveryHandler:
         ),
     ) -> PlacementGroupListData:
         """List placement groups (vServer server groups) in the project.
-
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
 
         Returns minimal items {id, name}. Only needed for the advanced
         create_nodegroup option `placementGroupConfigDto` with type=EXISTING.

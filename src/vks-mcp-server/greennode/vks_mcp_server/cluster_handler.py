@@ -357,8 +357,6 @@ class ClusterHandler:
     ) -> ClusterListData:
         """List every VKS cluster in a region (all pages fetched automatically).
 
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
-
         Returns ClusterListData: the queried `region` plus ClusterSummary items
         {id, name, status, version, ...}. Use this to resolve a cluster name the
         user mentions to its `id`, then call get_cluster for full detail —

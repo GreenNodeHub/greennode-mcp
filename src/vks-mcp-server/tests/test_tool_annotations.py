@@ -289,17 +289,3 @@ async def test_auto_healing_and_upgrade_descriptions_route_intent(all_tools_mcp)
     up = tools["configure_auto_upgrade"].description
     assert "schedule" in up.lower()  # what it actually sets
     assert "delete_auto_upgrade" in up  # how to turn it OFF (separate tool)
-
-
-@pytest.mark.asyncio
-async def test_every_list_tool_teaches_id_first_rendering(all_tools_mcp):
-    """Field finding x2: agents rendered tables without the id column (or with
-    it last and truncated) even with the instructions-level rule. The hint now
-    lives in each list tool's docstring — the text read at call time."""
-    tools = {t.name: t for t in await all_tools_mcp.list_tools()}
-    for name, t in tools.items():
-        # list_api_versions has no resources; k8s resources are identified by
-        # name+namespace, not a VKS-style id.
-        if not name.startswith("list_") or name in ("list_api_versions", "list_k8s_resources"):
-            continue
-        assert "FIRST two columns" in (t.description or ""), f"{name} missing id-first hint"

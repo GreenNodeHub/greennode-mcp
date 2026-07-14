@@ -250,8 +250,6 @@ class NodeGroupHandler:
     ) -> NodeGroupListData:
         """Lists all node groups in a VKS cluster.
 
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
-
         Returns a NodeGroupListData model (structured) containing the cluster name and
         a list of NodeGroupSummary items. Call .to_markdown() to render as a table.
         """
@@ -499,8 +497,6 @@ class NodeGroupHandler:
         region: Region = Field("HCM-3", description="Region the cluster lives in"),
     ) -> NodesData:
         """List every node of a node group (all pages fetched automatically).
-
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
 
         Returns a NodesData model (structured) with the nodes of a node group.
         """

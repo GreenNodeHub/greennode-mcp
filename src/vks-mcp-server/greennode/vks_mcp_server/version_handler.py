@@ -78,8 +78,6 @@ class VersionHandler:
     ) -> VersionsData:
         """List available Kubernetes versions for VKS clusters.
 
-        Present to the user with `id` and `name` as the FIRST two columns; never omit or truncate ids.
-
         Only shows enabled versions and marks the latest stable non-deprecated
         version as recommended. Call this before create_cluster to choose a
         valid version and releaseChannel.
