@@ -169,15 +169,17 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
       + id từ `list_placement_groups`).
    l. Tuỳ chọn: `labels` / `taints` / `tags`.
    Truyền `refresh: true` cho discovery nếu người dùng vừa tạo tài nguyên ở console.
-5. Trình plan ĐẦY ĐỦ — bảng mọi field + giá trị, đánh dấu `[auto]`/`[bạn chọn]`;
+5. Chạy `validate_nodegroup_create` với cluster_id + body; có lỗi → sửa rồi
+   validate lại.
+6. Trình plan ĐẦY ĐỦ — bảng mọi field + giá trị, đánh dấu `[auto]`/`[bạn chọn]`;
    cho sửa field. Bảng phải nằm NGAY TRONG cùng tin nhắn với câu hỏi xác nhận,
    ngay phía trên nó — KHÔNG được hỏi "Xác nhận tạo?" mà chỉ tham chiếu "cấu
    hình trên" từ tin nhắn trước.
-6. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác = điều chỉnh, trình lại plan.
-7. Gọi `create_nodegroup` với body dạng:
+7. HARD GATE: chờ xác nhận rõ ràng (`ok`/`confirm`/`proceed`/...). Input khác = điều chỉnh, trình lại plan.
+8. Gọi `create_nodegroup` với body dạng:
    `{{"name","numNodes","flavorId","diskSize","diskType":"<id từ list_volume_types>","subnetId":"<subnet đã chọn>","os":"ubuntu","enablePrivateNodes":false,"securityGroups":[...],"sshKeyId":...}}`
    cộng các mục user đã chọn ở bước 4.
-8. Poll `get_nodegroup` tới `ACTIVE` (~10 phút, báo mỗi lần đổi trạng thái). Timeout/`ERROR` → kiểm tra và báo nguyên nhân.
+9. Poll `get_nodegroup` tới `ACTIVE` (~10 phút, báo mỗi lần đổi trạng thái). Timeout/`ERROR` → kiểm tra và báo nguyên nhân.
 
 ## Lưu ý
 - Không có SSH key (`list_ssh_keys` rỗng) → dừng, hướng dẫn tạo key ở GreenNode console (vServer → SSH Keys), rồi resume với `list_ssh_keys refresh=true`.

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import re
 from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.config import Region, VksConfig
+from greennode.vks_mcp_server.discovery_cache import DiscoveryCache
 from greennode.vks_mcp_server.models import (
     CreateNodeGroupDto,
     NodeGroupDetail,
@@ -103,16 +105,32 @@ async def _nodegroup_delete_dryrun(
 # ---------------------------------------------------------------------------
 
 
+_NODEGROUP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{3,13}[a-z0-9]$")
+
+
 class NodeGroupHandler:
     """Register and serve VKS node-group-management MCP tools."""
 
-    def __init__(self, mcp, config: VksConfig, client: VksClient, allow_write: bool = False):
+    def __init__(
+        self,
+        mcp,
+        config: VksConfig,
+        client: VksClient,
+        allow_write: bool = False,
+        cache: DiscoveryCache | None = None,
+    ):
         self.mcp = mcp
         self.config = config
         self.client = client
         self.allow_write = allow_write
+        # Shared with the discovery tools when the server wires it; a private
+        # instance otherwise (tests, standalone use).
+        self.cache = cache or DiscoveryCache()
 
         # Read-only tools
+        self.mcp.tool(name="validate_nodegroup_create", annotations=READ)(
+            self.validate_nodegroup_create
+        )
         self.mcp.tool(name="list_nodegroups", annotations=READ)(self.list_nodegroups)
         self.mcp.tool(name="get_nodegroup", annotations=READ)(self.get_nodegroup)
         self.mcp.tool(name="list_nodes", annotations=READ)(self.list_nodes)
@@ -131,6 +149,99 @@ class NodeGroupHandler:
             self.mcp.tool(name="upgrade_nodegroup_version", annotations=DESTRUCTIVE)(
                 self.upgrade_nodegroup_version
             )
+
+    async def validate_nodegroup_create(
+        self,
+        cluster_id: str = Field(..., description="VKS Cluster ID the node group will join"),
+        body: CreateNodeGroupDto = Field(
+            ..., description="The exact body you intend to pass to create_nodegroup"
+        ),
+    ) -> str:
+        """Validate a create_nodegroup body BEFORE creating — free and non-mutating.
+
+        Local rules (name 5-15 chars: lowercase + digits + hyphens, letter/digit
+        at both ends; autoscale bounds) plus cross-checks against live discovery
+        (cached): the subnet belongs to the cluster's VPC, flavorId and diskType
+        exist in the subnet's availability zone, sshKeyId and securityGroups
+        exist in the cluster's region. Returns "valid" or every problem found,
+        each with the discovery tool that fixes it.
+
+        ## Workflow
+        - create_nodegroup flow: call this right after collecting all settings
+          and BEFORE presenting the final plan — fix every reported error,
+          re-validate, then present the plan and create.
+        """
+        validate_id(cluster_id, "cluster_id")
+        errors: list[str] = []
+
+        if not _NODEGROUP_NAME_RE.match(body.name):
+            errors.append(
+                "name: must be 5-15 chars (lowercase letters, digits, hyphens; "
+                "letter/digit at both ends)"
+            )
+        if body.autoScaleConfig and body.autoScaleConfig.minSize > body.autoScaleConfig.maxSize:
+            errors.append("autoScaleConfig: minSize must be <= maxSize")
+        if not body.subnetId:
+            errors.append("subnetId: required — let the user pick one via list_subnets")
+            return self._validation_report(errors)
+
+        from greennode.vks_mcp_server.discovery_handler import (
+            _flavor_list,
+            _resolve_zone_context,
+            _secgroup_list,
+            _sshkey_list,
+            _volumetype_list,
+        )
+
+        try:
+            region, zone = await _resolve_zone_context(
+                self.config, self.client, self.cache, cluster_id, body.subnetId
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            return self._validation_report(errors)
+
+        flavors = await _flavor_list(
+            self.config, self.client, self.cache, zone=zone, region=region
+        )
+        if body.flavorId not in {f.id for f in flavors.flavors}:
+            errors.append(
+                f"flavorId '{body.flavorId}' is not an available worker flavor in zone "
+                f"{zone} — pick from list_flavors(cluster_id, subnet_id)"
+            )
+
+        vtypes = await _volumetype_list(
+            self.config, self.client, self.cache, zone=zone, region=region
+        )
+        if body.diskType not in {v.id for v in vtypes.volume_types}:
+            errors.append(
+                f"diskType '{body.diskType}' is not a volume-type id in zone {zone} — "
+                "pick from list_volume_types(cluster_id, subnet_id)"
+            )
+
+        keys = await _sshkey_list(self.config, self.client, self.cache, region=region)
+        if body.sshKeyId not in {k.id for k in keys.ssh_keys}:
+            errors.append(
+                f"sshKeyId '{body.sshKeyId}' does not exist in region {region} — "
+                "pick from list_ssh_keys"
+            )
+
+        if body.securityGroups:
+            sgs = await _secgroup_list(self.config, self.client, self.cache, region=region)
+            unknown = set(body.securityGroups) - {g.id for g in sgs.secgroups}
+            if unknown:
+                errors.append(
+                    f"securityGroups {sorted(unknown)} do not exist in region {region} — "
+                    "pick from list_security_groups"
+                )
+
+        return self._validation_report(errors)
+
+    @staticmethod
+    def _validation_report(errors: list[str]) -> str:
+        if not errors:
+            return "valid"
+        return "invalid:\n- " + "\n- ".join(errors)
 
     async def list_nodegroups(
         self,
@@ -201,9 +312,10 @@ class NodeGroupHandler:
            zone scopes the next two) -> list_flavors(cluster_id, subnet_id)
            (flavorId) -> list_volume_types(cluster_id, subnet_id) (diskType)
            -> list_ssh_keys (sshKeyId); get_quota before starting.
-        3. Present the FULL body in the same message as the confirmation
-           question, wait for explicit confirmation, then call and poll
-           get_nodegroup until ACTIVE.
+        3. validate_nodegroup_create with the body -> fix every reported
+           error, then present the FULL body in the same message as the
+           confirmation question, wait for explicit confirmation, then call
+           and poll get_nodegroup until ACTIVE.
 
         IMPORTANT: call get_creation_guide FIRST, and never invent an id —
         every id above comes from a discovery tool.

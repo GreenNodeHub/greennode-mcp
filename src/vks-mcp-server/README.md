@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server that gives AI assistants (Claude, Cursor,
 Gemini, etc.) tools to manage **VKS — GreenNode Kubernetes Service** clusters and the
 Kubernetes resources inside them.
 
-- **40 tools** across 7 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s, Guidance
+- **41 tools** across 7 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s, Guidance
 - Fully **async** (httpx) on the **FastMCP** framework
 - Read-only by default; write and sensitive-data access are opt-in via flags — and the server instructions tell the agent which mode **this** session runs in
 - Every tool declares MCP **ToolAnnotations** (`readOnlyHint`/`destructiveHint`), so clients can auto-approve reads and warn before destructive calls
@@ -125,7 +125,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `configure_auto_healing` | **write** | Configure node auto-healing |
 | `generate_kubeconfig` | **write** | Mint a kubeconfig (async; required once for a new cluster) |
 
-### Node group (9)
+### Node group (10)
 
 | Tool | Access | Description |
 |------|--------|-------------|
@@ -133,6 +133,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `get_nodegroup` | read | Full node-group detail (incl. subnet, encryption, placement) |
 | `list_nodes` | read | Nodes of a node group (floating/fixed IP, ready, poc) |
 | `delete_nodegroup_dryrun` | read | Preview a node-group deletion |
+| `validate_nodegroup_create` | read | Validate a create body before creating (name rules + subnet-in-VPC + flavor/diskType-in-zone + key/secgroup existence) |
 | `create_nodegroup` | **write** | Create a node group (full CLI parity: os, labels/taints/tags, autoscale, placement, encryption, private subnet) |
 | `update_nodegroup` | **write** | Update numNodes / securityGroups / autoScaleConfig / upgradeConfig |
 | `update_nodegroup_metadata` | **write** | Update labels, tags, taints (`PATCH .../metadata`) |
@@ -222,7 +223,7 @@ cd src/vks-mcp-server
 # Read-only (28 tools)
 npx @modelcontextprotocol/inspector uv run vks-mcp-server
 
-# All 40 tools (write + sensitive data)
+# All 41 tools (write + sensitive data)
 npx @modelcontextprotocol/inspector \
   uv run vks-mcp-server --allow-write --allow-sensitive-data-access
 ```

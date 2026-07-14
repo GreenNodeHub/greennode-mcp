@@ -591,3 +591,155 @@ async def test_nodegroup_delete_force(handler_write, respx_mock):
         cluster_id="k8s-abc", nodegroup_id="ng-001", force_delete=False, region=None
     )
     assert "forceDelete" not in route.calls.last.request.url.params
+
+
+# ---------------------------------------------------------------------------
+# validate_nodegroup_create — local rules + discovery cross-checks
+# ---------------------------------------------------------------------------
+
+VS_BASE = "https://hcm-3.api.vngcloud.vn/vserver/vserver-gateway"
+_PID = "pro-test-0001"
+
+
+def _valid_ng_body(**over):
+    body = {
+        "name": "web-workers",
+        "flavorId": "flav-ok",
+        "diskType": "vtype-ok",
+        "diskSize": 100,
+        "numNodes": 2,
+        "sshKeyId": "ssh-ok",
+        "subnetId": "sub-ok",
+    }
+    body.update(over)
+    return CreateNodeGroupDto(**body)
+
+
+def _mock_validation_chain(respx_mock):
+    """Cluster + full zone-scoped discovery chain, all healthy."""
+    respx_mock.get(f"{VKS_BASE}/v1/clusters/k8s-abc").mock(
+        return_value=httpx.Response(200, json={"uid": "k8s-abc", "vpcId": "net-1"})
+    )
+    respx_mock.get(f"{VS_BASE}/v2/{_PID}/networks/net-1/subnets").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "listData": [
+                    {
+                        "uuid": "sub-ok",
+                        "name": "s1",
+                        "status": "ACTIVE",
+                        "zone": {"uuid": "HCM03-1A", "name": "1A"},
+                    }
+                ],
+                "totalItem": 1,
+            },
+        )
+    )
+    respx_mock.get(f"{VS_BASE}/v1/{_PID}/flavor_zones/customs/clusters/master/false").mock(
+        return_value=httpx.Response(200, json={"listData": [{"id": "fz-1"}]})
+    )
+    respx_mock.get(f"{VS_BASE}/v1/{_PID}/fz-1/flavors").mock(
+        return_value=httpx.Response(
+            200, json={"flavors": [{"flavorId": "flav-ok", "name": "s1", "cpu": 2, "memory": 4}]}
+        )
+    )
+    respx_mock.get(f"{VS_BASE}/v1/{_PID}/volume_type_zones").mock(
+        return_value=httpx.Response(200, json={"listData": [{"id": "vtz-1", "name": "NVME"}]})
+    )
+    respx_mock.get(f"{VS_BASE}/v1/{_PID}/vtz-1/volume_types").mock(
+        return_value=httpx.Response(
+            200, json={"listData": [{"id": "vtype-ok", "name": "3000", "iops": 3000}]}
+        )
+    )
+    respx_mock.get(f"{VS_BASE}/v2/{_PID}/sshKeys").mock(
+        return_value=httpx.Response(
+            200, json={"listData": [{"id": "ssh-ok", "name": "k"}], "totalItem": 1}
+        )
+    )
+
+
+@pytest.fixture
+def validate_handler(config, client):
+    from greennode.vks_mcp_server.discovery_cache import DiscoveryCache
+
+    return NodeGroupHandler(FastMCP("t-val"), config, client, cache=DiscoveryCache())
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_create_valid(validate_handler, respx_mock):
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body()
+    )
+    assert result == "valid"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_create_bad_name(validate_handler, respx_mock):
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body(name="Bad_Name_Way_Too_Long!")
+    )
+    assert result != "valid" and "name" in result.lower()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_create_subnet_not_in_vpc(validate_handler, respx_mock):
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body(subnetId="sub-elsewhere")
+    )
+    assert result != "valid" and "list_subnets" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_create_flavor_not_in_zone(validate_handler, respx_mock):
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body(flavorId="flav-ghost")
+    )
+    assert result != "valid" and "flavorId" in result and "list_flavors" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_create_bad_disktype(validate_handler, respx_mock):
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body(diskType="SSD")
+    )
+    assert result != "valid" and "diskType" in result and "list_volume_types" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_create_unknown_ssh_key(validate_handler, respx_mock):
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body(sshKeyId="ssh-ghost")
+    )
+    assert result != "valid" and "sshKeyId" in result and "list_ssh_keys" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_create_collects_multiple_errors(validate_handler, respx_mock):
+    """One pass reports every problem — not just the first."""
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc",
+        body=_valid_ng_body(flavorId="flav-ghost", diskType="SSD", sshKeyId="ssh-ghost"),
+    )
+    assert "flavorId" in result and "diskType" in result and "sshKeyId" in result

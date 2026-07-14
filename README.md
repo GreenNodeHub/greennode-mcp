@@ -10,7 +10,7 @@ Python namespace.
 | Project | Package | Description |
 |---------|---------|-------------|
 | [`src/mcp-core`](src/mcp-core) | `greennode.mcp_core` | Shared core (config/profile loading, IAM auth, HTTP client with retry/401, validators, discovery cache) — product servers import it instead of copying plumbing. |
-| [`src/vks-mcp-server`](src/vks-mcp-server) | `greennode.vks_mcp_server` | **39 tools + 3 prompts** for managing VKS (GreenNode Kubernetes Service): clusters, node groups, resource discovery (name→ID), quota, on-demand creation guides, and in-cluster Kubernetes resources. EKS-style `verb_noun` tool names, structured (JSON) outputs, MCP tool annotations, read-only by default. |
+| [`src/vks-mcp-server`](src/vks-mcp-server) | `greennode.vks_mcp_server` | **41 tools + 3 prompts** for managing VKS (GreenNode Kubernetes Service): clusters, node groups, resource discovery (name→ID), quota, on-demand creation guides, and in-cluster Kubernetes resources. EKS-style `verb_noun` tool names, structured (JSON) outputs, MCP tool annotations, read-only by default. |
 
 More servers will be added as sibling projects under `src/`.
 
