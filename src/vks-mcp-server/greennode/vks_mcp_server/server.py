@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hmac
 import json
 import os
 import sys
+from greennode.mcp_core.http import user_token_var
 from greennode.vks_mcp_server.auth import TokenManager
 from greennode.vks_mcp_server.auth_debug import summarize_request
 from greennode.vks_mcp_server.auth_handler import AuthHandler
-from greennode.vks_mcp_server.auth_verifier import JwtAuthConfig, JwtTokenVerifier
 from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.cluster_handler import ClusterHandler
-from greennode.vks_mcp_server.config import load_config
+from greennode.vks_mcp_server.config import REGIONS, VksConfig, load_config
 from greennode.vks_mcp_server.discovery_cache import DiscoveryCache
 from greennode.vks_mcp_server.discovery_handler import DiscoveryHandler
 from greennode.vks_mcp_server.k8s_handler import K8sHandler
@@ -99,26 +98,44 @@ Prefer these tools over raw `kubectl` — they fetch and cache the cluster's kub
 mcp = None
 
 
-class BearerTokenMiddleware(BaseHTTPMiddleware):
-    """Validate Authorization: Bearer <token> on every HTTP request."""
+class UpstreamIdentityMiddleware(BaseHTTPMiddleware):
+    """Per-request upstream identity for the HTTP transport.
 
-    def __init__(self, app, api_key: str) -> None:
+    The AgentBase Gateway forwards the caller's IAM bearer token in the
+    Authorization header. Resolution order:
+
+    1. Bearer token on the request -> every VKS/vServer call runs as the
+       CALLER (token scoped to this request via a contextvar; a rejected
+       user token never falls back to the service account).
+    2. No token, but service-account credentials configured -> the shared
+       service account (GRN_CLIENT_ID / GRN_CLIENT_SECRET or ~/.greenode).
+    3. Neither -> 401.
+    """
+
+    def __init__(self, app, has_service_credentials: bool) -> None:
         super().__init__(app)
-        self._expected = f"Bearer {api_key}".encode()
+        self._has_service_credentials = has_service_credentials
 
     async def dispatch(self, request: Request, call_next):
-        """Reject requests lacking the expected Bearer token, else forward them."""
-        # Health probes are unauthenticated so liveness/readiness checks work.
+        """Resolve this request's upstream identity, then forward it."""
         if request.url.path == "/health":
             return await call_next(request)
-        auth = request.headers.get("Authorization", "").encode()
-        if not hmac.compare_digest(auth, self._expected):
-            return Response(
-                "Unauthorized",
-                status_code=401,
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return await call_next(request)
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer ") and auth[7:].strip():
+            ctx_token = user_token_var.set(auth[7:].strip())
+            try:
+                return await call_next(request)
+            finally:
+                user_token_var.reset(ctx_token)
+        if self._has_service_credentials:
+            return await call_next(request)
+        return Response(
+            "Unauthorized: provide the caller's IAM bearer token in the "
+            "Authorization header — no service-account credentials are "
+            "configured on this server.",
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 class AuthDebugMiddleware(BaseHTTPMiddleware):
@@ -140,44 +157,6 @@ class AuthDebugMiddleware(BaseHTTPMiddleware):
 def _env_truthy(val: str | None) -> bool:
     """True for common truthy env-var spellings (1/true/yes/on)."""
     return (val or "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _resolve_auth(args) -> tuple[str, JwtAuthConfig | None, str | None]:
-    """Resolve inbound-auth config from CLI args + env. Returns (mode, jwt_config, api_key)."""
-    mode = args.auth_mode or os.environ.get("GRN_MCP_AUTH_MODE") or "none"
-    api_key = args.api_key or os.environ.get("GRN_MCP_API_KEY")
-    if mode == "api-key" and not api_key:
-        raise SystemExit("--auth-mode api-key requires --api-key or GRN_MCP_API_KEY")
-    jwt_config: JwtAuthConfig | None = None
-    if mode == "jwt":
-        issuer = args.jwt_issuer or os.environ.get("GRN_MCP_JWT_ISSUER")
-        jwks_uri = args.jwt_jwks_uri or os.environ.get("GRN_MCP_JWT_JWKS_URI")
-        audience = args.jwt_audience or os.environ.get("GRN_MCP_JWT_AUDIENCE")
-        resource_url = args.resource_url or os.environ.get("GRN_MCP_RESOURCE_URL")
-        missing = [
-            name
-            for name, val in [
-                ("--jwt-issuer", issuer),
-                ("--jwt-jwks-uri", jwks_uri),
-                ("--jwt-audience", audience),
-                ("--resource-url", resource_url),
-            ]
-            if not val
-        ]
-        if missing:
-            raise SystemExit(f"--auth-mode jwt requires: {', '.join(missing)}")
-        scopes_raw = args.jwt_required_scopes or os.environ.get("GRN_MCP_JWT_REQUIRED_SCOPES")
-        required_scopes = (
-            [s.strip() for s in scopes_raw.split(",") if s.strip()] if scopes_raw else None
-        )
-        jwt_config = JwtAuthConfig(
-            issuer=issuer,
-            jwks_uri=jwks_uri,
-            audience=audience,
-            resource_url=resource_url,
-            required_scopes=required_scopes,
-        )
-    return mode, jwt_config, api_key
 
 
 def _mode_addendum(allow_write: bool, allow_sensitive_data_access: bool) -> str:
@@ -210,36 +189,23 @@ def _mode_addendum(allow_write: bool, allow_sensitive_data_access: bool) -> str:
             "- Sensitive data: OFF — reading Kubernetes Secrets or the cluster "
             "kubeconfig requires restarting with --allow-sensitive-data-access."
         )
-    return f"\n## This session (runtime mode)\n\n{write}\n{sensitive}\n"
+    upstream = (
+        "- VKS identity: per-request — when the request carries an IAM bearer "
+        "token in Authorization, every VKS/vServer call runs as THAT caller "
+        "(per-user projects and permissions); otherwise the shared service "
+        "account is used."
+    )
+    return f"\n## This session (runtime mode)\n\n{write}\n{sensitive}\n{upstream}\n"
 
 
 def create_server(
-    jwt_config: JwtAuthConfig | None = None,
     auth_debug: bool = False,
     allow_write: bool = False,
     allow_sensitive_data_access: bool = False,
 ) -> FastMCP:
-    """Create and return a FastMCP server instance.
-
-    When jwt_config is provided, the server runs as an OAuth 2.1 Resource Server
-    (verify Bearer JWT + emit 401/WWW-Authenticate + Protected Resource Metadata).
-    """
+    """Create and return a FastMCP server instance."""
     instructions = SERVER_INSTRUCTIONS + _mode_addendum(allow_write, allow_sensitive_data_access)
-    if jwt_config is not None:
-        from mcp.server.auth.settings import AuthSettings
-
-        server = FastMCP(
-            "vks-mcp-server",
-            instructions=instructions,
-            token_verifier=JwtTokenVerifier(jwt_config),
-            auth=AuthSettings(
-                issuer_url=jwt_config.issuer,
-                resource_server_url=jwt_config.resource_url,
-                required_scopes=jwt_config.required_scopes or None,
-            ),
-        )
-    else:
-        server = FastMCP("vks-mcp-server", instructions=instructions)
+    server = FastMCP("vks-mcp-server", instructions=instructions)
 
     @server.custom_route("/health", methods=["GET"])
     async def health(request: Request) -> Response:
@@ -247,8 +213,7 @@ def create_server(
         return JSONResponse({"status": "ok"})
 
     if auth_debug:
-        # Intentionally unauthenticated and registered ahead of auth middleware:
-        # it must observe the raw inbound request even under --auth-mode jwt/api-key.
+        # Intentionally unauthenticated: it must observe the raw inbound request.
 
         @server.custom_route("/whoami", methods=["GET"])
         async def whoami(request: Request) -> Response:
@@ -298,35 +263,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Bind port for HTTP transport (default: 8000)",
     )
     parser.add_argument(
-        "--api-key",
-        default=None,
-        help="Bearer token to protect the HTTP endpoint (env: GRN_MCP_API_KEY)",
-    )
-    parser.add_argument(
-        "--auth-mode",
-        choices=["none", "api-key", "jwt"],
-        default=None,
-        help="Inbound auth for HTTP transport: none (default), api-key, or jwt "
-        "(env: GRN_MCP_AUTH_MODE)",
-    )
-    parser.add_argument("--jwt-issuer", default=None, help="JWT issuer (env: GRN_MCP_JWT_ISSUER)")
-    parser.add_argument(
-        "--jwt-jwks-uri", default=None, help="JWKS URI (env: GRN_MCP_JWT_JWKS_URI)"
-    )
-    parser.add_argument(
-        "--jwt-audience", default=None, help="Expected JWT audience (env: GRN_MCP_JWT_AUDIENCE)"
-    )
-    parser.add_argument(
-        "--jwt-required-scopes",
-        default=None,
-        help="Comma-separated required scopes (env: GRN_MCP_JWT_REQUIRED_SCOPES)",
-    )
-    parser.add_argument(
-        "--resource-url",
-        default=None,
-        help="This server's public URL for PRM 'resource' (env: GRN_MCP_RESOURCE_URL)",
-    )
-    parser.add_argument(
         "--auth-debug",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -341,15 +277,36 @@ def main() -> None:
     global mcp
 
     args = _build_parser().parse_args()
-    auth_mode, jwt_config, api_key = _resolve_auth(args)
     auth_debug = args.auth_debug or _env_truthy(os.environ.get("GRN_MCP_AUTH_DEBUG"))
 
-    config = load_config(CONFIG_PATH)
+    try:
+        config = load_config(CONFIG_PATH)
+    except (FileNotFoundError, ValueError):
+        # Passthrough-only deployment: no service-account credentials at all.
+        # HTTP requests must then carry the caller's IAM token (401 otherwise);
+        # stdio has no headers, so it cannot run without credentials.
+        if args.transport != "streamable-http":
+            raise SystemExit(
+                "No credentials found (~/.greenode or GRN_CLIENT_ID/"
+                "GRN_CLIENT_SECRET). stdio transport requires service-account "
+                "credentials; the HTTP transport can run token-passthrough-only."
+            ) from None
+        print(
+            "Note: no service-account credentials configured — every HTTP request "
+            "must carry the caller's IAM bearer token (passthrough-only).",
+            file=sys.stderr,
+        )
+        config = VksConfig(
+            client_id="",
+            client_secret="",
+            default_region=os.environ.get("GRN_DEFAULT_REGION", "HCM-3"),
+            regions=REGIONS,
+            project_id=os.environ.get("GRN_PROJECT_ID"),
+        )
     token_manager = TokenManager(config)
     client = VksClient(config, token_manager)
 
     mcp = create_server(
-        jwt_config,
         auth_debug=auth_debug,
         allow_write=args.allow_write,
         allow_sensitive_data_access=args.allow_sensitive_data_access,
@@ -386,13 +343,6 @@ def main() -> None:
         # streamable-http mode
         import uvicorn  # optional dep; only required for streamable-http mode
 
-        if auth_mode == "none":
-            print(
-                "Warning: --auth-mode is 'none'. The HTTP endpoint is unauthenticated. "
-                "Use api-key or jwt, or run only on a trusted network.",
-                file=sys.stderr,
-            )
-
         mcp.settings.host = args.host
         mcp.settings.port = args.port
 
@@ -405,8 +355,12 @@ def main() -> None:
             )
 
         starlette_app = mcp.streamable_http_app()
-        if auth_mode == "api-key" and api_key:
-            starlette_app.add_middleware(BearerTokenMiddleware, api_key=api_key)
+        # Per-request upstream identity: caller's IAM token when present,
+        # else the service account, else 401.
+        starlette_app.add_middleware(
+            UpstreamIdentityMiddleware,
+            has_service_credentials=bool(config.client_id and config.client_secret),
+        )
 
         if auth_debug:
             print(

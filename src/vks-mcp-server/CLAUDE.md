@@ -42,15 +42,19 @@ uv run vks-mcp-server --allow-sensitive-data-access
 
 # HTTP transport (default: stdio); Docker image serves this on port 8080
 uv run vks-mcp-server --transport streamable-http --host 0.0.0.0 --port 8080
+
 ```
 
-## Inbound auth (HTTP transport)
+## Auth (HTTP transport)
 
-`--auth-mode none|api-key|jwt`. `jwt` runs the server as an OAuth 2.1 Resource Server
-(`token_verifier` + `AuthSettings` → 401 + WWW-Authenticate + PRM), verifying Bearer
-JWTs via JWKS (`--jwt-issuer/--jwt-jwks-uri/--jwt-audience/--resource-url`, or `GRN_MCP_JWT_*`/`GRN_MCP_RESOURCE_URL`).
-VKS upstream still uses the global service account (per-user is a future phase). `/health` is always open.
-`--auth-debug` (env `GRN_MCP_AUTH_DEBUG=1`) is an opt-in, redacted, HTTP-only diagnostic: logs a summary of inbound request auth (token scheme, JWT header, allow-listed claims, forwarding headers) and exposes `GET /whoami`. It never verifies signatures and never logs the full token; off by default; not for production.
+Per-request upstream identity, no flags: an IAM bearer token in `Authorization`
+(forwarded by the AgentBase Gateway) → every VKS/vServer call runs as that
+caller (per-user projects; caches isolated per caller identity; a rejected user
+token never falls back to the service account). No token → the shared service
+account (`~/.greenode` / `GRN_CLIENT_ID`+`GRN_CLIENT_SECRET`). Neither → 401.
+The server boots credential-less on HTTP (passthrough-only); stdio requires
+service-account credentials. `/health` is always open.
+`--auth-debug` (env `GRN_MCP_AUTH_DEBUG=1`) is an opt-in, redacted, HTTP-only diagnostic: logs a summary of inbound request auth and exposes `GET /whoami`. Never verifies signatures, never logs the full token; off by default; not for production.
 
 ## Write DTO field scope
 

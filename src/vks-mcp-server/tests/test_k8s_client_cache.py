@@ -82,3 +82,35 @@ async def test_get_client_uses_cache(sample_config):
         await cache.get_client("k8s-123")
         await cache.get_client("k8s-123")
         assert route.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_k8s_client_cache_isolated_per_identity(monkeypatch):
+    """User A's kubernetes client (built from A's kubeconfig) must never be
+    served to user B for the same cluster."""
+    from greennode.mcp_core.http import user_token_var
+    from greennode.vks_mcp_server.k8s_client_cache import K8sClientCache
+
+    built = []
+
+    async def fake_create(self, cluster_id, region):
+        built.append(user_token_var.get())
+        return object()
+
+    monkeypatch.setattr(K8sClientCache, "_create_client", fake_create)
+    cache = K8sClientCache(vks_client=None)
+
+    t = user_token_var.set("token-user-a")
+    try:
+        a1 = await cache.get_client("k8s-1")
+        a2 = await cache.get_client("k8s-1")
+        assert a1 is a2  # same user: cached
+    finally:
+        user_token_var.reset(t)
+    t = user_token_var.set("token-user-b")
+    try:
+        b1 = await cache.get_client("k8s-1")
+        assert b1 is not a1  # different user: separate client
+    finally:
+        user_token_var.reset(t)
+    assert built == ["token-user-a", "token-user-b"]

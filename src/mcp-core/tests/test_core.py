@@ -170,3 +170,58 @@ async def test_base_client_tolerates_empty_success_body():
     )
     client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
     assert await client.put("/v1/things/x", json={"a": 1}) is None
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_uses_passthrough_user_token():
+    """When a per-request user token is set (HTTP passthrough mode), every API
+    call carries THAT token — not the shared service account's."""
+    from greennode.mcp_core.http import user_token_var
+
+    _mock_iam(respx.mock)
+    route = respx.get("https://api.example.test/v1/things").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    token = user_token_var.set("user-iam-token-abc")
+    try:
+        await client.get("/v1/things")
+    finally:
+        user_token_var.reset(token)
+    assert route.calls.last.request.headers["Authorization"] == "Bearer user-iam-token-abc"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_never_falls_back_to_service_account_on_user_401():
+    """A rejected user token must NOT silently retry with the service account —
+    that would be privilege confusion. It raises immediately."""
+    from greennode.mcp_core.http import user_token_var
+
+    _mock_iam(respx.mock)
+    route = respx.get("https://api.example.test/v1/things").mock(
+        return_value=httpx.Response(401, json={"message": "token expired"})
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    token = user_token_var.set("expired-user-token")
+    try:
+        with pytest.raises(RuntimeError, match="user token"):
+            await client.get("/v1/things")
+    finally:
+        user_token_var.reset(token)
+    assert route.call_count == 1  # no second attempt with a different identity
+
+
+def test_current_identity_hashes_token_and_defaults_to_service():
+    """Cache-isolation key: sha256 of the user token, 'service' when none."""
+    from greennode.mcp_core.http import current_identity, user_token_var
+
+    assert current_identity() == "service"
+    tok = user_token_var.set("user-iam-token-abc")
+    try:
+        ident = current_identity()
+        assert ident != "service" and len(ident) == 16
+        assert "user-iam-token-abc" not in ident  # never the raw token
+    finally:
+        user_token_var.reset(tok)

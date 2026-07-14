@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from greennode.mcp_core.http import current_identity
 from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.config import Region, VksConfig
 from greennode.vks_mcp_server.discovery_cache import DiscoveryCache
@@ -39,13 +40,16 @@ async def _require_project_id(
     region so later calls don't refetch.
     """
     resolved_region = region or config.default_region
+    identity = current_identity()
 
-    # The configured project_id (GRN_PROJECT_ID / credentials file) belongs to the
-    # DEFAULT region only — vServer gives each region its own project_id.
-    if resolved_region == config.default_region and config.project_id:
+    # The configured project_id (GRN_PROJECT_ID / credentials file) belongs to
+    # the SERVICE ACCOUNT and its DEFAULT region only — a passthrough user must
+    # never silently inherit it (their token resolves to their own project).
+    if identity == "service" and resolved_region == config.default_region and config.project_id:
         return config.project_id
-    if resolved_region in config.project_id_by_region:
-        return config.project_id_by_region[resolved_region]
+    cache_key = (identity, resolved_region)
+    if cache_key in config.project_id_by_region:
+        return config.project_id_by_region[cache_key]
 
     data = await client.vserver_get("/v1/projects", region=region)
     projects = _as_list(data, "projects")
@@ -58,9 +62,9 @@ async def _require_project_id(
     if not pid:
         raise ValueError("Could not determine project_id from the vServer response.")
 
-    config.project_id_by_region[resolved_region] = pid  # cache per region
-    if resolved_region == config.default_region:
-        config.project_id = pid  # populate the default-region slot too
+    config.project_id_by_region[cache_key] = pid  # cache per (identity, region)
+    if identity == "service" and resolved_region == config.default_region:
+        config.project_id = pid  # populate the service default-region slot too
     return pid
 
 

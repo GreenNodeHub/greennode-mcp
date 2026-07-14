@@ -45,9 +45,6 @@ HTTP-transport / auth variables (all optional):
 
 | Variable | Purpose |
 |----------|---------|
-| `GRN_MCP_API_KEY` | Static bearer token for `--auth-mode api-key` |
-| `GRN_MCP_JWT_ISSUER` / `GRN_MCP_JWT_JWKS_URI` / `GRN_MCP_JWT_AUDIENCE` | JWT verification for `--auth-mode jwt` |
-| `GRN_MCP_RESOURCE_URL` | This server's resource URL (Protected Resource Metadata) |
 | `GRN_MCP_AUTH_DEBUG` | `1` = redacted inbound-auth diagnostics + `GET /whoami` (never in production) |
 
 ## Running
@@ -86,21 +83,26 @@ uv run vks-mcp-server --transport streamable-http --host 0.0.0.0 --port 8080
 `GET /health` is always unauthenticated (liveness/readiness). The Docker image
 serves streamable-http on port 8080.
 
-### Inbound authentication (HTTP transport)
+### Authentication (HTTP transport)
 
-`--auth-mode` selects how clients authenticate to the HTTP endpoint:
+One behavior, no flags — the upstream identity is resolved per request:
 
-- `none` (default) — no auth (use only on a trusted/private network)
-- `api-key` — static Bearer token (`--api-key` / `GRN_MCP_API_KEY`)
-- `jwt` — OAuth 2.1 Resource Server: verifies Bearer JWTs against a JWKS and
-  advertises Protected Resource Metadata. Requires `--jwt-issuer`,
-  `--jwt-jwks-uri`, `--jwt-audience`, `--resource-url` (or the matching
-  `GRN_MCP_JWT_*` / `GRN_MCP_RESOURCE_URL` env vars); optional
-  `--jwt-required-scopes`.
+1. The request carries an IAM bearer token in `Authorization` (the AgentBase
+   Gateway forwards the caller's token) → **every VKS/vServer call runs as
+   that caller**: per-user projects, permissions, and results. A rejected
+   user token is surfaced as an error — never silently retried as the
+   service account. All caches (discovery, kubernetes clients, project_id)
+   are isolated per caller.
+2. No token, but service-account credentials are configured
+   (`~/.greenode` or `GRN_CLIENT_ID`/`GRN_CLIENT_SECRET`) → the shared
+   service account.
+3. Neither → **401** + `WWW-Authenticate`.
 
-Behind the GreenNode MCP Gateway: use `api-key` when the Gateway's outbound auth
-is API Key, or `jwt` when it is OAuth 2.0. `/health` is always unauthenticated.
-(Per-user VKS access is a future phase.)
+The server also boots with **no credentials at all** (passthrough-only
+deployments behind the Gateway) — every request then requires a token.
+`GET /health` is always open. The server does not verify tokens itself; the
+VKS/vServer APIs are the verifier (an invalid/expired token gets a 401 from
+the API, surfaced to the agent).
 
 ## Tools
 

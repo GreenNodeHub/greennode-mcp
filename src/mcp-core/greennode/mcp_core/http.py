@@ -9,6 +9,8 @@ service name.
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import hashlib
 import httpx
 import logging
 from greennode.mcp_core.auth import TokenManager
@@ -22,6 +24,25 @@ MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1  # seconds
 RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
 DEFAULT_TIMEOUT = 30  # seconds
+
+# Per-request user token (HTTP passthrough mode): when set, every API call
+# carries the CALLER's IAM token instead of the shared service account's.
+# A contextvar so concurrent requests never see each other's token.
+user_token_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "user_token", default=None
+)
+
+
+def current_identity() -> str:
+    """Cache-isolation key for the current caller.
+
+    'service' for the shared service account (stdio / non-passthrough), else a
+    short sha256 of the user token — never the raw token itself.
+    """
+    token = user_token_var.get()
+    if not token:
+        return "service"
+    return hashlib.sha256(token.encode()).hexdigest()[:16]
 
 
 class _HasBaseUrls(Protocol):
@@ -74,8 +95,10 @@ class BaseClient:
         base = self._config.get_base_url(region, resolved_service)
         url = f"{base}{path}"
 
+        user_token = user_token_var.get()
+
         for attempt in range(MAX_RETRIES + 1):
-            token = await self._token_manager.get_token()
+            token = user_token if user_token else await self._token_manager.get_token()
             headers = {"Authorization": f"Bearer {token}"}
 
             try:
@@ -105,6 +128,13 @@ class BaseClient:
 
             # 401 — refresh token and retry once
             if resp.status_code == 401:
+                if user_token:
+                    # A rejected USER token must never fall back to the shared
+                    # service account — that would be privilege confusion.
+                    raise RuntimeError(
+                        "The caller's user token was rejected by the API (401). "
+                        "The token may be expired — re-authenticate and retry."
+                    )
                 if _retried_auth:
                     self._raise_error(resp)
                 self._token_manager._expires_at = 0

@@ -30,7 +30,9 @@ class VksConfig:
     project_id: str | None = None
     # vServer project_id is region-scoped; resolved lazily per region (see
     # discovery_handler._require_project_id). Not loaded from config.
-    project_id_by_region: dict[str, str] = field(default_factory=dict)
+    # Keyed by (caller identity, region): passthrough users each have their own
+    # project; the service account uses identity 'service'.
+    project_id_by_region: dict[tuple[str, str], str] = field(default_factory=dict)
 
     def get_endpoints(self, region: str | None = None) -> RegionEndpoints:
         """Return endpoints for the given region.

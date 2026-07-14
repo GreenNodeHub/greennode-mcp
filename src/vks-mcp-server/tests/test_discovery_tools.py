@@ -802,3 +802,92 @@ async def test_resolve_zone_context_subnet_not_in_vpc(config, client):
         await _resolve_zone_context(
             config, client, DiscoveryCache(), cluster_id="k8s-abc", subnet_id="sub-wrong"
         )
+
+
+# ---------------------------------------------------------------------------
+# Cache isolation under token passthrough (per-identity keys)
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_discovery_cache_isolated_per_identity(config, client):
+    """Two different user tokens must never share cached discovery results —
+    user B seeing user A's VPC list would be a cross-tenant leak."""
+    from greennode.mcp_core.http import user_token_var
+
+    _mock_iam(respx.mock)
+    # passthrough identities never use the configured (service-account) pid —
+    # they resolve their own via /v1/projects
+    respx.get(f"{VSERVER_BASE}/v1/projects").mock(
+        return_value=httpx.Response(200, json=[{"projectId": PID}])
+    )
+    route = respx.get(f"{VSERVER_BASE}/v2/{PID}/networks").mock(
+        return_value=httpx.Response(
+            200, json=[{"id": "net-1", "displayName": "a", "status": "ACTIVE"}]
+        )
+    )
+    cache = DiscoveryCache()
+    t = user_token_var.set("token-user-a")
+    try:
+        await _vpc_list(config, client, cache)
+        await _vpc_list(config, client, cache)  # same user: cached
+        assert route.call_count == 1
+    finally:
+        user_token_var.reset(t)
+    t = user_token_var.set("token-user-b")
+    try:
+        await _vpc_list(config, client, cache)  # different user: MUST refetch
+        assert route.call_count == 2
+    finally:
+        user_token_var.reset(t)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_project_id_isolated_per_identity(config, client):
+    """project_id differs per user — user B must not inherit user A's project."""
+    from greennode.mcp_core.http import user_token_var
+
+    _mock_iam(respx.mock)
+    config.project_id = ""  # no configured pid: always discovered
+    calls = []
+
+    def responder(request):
+        calls.append(1)
+        pid = f"pro-user-{len(calls)}"
+        return httpx.Response(200, json=[{"projectId": pid}])
+
+    respx.get(f"{VSERVER_BASE}/v1/projects").mock(side_effect=responder)
+    t = user_token_var.set("token-user-a")
+    try:
+        pid_a = await _require_project_id(config, client)
+        assert await _require_project_id(config, client) == pid_a  # cached per user
+    finally:
+        user_token_var.reset(t)
+    t = user_token_var.set("token-user-b")
+    try:
+        pid_b = await _require_project_id(config, client)
+    finally:
+        user_token_var.reset(t)
+    assert pid_a != pid_b
+    assert len(calls) == 2
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_passthrough_ignores_configured_service_project_id(config, client):
+    """The env/file project_id belongs to the SERVICE ACCOUNT — a passthrough
+    user must never silently use it."""
+    from greennode.mcp_core.http import user_token_var
+
+    _mock_iam(respx.mock)
+    config.project_id = "pro-service-account"
+    respx.get(f"{VSERVER_BASE}/v1/projects").mock(
+        return_value=httpx.Response(200, json=[{"projectId": "pro-of-the-user"}])
+    )
+    t = user_token_var.set("token-user-a")
+    try:
+        assert await _require_project_id(config, client) == "pro-of-the-user"
+    finally:
+        user_token_var.reset(t)

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import yaml
 from cachetools import TTLCache
+from greennode.mcp_core.http import current_identity
 from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.k8s_apis import K8sApis
 from greennode.vks_mcp_server.kubeconfig import extract_kubeconfig
@@ -28,11 +29,14 @@ class K8sClientCache:
         """Get a K8sApis client for the given cluster.
 
         Fetches kubeconfig from VKS API on cache miss, creates a
-        kubernetes client, and caches it with TTL.
+        kubernetes client, and caches it with TTL. Keyed by caller identity
+        too: under token passthrough, a client built from user A's
+        kubeconfig must never be served to user B.
         """
-        if cluster_id not in self._cache:
-            self._cache[cluster_id] = await self._create_client(cluster_id, region)
-        return self._cache[cluster_id]
+        key = (current_identity(), cluster_id)
+        if key not in self._cache:
+            self._cache[key] = await self._create_client(cluster_id, region)
+        return self._cache[key]
 
     async def _create_client(self, cluster_id: str, region: str | None) -> K8sApis:
         """Fetch kubeconfig from VKS API and create a K8sApis instance."""

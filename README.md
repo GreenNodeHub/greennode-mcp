@@ -67,7 +67,7 @@ upstream (e.g. the MCP Gateway) actually sends — token scheme, JWT header
 
 It **never verifies** signatures and **never logs the full token** (only a
 6-char prefix + length). It is **off by default** and **must not be enabled in
-production**. It is orthogonal to `--auth-mode` and can be combined with any mode.
+production**. It observes requests only and never affects how they are authenticated.
 
 ## Development
 
