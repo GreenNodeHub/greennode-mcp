@@ -440,3 +440,198 @@ async def test_cluster_list_fetches_all_pages(client):
     result = await _cluster_list(client, {})
     assert len(result.clusters) == 12
     assert result.clusters[-1].name == "c11"
+
+
+def test_update_cluster_dto_all_fields_optional():
+    """The API no longer requires version/whitelistNodeCIDRs — partial updates
+    (e.g. toggling one plugin) must construct without them."""
+    from greennode.vks_mcp_server.models import UpdateClusterDto
+
+    dto = UpdateClusterDto(enabledLoadBalancerPlugin=True)
+    assert dto.model_dump(exclude_none=True) == {"enabledLoadBalancerPlugin": True}
+    UpdateClusterDto(version="1.29")  # version alone is also a valid update
+    UpdateClusterDto(whitelistNodeCIDRs=["10.0.0.0/8"])
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_cluster_rejects_empty_body(config, client, respx_mock):
+    """An empty partial-update body is a no-op — reject it without calling the API."""
+    from greennode.vks_mcp_server.models import UpdateClusterDto
+    from mcp.server.fastmcp import FastMCP
+
+    _mock_iam(respx_mock)
+    handler = ClusterHandler(FastMCP("t"), config, client, allow_write=True)
+    route = respx_mock.put(f"{VKS_BASE}/v1/clusters/k8s-abc").mock(
+        return_value=httpx.Response(202, json={})
+    )
+    result = await handler.update_cluster(
+        cluster_id="k8s-abc", body=UpdateClusterDto(), region=None
+    )
+    assert not route.called
+    assert "nothing to update" in result.lower()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_configure_auto_upgrade_handles_empty_202(config, client, respx_mock):
+    """The auto-upgrade endpoint answers 202 with an empty body — the tool must
+    succeed with a clean message (no crash, no trailing 'None')."""
+    _mock_iam(respx_mock)
+    handler = ClusterHandler(FastMCP("t"), config, client, allow_write=True)
+    respx_mock.put(f"{VKS_BASE}/v1/clusters/k8s-abc/auto-upgrade-config").mock(
+        return_value=httpx.Response(202)
+    )
+    result = await handler.configure_auto_upgrade(
+        cluster_id="k8s-abc", weekdays="Mon,Wed", time="03:00", region=None
+    )
+    assert "updated successfully" in result
+    assert "None" not in result
+
+
+# ---------------------------------------------------------------------------
+# kubeconfig extraction (the API wraps the YAML in a JSON envelope now)
+# ---------------------------------------------------------------------------
+
+_KC_YAML = "apiVersion: v1\nclusters:\n- cluster: {}\ncurrent-context: ctx\n"
+
+
+def test_extract_kubeconfig_from_json_envelope():
+    """The kubeconfig endpoint returns {kubeConfig, status, ...} — the YAML is
+    inside the kubeConfig field."""
+    from greennode.vks_mcp_server.kubeconfig import extract_kubeconfig
+
+    envelope = _json.dumps({"kubeConfig": _KC_YAML, "status": "ACTIVE", "expirationDays": 90})
+    assert extract_kubeconfig(envelope) == _KC_YAML
+
+
+def test_extract_kubeconfig_passthrough_raw_yaml():
+    """Older responses were the bare YAML — still accepted."""
+    from greennode.vks_mcp_server.kubeconfig import extract_kubeconfig
+
+    assert extract_kubeconfig(_KC_YAML) == _KC_YAML
+
+
+def test_extract_kubeconfig_cluster_not_ready():
+    """A CREATING cluster's envelope has no kubeConfig — clear, actionable error."""
+    from greennode.vks_mcp_server.kubeconfig import extract_kubeconfig
+
+    envelope = _json.dumps({"renewalWarning": None, "status": "CREATING"})
+    with pytest.raises(ValueError, match="ACTIVE"):
+        extract_kubeconfig(envelope)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_cluster_kubeconfig_returns_yaml_not_envelope(config, client, respx_mock):
+    """The tool must hand back kubectl-ready YAML, not the JSON envelope."""
+    _mock_iam(respx_mock)
+    handler = ClusterHandler(FastMCP("t"), config, client, allow_sensitive_data_access=True)
+    respx_mock.get(f"{VKS_BASE}/v1/clusters/k8s-abc/kubeconfig").mock(
+        return_value=httpx.Response(200, json={"kubeConfig": _KC_YAML, "status": "ACTIVE"})
+    )
+    result = await handler.get_cluster_kubeconfig(cluster_id="k8s-abc", region=None)
+    assert result.startswith("apiVersion: v1")
+    assert "kubeConfig" not in result  # no envelope leakage
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_generate_kubeconfig_posts_expiration(config, client, respx_mock):
+    """generate_kubeconfig requests async generation (POST {expirationDays})."""
+    _mock_iam(respx_mock)
+    handler = ClusterHandler(FastMCP("t"), config, client, allow_write=True)
+    route = respx_mock.post(f"{VKS_BASE}/v1/clusters/k8s-abc/kubeconfig").mock(
+        return_value=httpx.Response(202)
+    )
+    result = await handler.generate_kubeconfig(
+        cluster_id="k8s-abc", expiration_days=30, region=None
+    )
+    assert route.called
+    assert _json.loads(route.calls.last.request.content) == {"expirationDays": 30}
+    assert "asynchronous" in result.lower() or "async" in result.lower()
+    assert "get_cluster_kubeconfig" in result  # what to do next
+
+
+@pytest.mark.asyncio
+async def test_generate_kubeconfig_is_write_gated(config, client):
+    """A read-only handler must not register the tool (it mints credentials)."""
+    handler = ClusterHandler(FastMCP("t-ro"), config, client, allow_write=False)
+    names = {t.name for t in await handler.mcp.list_tools()}
+    assert "generate_kubeconfig" not in names
+
+
+def test_extract_kubeconfig_not_generated_teaches_generate():
+    """A cluster whose kubeconfig was never generated: point at generate_kubeconfig."""
+    from greennode.vks_mcp_server.kubeconfig import extract_kubeconfig
+
+    envelope = _json.dumps({"renewalWarning": None, "status": "CREATING"})
+    with pytest.raises(ValueError, match="generate_kubeconfig"):
+        extract_kubeconfig(envelope)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_cluster_delete_dryrun_lists_all_node_groups(client):
+    """The deletion preview must show EVERY node group — VKS enforces paging
+    (default pageSize=10), so the dryrun has to page through like the list tools."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1").mock(
+        return_value=httpx.Response(200, json={"uid": "cid-1", "name": "big", "status": "ACTIVE"})
+    )
+
+    def responder(request):
+        page = int(request.url.params.get("page", 0))
+        size = int(request.url.params.get("pageSize", 10))
+        all_items = [{"uid": f"ng-{i}", "name": f"ng{i}", "nodeCount": 1} for i in range(12)]
+        chunk = all_items[page * size : (page + 1) * size]
+        return httpx.Response(
+            200, json={"items": chunk, "total": 12, "page": page, "pageSize": size}
+        )
+
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1/node-groups").mock(side_effect=responder)
+    result = await _cluster_delete_dryrun(client, {"cluster_id": "cid-1"})
+    text = result[0].text
+    assert "Node groups to be deleted (12)" in text
+    assert "ng-11" in text  # the tail beyond one page is present
+
+
+# ---------------------------------------------------------------------------
+# get_cluster_kubeconfig sensitive-data gate (kubeconfig = cluster-admin creds)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_cluster_kubeconfig_denied_without_sensitive_flag(config, client):
+    """The kubeconfig carries a cluster-admin cert + private key — same gate as
+    Secrets/logs: no --allow-sensitive-data-access, no kubeconfig."""
+    handler = ClusterHandler(FastMCP("t"), config, client)  # default: no sensitive access
+    with pytest.raises(RuntimeError, match="allow-sensitive-data-access"):
+        await handler.get_cluster_kubeconfig(cluster_id="k8s-abc", region=None)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_cluster_kubeconfig_allowed_with_sensitive_flag(config, client, respx_mock):
+    _mock_iam(respx_mock)
+    handler = ClusterHandler(FastMCP("t"), config, client, allow_sensitive_data_access=True)
+    respx_mock.get(f"{VKS_BASE}/v1/clusters/k8s-abc/kubeconfig").mock(
+        return_value=httpx.Response(200, json={"kubeConfig": _KC_YAML, "status": "ACTIVE"})
+    )
+    result = await handler.get_cluster_kubeconfig(cluster_id="k8s-abc", region=None)
+    assert result.startswith("apiVersion: v1")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_delete_auto_upgrade_handles_empty_202(config, client, respx_mock):
+    """DELETE .../auto-upgrade-config also answers 202 with an empty body
+    (bug report F-02) — the tool must report success, not a JSON parse error."""
+    _mock_iam(respx_mock)
+    handler = ClusterHandler(FastMCP("t"), config, client, allow_write=True)
+    respx_mock.delete(f"{VKS_BASE}/v1/clusters/k8s-abc/auto-upgrade-config").mock(
+        return_value=httpx.Response(202)
+    )
+    result = await handler.delete_auto_upgrade(cluster_id="k8s-abc", region=None)
+    assert "deleted successfully" in result
+    assert "None" not in result

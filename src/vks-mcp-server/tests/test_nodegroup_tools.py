@@ -570,3 +570,24 @@ async def test_nodegroup_create_error_teaches_the_guide(handler_write, respx_moc
     )
     with pytest.raises(RuntimeError, match="get_creation_guide"):
         await handler_write.create_nodegroup(cluster_id="k8s-abc", body=dto, region=None)
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_nodegroup_delete_force(handler_write, respx_mock):
+    """force_delete=True sends forceDelete=true to the API (CLI --force-delete
+    parity) — the escalation when a normal delete is stuck."""
+    _mock_iam(respx_mock)
+    route = respx_mock.delete(f"{VKS_BASE}/v1/clusters/k8s-abc/node-groups/ng-001").mock(
+        return_value=httpx.Response(202)
+    )
+    await handler_write.delete_nodegroup(
+        cluster_id="k8s-abc", nodegroup_id="ng-001", force_delete=True, region=None
+    )
+    assert route.calls.last.request.url.params.get("forceDelete") == "true"
+
+    # force_delete=False: no forceDelete param at all
+    await handler_write.delete_nodegroup(
+        cluster_id="k8s-abc", nodegroup_id="ng-001", force_delete=False, region=None
+    )
+    assert "forceDelete" not in route.calls.last.request.url.params

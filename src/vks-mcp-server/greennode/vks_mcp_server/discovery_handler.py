@@ -481,12 +481,15 @@ class DiscoveryHandler:
     ) -> VpcListData:
         """List ACTIVE VPCs (networks) in the project.
 
-        Returns minimal items {id, name}; non-ACTIVE VPCs are excluded because
-        they cannot host new clusters or node groups.
+        Returns minimal items {id, name, enabled_dns}; non-ACTIVE VPCs are
+        excluded because they cannot host new clusters or node groups.
 
         ## Workflow
         - create_cluster flow, step 1: present this list to the user and let them
           choose. IMPORTANT: do NOT pick a VPC silently when more than one exists.
+        - azStrategy=MULTI clusters require a vDNS-enabled VPC: offer only items
+          with `enabled_dns=true` (none qualifying -> stop and tell the user to
+          enable vDNS on a VPC in the console first).
         - Use the chosen `id` as `vpcId` in create_cluster, and as `vpc_id` in
           list_subnets to enumerate its subnets.
         """

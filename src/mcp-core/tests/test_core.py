@@ -156,3 +156,17 @@ async def test_discovery_cache_unconfigured_tool_never_cached():
     cache = DiscoveryCache({})
     assert await cache.get_or_fetch("nope", "k", fetch) == 1
     assert await cache.get_or_fetch("nope", "k", fetch) == 2
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_tolerates_empty_success_body():
+    """VKS returns 202 with an EMPTY body for several write operations —
+    resp.json() on that raised 'Expecting value: line 1 column 1 (char 0)'.
+    An empty success body must come back as None, not an exception."""
+    _mock_iam(respx.mock)
+    respx.put("https://api.example.test/v1/things/x").mock(
+        return_value=httpx.Response(202)  # no body at all
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    assert await client.put("/v1/things/x", json={"a": 1}) is None

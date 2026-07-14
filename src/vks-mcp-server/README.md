@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server that gives AI assistants (Claude, Cursor,
 Gemini, etc.) tools to manage **VKS — GreenNode Kubernetes Service** clusters and the
 Kubernetes resources inside them.
 
-- **39 tools** across 7 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s, Guidance
+- **40 tools** across 7 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s, Guidance
 - Fully **async** (httpx) on the **FastMCP** framework
 - Read-only by default; write and sensitive-data access are opt-in via flags — and the server instructions tell the agent which mode **this** session runs in
 - Every tool declares MCP **ToolAnnotations** (`readOnlyHint`/`destructiveHint`), so clients can auto-approve reads and warn before destructive calls
@@ -107,22 +107,23 @@ is API Key, or `jwt` when it is OAuth 2.0. `/health` is always unauthenticated.
 Tool names follow the EKS-style `verb_noun` convention and map 1:1 to
 greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 
-### Cluster (12)
+### Cluster (13)
 
 | Tool | Access | Description |
 |------|--------|-------------|
 | `list_clusters` | read | List clusters (structured summaries; every page fetched automatically) |
 | `get_cluster` | read | Full cluster detail (structured) |
-| `get_cluster_kubeconfig` | read | Kubeconfig YAML for a cluster |
+| `get_cluster_kubeconfig` | read (**sensitive**) | Kubeconfig YAML — cluster-admin credentials, needs `--allow-sensitive-data-access` (new clusters: run `generate_kubeconfig` first) |
 | `get_cluster_events` | read | Cluster events table |
 | `list_cluster_versions` | read | Available Kubernetes versions (cached 30 min) |
 | `validate_cluster_create` | read | Validate a create body without creating |
 | `delete_cluster_dryrun` | read | Preview a cluster deletion (incl. node groups) |
 | `create_cluster` | **write** | Create a cluster (control plane only); add workers via `create_nodegroup` |
-| `update_cluster` | **write** | Change version + whitelistNodeCIDRs (+ LB/CSI plugin toggles) |
+| `update_cluster` | **write** | Partial update: version / whitelistNodeCIDRs / LB-CSI plugin toggles — send only what changes |
 | `delete_cluster` | **write** | Delete a cluster (IRREVERSIBLE; dry-run first) |
 | `configure_auto_upgrade` / `delete_auto_upgrade` | **write** | Manage the auto-upgrade schedule |
 | `configure_auto_healing` | **write** | Configure node auto-healing |
+| `generate_kubeconfig` | **write** | Mint a kubeconfig (async; required once for a new cluster) |
 
 ### Node group (9)
 
@@ -135,14 +136,14 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `create_nodegroup` | **write** | Create a node group (full CLI parity: os, labels/taints/tags, autoscale, placement, encryption, private subnet) |
 | `update_nodegroup` | **write** | Update numNodes / securityGroups / autoScaleConfig / upgradeConfig |
 | `update_nodegroup_metadata` | **write** | Update labels, tags, taints (`PATCH .../metadata`) |
-| `delete_nodegroup` | **write** | Delete a node group (IRREVERSIBLE; dry-run first) |
+| `delete_nodegroup` | **write** | Delete a node group (IRREVERSIBLE; dry-run first; `force_delete` as escalation) |
 | `upgrade_nodegroup_version` | **write** | Upgrade a node group's Kubernetes version |
 
 ### Discovery (8) — resolve names → IDs for create bodies
 
 | Tool | Feeds | Cache TTL |
 |------|-------|-----------|
-| `list_vpcs` | `vpcId` (ACTIVE only) | 2 min |
+| `list_vpcs` | `vpcId` + `enabled_dns` (azStrategy=MULTI needs a vDNS-enabled VPC; ACTIVE only) | 2 min |
 | `list_subnets` | `subnetId` / `listSubnetIds`, `secondarySubnets` + each subnet's availability zone (ACTIVE only) | 2 min |
 | `list_flavors` | `flavorId` (tagged by deployment-need group; sold-out excluded) | 30 min |
 | `list_ssh_keys` | `sshKeyId` | 30 s |
@@ -221,7 +222,7 @@ cd src/vks-mcp-server
 # Read-only (28 tools)
 npx @modelcontextprotocol/inspector uv run vks-mcp-server
 
-# All 39 tools (write + sensitive data)
+# All 40 tools (write + sensitive data)
 npx @modelcontextprotocol/inspector \
   uv run vks-mcp-server --allow-write --allow-sensitive-data-access
 ```

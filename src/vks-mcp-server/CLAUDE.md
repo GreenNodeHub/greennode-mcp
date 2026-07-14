@@ -9,7 +9,7 @@ Product-specific guidance for `src/vks-mcp-server`. Monorepo-wide conventions
 MCP server for VKS (GreenNode Kubernetes Service) clusters and the Kubernetes
 resources inside them.
 
-- **39 tools** across 7 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s, Guidance (PromptsHandler)
+- **40 tools** across 7 handlers: Auth, Cluster, NodeGroup, Version, Discovery, K8s, Guidance (PromptsHandler)
 - **3 MCP prompts** (`vks_getting_started`, `vks_create_cluster`, `vks_create_nodegroup`) — portable Vietnamese guidance for any MCP client; always available, no `--allow-write` needed. The two create guides are ALSO served as the `get_creation_guide` tool (same text, one source of truth): prompts must be loaded by the user, tools get called by agents on their own. Edit the guidance in `_create_*_guidance()` — it propagates to both.
 - **Every tool declares ToolAnnotations** (`READ`/`WRITE`/`DESTRUCTIVE` from `tool_annotations.py`), picked by effect, not name (dry-run delete = READ; version upgrade = DESTRUCTIVE). Conventions tests enforce it.
 - **SERVER_INSTRUCTIONS are mode-aware**: `create_server()` appends a runtime addendum (write on/off, sensitive-data on/off) so agents refuse impossible flows up front.
@@ -24,6 +24,8 @@ resources inside them.
 - **vServer list pagination is effectively a no-op**: `page`/`size` query params are ignored and every list endpoint returns the full set in one response (envelope reports `page=0 / pageSize=0 / totalPage=0`, `len(listData) == totalItem`). Discovery fetchers go through `_fetch_all_items`, which uses that single-call fast path but pages explicitly as a safety net if a response ever reports `totalItem > len(listData)` — so results never truncate silently as an account grows.
 - **VKS list pagination IS enforced** (opposite of vServer): server-side default `pageSize=10` silently truncates bare calls. `list_clusters` / `list_nodegroups` / `list_nodes` go through `paging.fetch_all_vks_items` and never expose paging params.
 - **project_id is region-scoped**: each region's vServer endpoint has its own project. `_require_project_id` resolves + caches per region (`config.project_id_by_region`); the configured `GRN_PROJECT_ID` belongs to the default region only.
+- **The kubeconfig endpoint returns a JSON envelope** `{kubeConfig, status, ...}` (was bare YAML); a new cluster has NO kubeconfig until `generate_kubeconfig` mints one (async, `POST .../kubeconfig`). `kubeconfig.extract_kubeconfig` handles both shapes.
+- **Several write endpoints answer 202 with an EMPTY body** (e.g. auto-upgrade-config) — `mcp_core.http.BaseClient` returns `None` for empty success bodies.
 - **Flavors and volume types are zone-scoped** (zone = the chosen subnet's availability zone). `list_flavors` / `list_volume_types` take `cluster_id` + `subnet_id`; `_resolve_zone_context` locates the cluster (tries each region, cached) and derives the zone — agents never pass region/zone. Worker flavors come from the two-step `flavor_zones/customs/clusters/master/false?zoneId=` → `/{fzid}/flavors` flow (the flat `/flavors/customs/clusters` endpoint always returns `[]`); volume types are pinned to NVME, users pick an IOPS tier.
 
 ## Server flags
@@ -35,7 +37,7 @@ uv run vks-mcp-server
 # Enable create/update/delete operations
 uv run vks-mcp-server --allow-write
 
-# Enable reading Kubernetes Secrets
+# Enable reading Kubernetes Secrets + the cluster kubeconfig (admin credentials)
 uv run vks-mcp-server --allow-sensitive-data-access
 
 # HTTP transport (default: stdio); Docker image serves this on port 8080
@@ -56,8 +58,8 @@ All write DTOs (`CreateClusterComboDto`, `UpdateClusterDto`, `CreateNodeGroupDto
 
 Cluster write DTOs:
 
-- **Create** (`CreateClusterComboDto`, `POST /v1/clusters`): required `name`, `version`, `networkType`, `vpcId`. Creates the **control plane only** (matching the CLI) — add workers via `create_nodegroup`. The API's `nodeGroups` array is **deprecated** and rejected (`extra="forbid"`). Optional: `enablePrivateCluster`, `releaseChannel`, `enabled{LoadBalancer,BlockStoreCsi,ServiceEndpoint}Plugin`, `azStrategy`, `description`, `subnetId`, `cidr`, `secondarySubnets`, `listSubnetIds`, `nodeNetmaskSize`, `autoUpgradeConfig`, `autoHealingConfig`.
-- **Update** (`UpdateClusterDto`, `PUT /v1/clusters/{id}`): required `version` + `whitelistNodeCIDRs`; optional plugin toggles `enabledLoadBalancerPlugin`, `enabledBlockStoreCsiPlugin`. Name, description, and release channel are **not** editable via this endpoint.
+- **Create** (`CreateClusterComboDto`, `POST /v1/clusters`): required `name`, `version`, `networkType`, `vpcId`. Creates the **control plane only** (matching the CLI) — add workers via `create_nodegroup`. The API's `nodeGroups` array is **deprecated** and rejected (`extra="forbid"`). Optional: `enablePrivateCluster`, `releaseChannel`, `enabledLoadBalancerPlugin`, `enabledBlockStoreCsiPlugin`, `enabledServiceEndpoint` (private clusters only, default true), `azStrategy`, `description`, `subnetId`, `cidr`, `secondarySubnets`, `listSubnetIds`, `nodeNetmaskSize`, `autoUpgradeConfig`, `autoHealingConfig`.
+- **Update** (`UpdateClusterDto`, `PUT /v1/clusters/{id}`): **partial update — all fields optional**, send only what changes (`version`, `whitelistNodeCIDRs`, plugin toggles `enabledLoadBalancerPlugin` / `enabledBlockStoreCsiPlugin`); an empty body is rejected by the handler. Name, description, and release channel are **not** editable via this endpoint.
 
 Node-group write DTOs:
 
@@ -76,11 +78,12 @@ Node-group write DTOs:
 | `auth.py` | Re-export of `mcp_core.auth.TokenManager` (IAM client credentials, auto-refresh) |
 | `client.py` | VksClient extends `mcp_core.http.BaseClient` — adds the vServer service and default service `vks` |
 | `validators.py` | Re-export of `mcp_core.validators.validate_id` |
-| `cluster_handler.py` | 12 cluster tools (CRUD + kubeconfig + events + auto-upgrade + validation + auto-healing) |
+| `cluster_handler.py` | 13 cluster tools (CRUD + kubeconfig get/generate + events + auto-upgrade + validation + auto-healing) |
 | `nodegroup_handler.py` | 9 nodegroup tools (CRUD + metadata + nodes + dry-run + version upgrade) |
 | `k8s_handler.py` | 7 K8s tools (list/manage resources + logs + events + apply YAML + generate app manifest) |
 | `k8s_apis.py` | K8s API client wrapper using kubernetes library |
 | `k8s_client_cache.py` | TTL cache for K8s clients (840s) |
+| `kubeconfig.py` | Extract kubeconfig YAML from the endpoint's JSON envelope (new clusters need generate_kubeconfig first) |
 | `version_handler.py` | 1 tool (cluster versions) |
 | `discovery_handler.py` | 8 discovery tools (vpc/subnet/flavor/sshkey/secgroup/volumetype/placementgroup lists + quota) — vServer + VKS quota, name→ID resolution, `_resolve_zone_context` / `_locate_cluster` |
 | `discovery_cache.py` | Package TTL config on top of `mcp_core.cache.DiscoveryCache` |

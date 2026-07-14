@@ -10,6 +10,7 @@ import yaml
 from cachetools import TTLCache
 from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.k8s_apis import K8sApis
+from greennode.vks_mcp_server.kubeconfig import extract_kubeconfig
 
 
 # 14 minutes TTL — kubeconfig tokens typically last 15m
@@ -37,10 +38,10 @@ class K8sClientCache:
         """Fetch kubeconfig from VKS API and create a K8sApis instance."""
         from kubernetes import config as k8s_config
 
-        kubeconfig_yaml = await self._vks_client.get_raw(
+        raw = await self._vks_client.get_raw(
             f"/v1/clusters/{cluster_id}/kubeconfig",
             region=region,
         )
-        kubeconfig_dict = yaml.safe_load(kubeconfig_yaml)
+        kubeconfig_dict = yaml.safe_load(extract_kubeconfig(raw))
         api_client = k8s_config.new_client_from_config_dict(kubeconfig_dict)
         return K8sApis.from_api_client(api_client)

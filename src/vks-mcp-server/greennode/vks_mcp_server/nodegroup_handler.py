@@ -220,7 +220,10 @@ class NodeGroupHandler:
                 f"{exc}\nTip: call get_creation_guide(resource='nodegroup') for the "
                 "required flow and field rules, then rebuild the body."
             ) from exc
-        return f"Node group created successfully:\n```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
+        text = "Node group created successfully."
+        if result:
+            text += f"\n```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
+        return text
 
     async def update_nodegroup(
         self,
@@ -258,7 +261,10 @@ class NodeGroupHandler:
             region=region,
             json=payload,
         )
-        return f"Node group updated successfully:\n```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
+        text = "Node group updated successfully."
+        if result:
+            text += f"\n```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
+        return text
 
     async def update_nodegroup_metadata(
         self,
@@ -291,12 +297,23 @@ class NodeGroupHandler:
             region=region,
             json=payload,
         )
-        return f"Node group metadata updated successfully:\n```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
+        text = "Node group metadata updated successfully."
+        if result:
+            text += f"\n```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
+        return text
 
     async def delete_nodegroup(
         self,
         cluster_id: str = Field(..., description="VKS Cluster ID"),
         nodegroup_id: str = Field(..., description="Node Group ID to delete. IRREVERSIBLE."),
+        force_delete: bool = Field(
+            False,
+            description=(
+                "Force the deletion on the API side (forceDelete=true). Use ONLY "
+                "as an escalation after a normal delete failed or the node group "
+                "is stuck (e.g. ERROR state) — and confirm with the user first."
+            ),
+        ),
         region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
         """Delete a node group. IRREVERSIBLE.
@@ -306,12 +323,15 @@ class NodeGroupHandler:
 
         ## Workflow
         - Call delete_nodegroup_dryrun first to preview what will be removed.
+        - If a normal delete fails or the node group is stuck, ask the user
+          before retrying with force_delete=true.
         """
         validate_id(cluster_id, "cluster_id")
         validate_id(nodegroup_id, "nodegroup_id")
         await self.client.delete(
             f"/v1/clusters/{cluster_id}/node-groups/{nodegroup_id}",
             region=region,
+            params={"forceDelete": "true"} if force_delete else None,
         )
         return (
             f"Delete request for node group `{nodegroup_id}`"

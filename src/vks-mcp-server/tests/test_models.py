@@ -135,11 +135,18 @@ def test_format_cluster_detail():
 
 
 def test_vpc_item_is_minimal_id_name_projection():
-    """VpcItem carries only id + name — a choice list for the user, not VPC management."""
+    """VpcItem carries only what the user chooses by: id + name + the vDNS flag
+    (azStrategy=MULTI eligibility) — not VPC management fields like cidr."""
     item = VpcItem.from_api(
-        {"id": "net-1", "displayName": "prod-vpc", "cidr": "10.0.0.0/16", "status": "ACTIVE"}
+        {
+            "id": "net-1",
+            "displayName": "prod-vpc",
+            "cidr": "10.0.0.0/16",
+            "status": "ACTIVE",
+            "dnsStatus": "ENABLED",
+        }
     )
-    assert item.model_dump() == {"id": "net-1", "name": "prod-vpc"}
+    assert item.model_dump() == {"id": "net-1", "name": "prod-vpc", "enabled_dns": True}
 
 
 def test_subnet_item_is_minimal_projection():
@@ -493,7 +500,8 @@ def test_create_cluster_combo_allows_control_plane_only():
     assert dumped["releaseChannel"] == "STABLE"
     assert dumped["enabledLoadBalancerPlugin"] is True
     assert dumped["enabledBlockStoreCsiPlugin"] is True
-    assert dumped["enabledServiceEndpoint"] is False
+    # private-cluster-only field: absent unless explicitly set
+    assert "enabledServiceEndpoint" not in dumped
     assert dumped["azStrategy"] == "SINGLE"
     assert dumped["enablePrivateCluster"] is False
 
@@ -525,10 +533,11 @@ def test_create_cluster_combo_new_fields():
     assert dumped["autoHealingConfig"]["enableAutoHealing"] is True
 
 
-def test_update_cluster_dto_requires_version_and_whitelist():
-    """UpdateClusterDto requires version and whitelistNodeCIDRs (matches the API)."""
-    with pytest.raises(ValidationError):
-        UpdateClusterDto(version="v1.29.0")  # missing whitelistNodeCIDRs
+def test_update_cluster_dto_is_partial():
+    """The API accepts partial updates — every field optional (empty bodies are
+    rejected at the handler, not the DTO)."""
+    dto = UpdateClusterDto(version="v1.29.0")  # version alone is valid now
+    assert dto.model_dump(exclude_none=True) == {"version": "v1.29.0"}
 
 
 def test_update_cluster_dto_rejects_name_and_release_channel():
@@ -568,3 +577,35 @@ def test_extra_forbid_create_cluster_combo_dto():
             enablePrivateCluster=False,
             unknownTopLevel="bad",
         )
+
+
+def test_vpc_item_maps_dns_status():
+    """azStrategy=MULTI clusters need a vDNS-enabled VPC — the item carries it."""
+    from greennode.vks_mcp_server.models import VpcItem
+
+    on = VpcItem.from_api({"id": "net-1", "displayName": "vpc-a", "dnsStatus": "ENABLED"})
+    assert on.enabled_dns is True
+    off = VpcItem.from_api({"id": "net-2", "displayName": "vpc-b", "dnsStatus": "DISABLED"})
+    assert off.enabled_dns is False
+    missing = VpcItem.from_api({"id": "net-3", "displayName": "vpc-c"})
+    assert missing.enabled_dns is False
+
+
+def test_create_cluster_dto_service_endpoint_omitted_by_default():
+    """enabledServiceEndpoint is private-cluster-only: unset -> absent from the
+    wire body (public clusters must not carry it)."""
+    from greennode.vks_mcp_server.models import CreateClusterComboDto
+
+    dto = CreateClusterComboDto(
+        name="mycluster01", version="1.28", networkType="CILIUM_OVERLAY", vpcId="vpc-1"
+    )
+    assert "enabledServiceEndpoint" not in dto.model_dump(exclude_none=True)
+    private = CreateClusterComboDto(
+        name="mycluster01",
+        version="1.28",
+        networkType="CILIUM_OVERLAY",
+        vpcId="vpc-1",
+        enablePrivateCluster=True,
+        enabledServiceEndpoint=True,
+    )
+    assert private.model_dump(exclude_none=True)["enabledServiceEndpoint"] is True

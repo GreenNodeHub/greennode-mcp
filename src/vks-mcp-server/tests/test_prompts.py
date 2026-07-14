@@ -188,4 +188,17 @@ async def test_create_cluster_service_endpoint_only_asked_when_private():
     assert "Chỉ khi private" in text
     # the conditional guard sits on the ServiceEndpoint step itself
     seg = text[text.index("Chỉ khi private") : text.index("Chỉ khi private") + 200]
-    assert "enabledServiceEndpointPlugin" in seg
+    assert "enabledServiceEndpoint" in seg
+    assert "BẬT" in seg  # default is ON for private clusters
+
+
+@pytest.mark.asyncio
+async def test_create_cluster_prompt_multi_requires_vdns_vpc():
+    """azStrategy=MULTI can only use vDNS-enabled VPCs — the VPC step must say
+    to filter by enabled_dns when MULTI was chosen."""
+    server = create_server()
+    text = await _prompt_text(server, "vks_create_cluster", {})
+    assert "enabled_dns" in text
+    i = text.index("enabled_dns")
+    seg = text[max(0, i - 250) : i + 250]
+    assert "MULTI" in seg  # the rule is tied to the MULTI strategy

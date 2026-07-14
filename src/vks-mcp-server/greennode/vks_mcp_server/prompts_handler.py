@@ -55,7 +55,9 @@ xác nhận trước khi thực thi. Bạn KHÔNG cần biết ID tài nguyên t
 - Sửa cluster: `update_cluster` chỉ đổi **version + whitelistNodeCIDRs** (+ bật/tắt
   LB/CSI plugin) — KHÔNG đổi được tên/description. Lịch tự nâng cấp:
   `configure_auto_upgrade`; tự phục hồi node: `configure_auto_healing`.
-- Kết nối cluster: `get_cluster_kubeconfig`. Xác thực: `get_access_token`.
+- Kết nối cluster: cluster mới cần `generate_kubeconfig` một lần (async, cần
+  `--allow-write`), rồi `get_cluster_kubeconfig` (kubeconfig = credential admin —
+  cần `--allow-sensitive-data-access`). Xác thực: `get_access_token`.
 
 ## Nguyên tắc
 - Đọc thì tự do; MỌI thao tác ghi phải qua MỘT lần xác nhận rõ ràng (hard gate).
@@ -83,12 +85,14 @@ def _create_cluster_guidance() -> str:
    b. Public/private: `enablePrivateCluster` (mặc định false → API server có
       endpoint public).
    c. Chỉ khi private (`enablePrivateCluster=true`): hỏi
-      `enabledServiceEndpointPlugin` (mặc định tắt). Cluster public → BỎ QUA
-      bước này, không hỏi.
+      `enabledServiceEndpoint` (mặc định BẬT — true). Cluster public → BỎ QUA
+      bước này, không hỏi và không set field.
    d. `list_cluster_versions` → user chọn `version` (ưu tiên bản recommended);
       `releaseChannel` mặc định `STABLE`.
    e. azStrategy: `SINGLE` (mặc định) / `MULTI` (HA).
-   f. `list_vpcs` → user chọn → `vpcId`.
+   f. `list_vpcs` → user chọn → `vpcId`. Nếu azStrategy=`MULTI`: CHỈ trình các VPC
+      có `enabled_dns=true` (MULTI bắt buộc VPC đã bật vDNS); không có VPC nào đạt
+      → dừng, hướng dẫn bật vDNS cho VPC ở console trước.
    g. `list_subnets vpc_id=<vpcId>` → SINGLE: chọn 1 → `subnetId`;
       MULTI: chọn nhiều → `listSubnetIds`.
    h. networkType: `CILIUM_OVERLAY` + `cidr: 10.96.0.0/16` (mặc định — đổi cidr
@@ -111,7 +115,8 @@ def _create_cluster_guidance() -> str:
    `create_nodegroup`. Poll `get_cluster` tới `ACTIVE` (~15–20 phút, báo mỗi lần
    đổi trạng thái). Timeout/`ERROR` → xem `get_cluster_events` và báo nguyên nhân.
 8. Sau khi ACTIVE: tiếp tục luồng `vks_create_nodegroup` để thêm worker; lấy
-   kubeconfig bằng `get_cluster_kubeconfig`.
+   kubeconfig: gọi `generate_kubeconfig` một lần (async), rồi poll
+   `get_cluster_kubeconfig` tới khi trả YAML.
 
 ## Lưu ý
 - Tên cluster 5–20 ký tự (thường + số + gạch nối, đầu/cuối chữ-số).

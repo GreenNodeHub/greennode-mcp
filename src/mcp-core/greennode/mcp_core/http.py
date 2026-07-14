@@ -139,6 +139,11 @@ class BaseClient:
             if raw_response:
                 return resp.text
 
+            # Some product APIs answer successful writes (e.g. VKS 202) with an
+            # empty body — resp.json() would raise "Expecting value: line 1
+            # column 1".
+            if not resp.content or not resp.text.strip():
+                return None
             return resp.json()
 
         # Should not reach here, but just in case

@@ -454,11 +454,22 @@ class VpcItem(BaseModel):
 
     id: str = Field(..., description="VPC/network ID — use as `vpcId` in create_cluster")
     name: str = Field("", description="VPC display name — show this to the user")
+    enabled_dns: bool = Field(
+        False,
+        description=(
+            "Whether vDNS is enabled on this VPC — clusters with azStrategy=MULTI "
+            "can only use a vDNS-enabled VPC"
+        ),
+    )
 
     @classmethod
     def from_api(cls, v: dict) -> VpcItem:
         """Build a VpcItem from a raw vServer network dict."""
-        return cls(id=v.get("id", ""), name=v.get("displayName", ""))
+        return cls(
+            id=v.get("id", ""),
+            name=v.get("displayName", ""),
+            enabled_dns=v.get("dnsStatus", "") == "ENABLED",
+        )
 
 
 class VpcListData(BaseModel):
@@ -920,7 +931,13 @@ class CreateClusterComboDto(BaseModel):
     enablePrivateCluster: bool = Field(False, description="Whether the cluster is private")
     enabledLoadBalancerPlugin: bool = Field(True, description="Enable the load-balancer plugin")
     enabledBlockStoreCsiPlugin: bool = Field(True, description="Enable the block-store CSI plugin")
-    enabledServiceEndpoint: bool = Field(False, description="Enable the service endpoint")
+    enabledServiceEndpoint: Optional[bool] = Field(
+        None,
+        description=(
+            "Service endpoint — PRIVATE clusters only (enablePrivateCluster=true), "
+            "default true there. Omit for public clusters (not applicable)."
+        ),
+    )
     azStrategy: Literal["SINGLE", "MULTI"] = Field(
         "SINGLE", description="Availability-zone strategy"
     )
@@ -943,18 +960,23 @@ class CreateClusterComboDto(BaseModel):
 
 
 class UpdateClusterDto(BaseModel):
-    """Body for update_cluster (``PUT /v1/clusters/{id}``).
+    """Partial-update body for update_cluster (``PUT /v1/clusters/{id}``).
 
-    Mirrors the greennode-cli ``update-cluster`` command: it changes the Kubernetes
-    version and the node whitelist CIDRs, and can toggle the LB / block-store plugins.
-    (Name, description, and release channel are NOT editable via this endpoint.)
-    Unknown fields are rejected (``extra="forbid"``).
+    All fields optional — send only what changes (the API no longer requires
+    version/whitelistNodeCIDRs on every update). At least one field must be
+    set; the handler rejects an empty body. (Name, description, and release
+    channel are NOT editable via this endpoint.) Unknown fields are rejected
+    (``extra="forbid"``).
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    version: str = Field(..., description="Target Kubernetes version (from list_cluster_versions)")
-    whitelistNodeCIDRs: list[str] = Field(..., description="Whitelist node CIDRs")
+    version: Optional[str] = Field(
+        None, description="Target Kubernetes version (from list_cluster_versions); omit to keep"
+    )
+    whitelistNodeCIDRs: Optional[list[str]] = Field(
+        None, description="Whitelist node CIDRs; omit to leave unchanged"
+    )
     enabledLoadBalancerPlugin: Optional[bool] = Field(
         None, description="Toggle the load-balancer plugin; omit to leave unchanged"
     )
