@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.10.0...vks-mcp-server-v0.11.0) (2026-07-14)
+
+
+### Features
+
+* id-first rendering hint on every list tool's docstring ([74d168a](https://github.com/vngcloud/greennode-mcp/commit/74d168aa19ce1b2f817e322a88e30447777521f6))
+
+
+### Bug Fixes
+
+* list_flavors uses the VKS portal's flavor chain — HAN was empty ([#44](https://github.com/vngcloud/greennode-mcp/issues/44)) ([3be43aa](https://github.com/vngcloud/greennode-mcp/commit/3be43aaf0f829c8234f5fae51b238e2212cc38a3))
+* validate_cluster_create enforces the API's description charset (F-05) ([#43](https://github.com/vngcloud/greennode-mcp/issues/43)) ([5ca14f4](https://github.com/vngcloud/greennode-mcp/commit/5ca14f406c26420a24e7b9677ce105a00940c38b))
+
+
+### Reverts
+
+* id-first hints in list-tool docstrings (74d168a) ([#46](https://github.com/vngcloud/greennode-mcp/issues/46)) ([96cc6d1](https://github.com/vngcloud/greennode-mcp/commit/96cc6d1b1c1ab6f817f430c14f73e22271d1be8d))
+
 ## [0.10.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.9.0...vks-mcp-server-v0.10.0) (2026-07-14)
 
 
