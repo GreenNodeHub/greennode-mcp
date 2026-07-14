@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.9.0...vks-mcp-server-v0.10.0) (2026-07-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* --auth-mode/--api-key/--jwt-* CLI flags and the GRN_MCP_API_KEY/GRN_MCP_JWT_*/GRN_MCP_VKS_AUTH env vars are gone; deployments using api-key/jwt inbound auth must drop those settings.
+
+### Features
+
+* --vks-auth passthrough — every VKS call runs as the caller ([#40](https://github.com/vngcloud/greennode-mcp/issues/40)) ([7e700f1](https://github.com/vngcloud/greennode-mcp/commit/7e700f1e50733d62763014f3614b4429300c149f))
+* validate_nodegroup_create — check the body before creating ([#41](https://github.com/vngcloud/greennode-mcp/issues/41)) ([ab78c03](https://github.com/vngcloud/greennode-mcp/commit/ab78c032a71e8846feabdbd190b4eb6fac57033c))
+
 ## [0.9.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.8.0...vks-mcp-server-v0.9.0) (2026-07-14)
 
 

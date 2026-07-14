@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/vngcloud/greennode-mcp/compare/mcp-core-v0.2.0...mcp-core-v0.3.0) (2026-07-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* --auth-mode/--api-key/--jwt-* CLI flags and the GRN_MCP_API_KEY/GRN_MCP_JWT_*/GRN_MCP_VKS_AUTH env vars are gone; deployments using api-key/jwt inbound auth must drop those settings.
+
+### Features
+
+* --vks-auth passthrough — every VKS call runs as the caller ([#40](https://github.com/vngcloud/greennode-mcp/issues/40)) ([7e700f1](https://github.com/vngcloud/greennode-mcp/commit/7e700f1e50733d62763014f3614b4429300c149f))
+
 ## [0.2.0](https://github.com/vngcloud/greennode-mcp/compare/mcp-core-v0.1.0...mcp-core-v0.2.0) (2026-07-14)
 
 
