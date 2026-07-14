@@ -151,7 +151,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `list_flavors` | `flavorId` (tagged by deployment-need group; sold-out excluded) | 30 min |
 | `list_ssh_keys` | `sshKeyId` | 30 s |
 | `list_security_groups` | `securityGroups` (ACTIVE only) | 2 min |
-| `list_volume_types` | `diskType` (a volume-type **ID**, not "SSD"; NVME tiers picked by IOPS) | 30 min |
+| `list_volume_types` | `diskType` (a volume-type **ID**; NVME by default, auto-falls back to SSD when the zone has none, `type_name=SSD` on request; picked by IOPS) | 30 min |
 | `list_placement_groups` | `placementGroupId` (type=EXISTING) | 2 min |
 | `get_quota` | pre-create quota check (max/used clusters, node groups, nodes) | none |
 

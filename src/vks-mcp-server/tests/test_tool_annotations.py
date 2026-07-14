@@ -289,3 +289,13 @@ async def test_auto_healing_and_upgrade_descriptions_route_intent(all_tools_mcp)
     up = tools["configure_auto_upgrade"].description
     assert "schedule" in up.lower()  # what it actually sets
     assert "delete_auto_upgrade" in up  # how to turn it OFF (separate tool)
+
+
+def test_server_instructions_require_ids_in_rendered_output():
+    """Field finding: agents rendered the cluster table without the ID column.
+    The always-in-context layer must state the rule."""
+    from greennode.vks_mcp_server.server import SERVER_INSTRUCTIONS
+
+    assert "## Presenting results" in SERVER_INSTRUCTIONS
+    low = SERVER_INSTRUCTIONS.lower()
+    assert "`id`" in SERVER_INSTRUCTIONS and "never drop" in low

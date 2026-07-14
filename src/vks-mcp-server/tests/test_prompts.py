@@ -131,7 +131,7 @@ async def test_create_nodegroup_prompt_zone_chained_discovery():
     assert text.index("list_subnets") < text.index("list_flavors")
     assert text.index("list_subnets") < text.index("list_volume_types")
     assert "zone" in text
-    assert "type_name" not in text  # param removed — NVME fixed, user picks an IOPS tier
+    assert "SSD" in text  # zone without NVME falls back to SSD; explicit SSD supported
     assert "IOPS" in text
 
 

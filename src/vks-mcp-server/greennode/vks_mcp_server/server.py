@@ -52,6 +52,13 @@ Add a node group: get_cluster (vpcId + region) -> get_quota -> list_subnets (use
 
 Present the discovered options to the user and wait for confirmation before any write call.
 
+## Presenting results
+
+When rendering any resource list or detail to the user (tables, bullet
+lists), ALWAYS include each item's `id` and `name` as the FIRST two columns
+(id, name, then everything else) — follow-up commands and confirmations need
+them. Never drop the id column to save space and never truncate id values.
+
 ## Guided prompts
 
 For full step-by-step flows (safe defaults, plan review, confirm gate) load the prompts: `vks_getting_started`, `vks_create_cluster`, `vks_create_nodegroup`.

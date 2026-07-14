@@ -651,12 +651,18 @@ def _mock_validation_chain(respx_mock):
         )
     )
     respx_mock.get(f"{VS_BASE}/v1/{_PID}/volume_type_zones").mock(
-        return_value=httpx.Response(200, json={"listData": [{"id": "vtz-1", "name": "NVME"}]})
+        return_value=httpx.Response(
+            200,
+            json={"listData": [{"id": "vtz-1", "name": "NVME"}, {"id": "vtz-ssd", "name": "SSD"}]},
+        )
     )
     respx_mock.get(f"{VS_BASE}/v1/{_PID}/vtz-1/volume_types").mock(
         return_value=httpx.Response(
             200, json={"listData": [{"id": "vtype-ok", "name": "3000", "iops": 3000}]}
         )
+    )
+    respx_mock.get(f"{VS_BASE}/v1/{_PID}/vtz-ssd/volume_types").mock(
+        return_value=httpx.Response(200, json={"listData": [{"id": "vt-ssd-1", "iops": 1000}]})
     )
     respx_mock.get(f"{VS_BASE}/v2/{_PID}/sshKeys").mock(
         return_value=httpx.Response(
@@ -749,3 +755,15 @@ async def test_validate_nodegroup_create_collects_multiple_errors(validate_handl
         body=_valid_ng_body(flavorId="flav-ghost", diskType="SSD", sshKeyId="ssh-ghost"),
     )
     assert "flavorId" in result and "diskType" in result and "sshKeyId" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_accepts_ssd_disktype(validate_handler, respx_mock):
+    """A user who explicitly chose an SSD tier must not be flagged invalid."""
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body(diskType="vt-ssd-1")
+    )
+    assert result == "valid"

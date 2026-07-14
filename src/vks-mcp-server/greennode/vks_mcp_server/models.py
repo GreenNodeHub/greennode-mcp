@@ -629,7 +629,7 @@ class PlacementGroupListData(BaseModel):
 
 
 class VolumeTypeItem(BaseModel):
-    """An NVME volume type — the user picks one by IOPS; its id is the diskType."""
+    """A volume type tier — the user picks one by IOPS; its id is the diskType."""
 
     id: str = Field(..., description="Volume type ID — use as `diskType` in create_nodegroup")
     iops: int | str = Field("", description="Provisioned IOPS — what the user chooses by")
@@ -641,12 +641,15 @@ class VolumeTypeItem(BaseModel):
 
 
 class VolumeTypeListData(BaseModel):
-    """Wrapper for list_volume_types response (NVME volume types of one zone)."""
+    """Wrapper for list_volume_types response (volume types of one zone)."""
 
     region: str = Field(..., description="Region these volume types belong to")
+    type_name: str = Field(
+        "", description="Resolved disk type (NVME or SSD) these tiers belong to"
+    )
     zone: str = Field("", description="Availability-zone uuid these volume types belong to")
     volume_types: list[VolumeTypeItem] = Field(
-        default_factory=list, description="NVME volume types, one per IOPS tier"
+        default_factory=list, description="Volume types of the resolved type, one per IOPS tier"
     )
 
 

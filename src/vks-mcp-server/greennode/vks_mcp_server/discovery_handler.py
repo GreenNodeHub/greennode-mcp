@@ -26,6 +26,7 @@ from greennode.vks_mcp_server.models import (
 from greennode.vks_mcp_server.tool_annotations import READ
 from greennode.vks_mcp_server.validators import validate_id
 from pydantic import Field
+from typing import Literal
 
 
 async def _require_project_id(
@@ -406,24 +407,22 @@ async def _placementgroup_list(
     return await cache.get_or_fetch("list_placement_groups", key, fetch, refresh)
 
 
-# Node groups use NVME disks; SSD volume types are not offered via this tool.
-_VOLUME_TYPE_NAME = "NVME"
-
-
 async def _volumetype_list(
     config: VksConfig,
     client: VksClient,
     cache: DiscoveryCache,
     zone: str,
     region: str | None = None,
+    type_name: str = "AUTO",
     refresh: bool = False,
 ) -> VolumeTypeListData:
-    """Fetch the NVME volume types available in an availability zone (cached).
+    """Fetch the volume types (IOPS tiers) available in an availability zone (cached).
 
     Two-step vServer flow, both internal: (1) ``GET /volume_type_zones?zoneId=<zone>``
-    → pick the entry named NVME to get its volume-type-zone id; (2)
-    ``GET /{that_id}/volume_types`` → the IOPS tiers. *zone* is the subnet's
-    ``zone.uuid`` (from list_subnets). Each item's **id** is the ``diskType``.
+    → pick the disk-type entry; (2) ``GET /{that_id}/volume_types`` → the IOPS
+    tiers. *type_name* ``AUTO`` prefers NVME and falls back to SSD when the
+    zone has no NVME; ``NVME``/``SSD`` select explicitly. Each item's **id**
+    is the ``diskType``.
     """
     pid = await _require_project_id(config, client, region)
     resolved_region = region or config.default_region
@@ -433,19 +432,27 @@ async def _volumetype_list(
             f"/v1/{pid}/volume_type_zones", region=region, params={"zoneId": zone}
         )
         zones = _as_list(zones_data, "volumeTypeZones", "data", "listData")
-        nvme = next((z for z in zones if z.get("name", "").upper() == _VOLUME_TYPE_NAME), None)
+        by_name = {z.get("name", "").upper(): z for z in zones if z.get("id")}
+        if type_name == "AUTO":
+            chosen = by_name.get("NVME") or by_name.get("SSD")
+        else:
+            chosen = by_name.get(type_name)
         volume_types: list[VolumeTypeItem] = []
-        if nvme and nvme.get("id"):
+        resolved_type = ""
+        if chosen:
+            resolved_type = chosen.get("name", "").upper()
             vt_data = await client.vserver_get(
-                f"/v1/{pid}/{nvme['id']}/volume_types", region=region
+                f"/v1/{pid}/{chosen['id']}/volume_types", region=region
             )
             volume_types = [
                 VolumeTypeItem.from_api(vt)
                 for vt in _as_list(vt_data, "volumeTypes", "data", "listData")
             ]
-        return VolumeTypeListData(region=resolved_region, zone=zone, volume_types=volume_types)
+        return VolumeTypeListData(
+            region=resolved_region, zone=zone, type_name=resolved_type, volume_types=volume_types
+        )
 
-    key = ("list_volume_types", resolved_region, pid, zone)
+    key = ("list_volume_types", resolved_region, pid, zone, type_name)
     return await cache.get_or_fetch("list_volume_types", key, fetch, refresh)
 
 
@@ -702,22 +709,32 @@ class DiscoveryHandler:
                 "the tool derives the zone itself."
             ),
         ),
+        type_name: Literal["AUTO", "NVME", "SSD"] = Field(
+            "AUTO",
+            description=(
+                "Disk type: AUTO (default) serves NVME and falls back to SSD "
+                "when the zone has no NVME; pass SSD only when the user "
+                "explicitly asks for SSD disks."
+            ),
+        ),
         refresh: bool = Field(
             False,
             description="Bypass the short-lived cache and refetch from vServer.",
         ),
     ) -> VolumeTypeListData:
-        """List NVME volume types (disk types) available to a cluster's chosen subnet.
+        """List volume types (disk IOPS tiers) available to a cluster's chosen subnet.
 
-        Returns {region, zone, volume_types[{id, iops}]}. Node groups use NVME
-        disks; region and availability zone are derived from the cluster and
-        subnet server-side — a mismatch is impossible. The user picks by **IOPS**.
+        Returns {region, zone, type_name, volume_types[{id, iops}]} — the
+        `type_name` field says which disk type (NVME or SSD) the tiers belong
+        to. Region and availability zone are derived from the cluster and
+        subnet server-side — a mismatch is impossible. The user picks by
+        **IOPS**.
 
         ## Workflow
         - create_nodegroup flow, after the user picks a subnet in list_subnets:
           call this with the cluster id and that subnet id, present the IOPS
-          options, and let the user choose. IMPORTANT: do NOT pick an IOPS tier
-          silently.
+          options (mention the resolved `type_name`), and let the user choose.
+          IMPORTANT: do NOT pick an IOPS tier silently.
         - Use the chosen item's `id` as `diskType` in create_nodegroup.
         """
         resolved_region, zone = await _resolve_zone_context(
@@ -729,6 +746,7 @@ class DiscoveryHandler:
             self.cache,
             zone=zone,
             region=resolved_region,
+            type_name=type_name,
             refresh=refresh,
         )
 

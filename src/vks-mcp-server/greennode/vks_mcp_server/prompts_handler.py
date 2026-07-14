@@ -63,6 +63,8 @@ xác nhận trước khi thực thi. Bạn KHÔNG cần biết ID tài nguyên t
 - Đọc thì tự do; MỌI thao tác ghi phải qua MỘT lần xác nhận rõ ràng (hard gate).
 - Không tự quyết tham số người dùng quan tâm — chọn default an toàn, đánh dấu `[auto]`, cho sửa.
 - Resolve tên → ID qua discovery tools; không bắt người dùng dán ID thô.
+- Khi hiển thị danh sách/chi tiết tài nguyên: `id` và `name` là HAI CỘT ĐẦU TIÊN
+  của bảng, id không được cắt ngắn — thao tác tiếp theo cần nó, không lược bỏ.
 - Trả lời bằng ngôn ngữ người dùng dùng. Không bao giờ dán secret vào chat.
 """
 
@@ -162,8 +164,10 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
    f. `list_flavors cluster_id=<id> subnet_id=<subnetId>` (lọc `need` nếu rõ nhu cầu)
       → user chọn → `flavorId`; gợi ý flavor nhỏ nhất theo vCPU/RAM (dev/test).
    g. Volume: `list_volume_types cluster_id=<id> subnet_id=<subnetId>` → user chọn bậc
-      IOPS → `id` là `diskType` (**ID volume type**, không phải chuỗi "SSD"; NVME cố
-      định); gợi ý bậc thấp nhất. diskSize: `100` GB (20–5000).
+      IOPS → `id` là `diskType` (**ID volume type**, không phải chuỗi tên loại đĩa).
+      Loại đĩa: NVME mặc định; zone không có NVME → tool tự chuyển SSD (field
+      `type_name` trong kết quả cho biết loại); user chủ động cần SSD → truyền
+      `type_name=SSD`. Gợi ý bậc IOPS thấp nhất. diskSize: `100` GB (20–5000).
       Hỏi `enabledEncryptionVolume` (mặc định false → đĩa không mã hoá).
    h. `list_ssh_keys` → user chọn → `sshKeyId` (VKS dùng 1 key).
    i. Tuỳ chọn: `autoScaleConfig` (minSize/maxSize — liên quan numNodes).

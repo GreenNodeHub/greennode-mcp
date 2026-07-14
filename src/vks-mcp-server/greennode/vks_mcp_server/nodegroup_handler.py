@@ -210,13 +210,21 @@ class NodeGroupHandler:
                 f"{zone} — pick from list_flavors(cluster_id, subnet_id)"
             )
 
-        vtypes = await _volumetype_list(
-            self.config, self.client, self.cache, zone=zone, region=region
-        )
-        if body.diskType not in {v.id for v in vtypes.volume_types}:
+        valid_disk_ids: set[str] = set()
+        for disk_type in ("NVME", "SSD"):
+            vtypes = await _volumetype_list(
+                self.config,
+                self.client,
+                self.cache,
+                zone=zone,
+                region=region,
+                type_name=disk_type,
+            )
+            valid_disk_ids |= {v.id for v in vtypes.volume_types}
+        if body.diskType not in valid_disk_ids:
             errors.append(
-                f"diskType '{body.diskType}' is not a volume-type id in zone {zone} — "
-                "pick from list_volume_types(cluster_id, subnet_id)"
+                f"diskType '{body.diskType}' is not a volume-type id (NVME or SSD) in "
+                f"zone {zone} — pick from list_volume_types(cluster_id, subnet_id)"
             )
 
         keys = await _sshkey_list(self.config, self.client, self.cache, region=region)
