@@ -280,44 +280,53 @@ async def _flavor_list(
 ) -> FlavorListData:
     """Fetch available worker flavors for an availability zone (cached).
 
-    Two-step vServer flow, both internal: (1)
-    ``GET /flavor_zones/customs/clusters/master/false?zoneId=<zone>`` → the worker
-    (non-master) flavor-zone(s) of that AZ; (2) ``GET /{flavor_zone_id}/flavors``
-    → the flavors. *zone* is the subnet's ``zone.uuid`` (from list_subnets).
-    Sold-out flavors are excluded; each item's **id** is the ``flavorId``.
+    Uses the same chain as the VKS portal's node-group flavor picker:
+    (1) ``GET /flavor_zones/families`` -> family keys + their platform codes;
+    (2) per family x code,
+    ``GET /flavors/families/{family}/platforms/{code}/clusters/master/false?zoneId=``
+    -> the cluster-worker flavors of that platform in the zone. (The old
+    ``flavor_zones/customs/clusters`` chain returned [] for whole regions,
+    e.g. HAN.) Sold-out flavors are excluded; each item's **id** is the
+    ``flavorId``.
     """
     pid = await _require_project_id(config, client, region)
     resolved_region = region or config.default_region
 
     async def fetch() -> FlavorListData:
-        zones = _as_list(
-            await client.vserver_get(
-                f"/v1/{pid}/flavor_zones/customs/clusters/master/false",
-                region=region,
-                params={"zoneId": zone},
-            ),
-            "flavorZones",
-            "listData",
-            "data",
-        )
-        flavors = []
-        for fz in zones:
-            fzid = fz.get("id")
-            if not fzid:
+        families = await client.vserver_get(f"/v1/{pid}/flavor_zones/families", region=region)
+        by_id: dict[str, dict] = {}
+        for family in families if isinstance(families, list) else []:
+            family_key = family.get("key")
+            codes = (family.get("condition") or {}).get("codes") or []
+            if not family_key:
                 continue
-            raw = _as_list(
-                await client.vserver_get(f"/v1/{pid}/{fzid}/flavors", region=region),
-                "flavors",
-                "listData",
-                "data",
-            )
-            for f in raw:
-                if not _flavor_available(f):
-                    continue
-                group = _suggest_group(f)
-                if need and group.lower() != need.lower():
-                    continue
-                flavors.append(FlavorItem.from_api(f, group))
+            for code in codes:
+                try:
+                    items = _as_list(
+                        await client.vserver_get(
+                            f"/v1/{pid}/flavors/families/{family_key}/platforms/{code}"
+                            "/clusters/master/false",
+                            region=region,
+                            params={"zoneId": zone},
+                        ),
+                        "listData",
+                        "data",
+                        "flavors",
+                    )
+                except RuntimeError:
+                    continue  # a platform code may not exist in this region
+                for f in items:
+                    fid = f.get("flavorId")
+                    if fid:
+                        by_id[fid] = f
+        flavors = []
+        for f in by_id.values():
+            if not _flavor_available(f):
+                continue
+            group = _suggest_group(f)
+            if need and group.lower() != need.lower():
+                continue
+            flavors.append(FlavorItem.from_api(f, group))
         return FlavorListData(region=resolved_region, zone=zone, need=need, flavors=flavors)
 
     # Normalize need for the key: the filter compares case-insensitively, so

@@ -636,12 +636,18 @@ def _mock_validation_chain(respx_mock):
             },
         )
     )
-    respx_mock.get(f"{VS_BASE}/v1/{_PID}/flavor_zones/customs/clusters/master/false").mock(
-        return_value=httpx.Response(200, json={"listData": [{"id": "fz-1"}]})
-    )
-    respx_mock.get(f"{VS_BASE}/v1/{_PID}/fz-1/flavors").mock(
+    respx_mock.get(f"{VS_BASE}/v1/{_PID}/flavor_zones/families").mock(
         return_value=httpx.Response(
-            200, json={"flavors": [{"flavorId": "flav-ok", "name": "s1", "cpu": 2, "memory": 4}]}
+            200,
+            json=[{"key": "general-purpose", "condition": {"codes": ["code-s2"]}}],
+        )
+    )
+    respx_mock.get(
+        f"{VS_BASE}/v1/{_PID}/flavors/families/general-purpose/platforms/code-s2"
+        "/clusters/master/false"
+    ).mock(
+        return_value=httpx.Response(
+            200, json={"listData": [{"flavorId": "flav-ok", "name": "s1", "cpu": 2, "memory": 4}]}
         )
     )
     respx_mock.get(f"{VS_BASE}/v1/{_PID}/volume_type_zones").mock(

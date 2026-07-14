@@ -167,17 +167,28 @@ def test_suggest_group_classifies():
     assert _suggest_group({"cpu": 4, "memory": 8, "gpu": 0}) == "Cân bằng"
 
 
-FZ_PATH = f"{VSERVER_BASE}/v1/{PID}/flavor_zones/customs/clusters/master/false"
+FAMILIES_PATH = f"{VSERVER_BASE}/v1/{PID}/flavor_zones/families"
+FLAVORS_PATH = (
+    f"{VSERVER_BASE}/v1/{PID}/flavors/families/general-purpose/platforms/code-s2"
+    "/clusters/master/false"
+)
 
 
 def _mock_flavor_zone(flavors):
-    """Mock the two-step worker-flavor flow: flavor_zones (master=false) -> flavors."""
-    respx.get(FZ_PATH).mock(
-        return_value=httpx.Response(200, json={"listData": [{"id": "fz-1", "name": "z1"}]})
+    """Mock the real VKS flavor chain: families -> per-platform cluster flavors."""
+    respx.get(FAMILIES_PATH).mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "key": "general-purpose",
+                    "value": "General Purpose",
+                    "condition": {"codes": ["code-s2"]},
+                }
+            ],
+        )
     )
-    respx.get(f"{VSERVER_BASE}/v1/{PID}/fz-1/flavors").mock(
-        return_value=httpx.Response(200, json={"listData": flavors})
-    )
+    respx.get(FLAVORS_PATH).mock(return_value=httpx.Response(200, json={"listData": flavors}))
 
 
 @respx.mock
@@ -457,8 +468,13 @@ async def test_subnet_list_cache_keyed_by_vpc(config, client, cache):
 @pytest.mark.asyncio
 async def test_flavor_list_cache_keyed_by_need(config, client, cache):
     _mock_iam(respx.mock)
-    respx.get(FZ_PATH).mock(return_value=httpx.Response(200, json={"listData": [{"id": "fz-1"}]}))
-    route = respx.get(f"{VSERVER_BASE}/v1/{PID}/fz-1/flavors").mock(
+    respx.get(FAMILIES_PATH).mock(
+        return_value=httpx.Response(
+            200,
+            json=[{"key": "general-purpose", "condition": {"codes": ["code-s2"]}}],
+        )
+    )
+    route = respx.get(FLAVORS_PATH).mock(
         return_value=httpx.Response(
             200,
             json={
