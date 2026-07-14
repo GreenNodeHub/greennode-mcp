@@ -26,6 +26,8 @@ from pydantic import Field
 # ---------------------------------------------------------------------------
 
 _CLUSTER_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{3,18}[a-z0-9]$")
+# API contract for description (F-05a): ASCII subset only, max 255.
+_DESCRIPTION_RE = re.compile(r"^[a-zA-Z0-9-_. @]{0,255}$")
 
 _VALID_NETWORK_TYPES = {"CILIUM_OVERLAY", "CILIUM_NATIVE_ROUTING", "TIGERA"}
 _NETWORK_NEEDS_CIDR = {"CILIUM_OVERLAY", "TIGERA"}
@@ -251,6 +253,15 @@ def _cluster_create_validate(
         errors.append(
             f"Cluster name '{name}' is invalid. "
             "Must match ^[a-z0-9][a-z0-9\\-]{{3,18}}[a-z0-9]$"
+        )
+
+    # description: the API rejects anything outside its ASCII subset (400)
+    desc = body.get("description")
+    if desc is not None and not _DESCRIPTION_RE.match(desc):
+        errors.append(
+            "description: only ASCII letters, digits, spaces and '-_.@' are "
+            "allowed (no accented characters), max 255 chars — "
+            "must match ^[a-zA-Z0-9-_. @]{0,255}$"
         )
 
     # Check required fields

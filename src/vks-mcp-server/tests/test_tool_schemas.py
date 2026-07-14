@@ -214,3 +214,24 @@ async def test_structured_tools_have_output_schema(config, client):
         "list_k8s_resources",
     ]:
         assert by_name[name].outputSchema is not None, f"{name} missing outputSchema"
+
+
+@pytest.mark.asyncio
+async def test_create_dto_field_descriptions_state_the_rules(config, client):
+    """F-05: schema field descriptions must carry the constraints agents can
+    break — not bare labels like 'Cluster description' / 'Node group name'."""
+    from greennode.vks_mcp_server.nodegroup_handler import NodeGroupHandler
+
+    cluster_schema = await _schema_for(
+        lambda mcp: ClusterHandler(mcp, config, client, allow_write=True), "create_cluster"
+    )
+    dto = cluster_schema["$defs"]["CreateClusterComboDto"]["properties"]
+    desc_doc = dto["description"]["description"]
+    assert "255" in desc_doc
+    assert "ASCII" in desc_doc or "accented" in desc_doc.lower()
+
+    ng_schema = await _schema_for(
+        lambda mcp: NodeGroupHandler(mcp, config, client, allow_write=True), "create_nodegroup"
+    )
+    name_doc = ng_schema["$defs"]["CreateNodeGroupDto"]["properties"]["name"]["description"]
+    assert "5-15" in name_doc

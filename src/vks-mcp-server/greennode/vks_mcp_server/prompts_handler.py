@@ -80,8 +80,10 @@ def _create_cluster_guidance() -> str:
    — mỗi bước là một câu hỏi riêng ("Bạn có muốn cấu hình X không?"). Không bỏ
    qua bước nào thầm lặng:
    a. Tên cluster (5–20 ký tự: thường + số + gạch nối, đầu/cuối chữ-số);
-      `description` nhập tự do hoặc bỏ trống ngay trong bước này — KHÔNG hỏi
-      riêng "có muốn thêm mô tả không?".
+      `description` nhập hoặc bỏ trống ngay trong bước này — KHÔNG hỏi riêng
+      "có muốn thêm mô tả không?". LƯU Ý: description chỉ nhận ASCII không dấu
+      (chữ/số/khoảng trắng/`-_.@`, ≤255 ký tự) — tiếng Việt có dấu sẽ bị API
+      từ chối.
    b. Public/private: `enablePrivateCluster` (mặc định false → API server có
       endpoint public).
    c. Chỉ khi private (`enablePrivateCluster=true`): hỏi
@@ -148,7 +150,8 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
    nhiều bước tuỳ chọn vào một câu chọn-nhiều — mỗi bước là một câu hỏi riêng
    ("Bạn có muốn cấu hình X không?"). Không bỏ qua bước nào thầm lặng. KHÔNG tự
    chọn thầm subnet/flavor/diskType/sshKey khi có nhiều lựa chọn:
-   a. Tên node group: đề xuất `<cluster>-ng`; quá 15 ký tự/không hợp lệ → `default-ng`.
+   a. Tên node group (5–15 ký tự: thường + số + gạch nối, đầu/cuối chữ-số):
+      đề xuất `<cluster>-ng`; không hợp lệ → `default-ng`.
       numNodes: gợi ý `1` (0–10; prod/HA gợi ý 3).
    b. Public/private: `enablePrivateNodes` (mặc định false → node có IP public).
    c. os: `ubuntu` (mặc định; hoặc `linux`, `rocky`).

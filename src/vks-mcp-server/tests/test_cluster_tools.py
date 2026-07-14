@@ -635,3 +635,25 @@ async def test_delete_auto_upgrade_handles_empty_202(config, client, respx_mock)
     result = await handler.delete_auto_upgrade(cluster_id="k8s-abc", region=None)
     assert "deleted successfully" in result
     assert "None" not in result
+
+
+def test_cluster_create_validate_rejects_accented_description():
+    """F-05a: the API enforces ^[a-zA-Z0-9-_. @]{0,255}$ on description —
+    validate must fail early instead of letting create die with a 400."""
+    body = {**_VALID_BODY, "description": "Cụm thử nghiệm có dấu"}
+    result = _cluster_create_validate({"body": body})
+    text = result[0].text
+    assert text != "valid"
+    assert "description" in text
+
+
+def test_cluster_create_validate_accepts_ascii_description():
+    body = {**_VALID_BODY, "description": "Test cluster v1.0 - team_A @dev"}
+    result = _cluster_create_validate({"body": body})
+    assert result[0].text == "valid"
+
+
+def test_cluster_create_validate_rejects_overlong_description():
+    body = {**_VALID_BODY, "description": "x" * 256}
+    result = _cluster_create_validate({"body": body})
+    assert "description" in result[0].text

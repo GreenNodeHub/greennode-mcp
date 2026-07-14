@@ -855,7 +855,13 @@ class NodeGroupSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(..., description="Node group name")
+    name: str = Field(
+        ...,
+        description=(
+            "Node group name: 5-15 chars, lowercase letters + digits + hyphens, "
+            "letter/digit at both ends"
+        ),
+    )
     flavorId: str = Field(..., description="Flavor ID (from list_flavors)")
     diskSize: int = Field(..., ge=20, le=5000, description="Disk size in GB (20-5000)")
     diskType: str = Field(..., description="Volume type ID (from list_volume_types)")
@@ -921,7 +927,13 @@ class CreateClusterComboDto(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(..., description="Cluster name (5-20 chars)")
+    name: str = Field(
+        ...,
+        description=(
+            "Cluster name: 5-20 chars, lowercase letters + digits + hyphens, "
+            "letter/digit at both ends"
+        ),
+    )
     version: str = Field(..., description="Kubernetes version (from list_cluster_versions)")
     networkType: Literal["CILIUM_OVERLAY", "CILIUM_NATIVE_ROUTING", "TIGERA"] = Field(
         ..., description="Network type"
@@ -941,7 +953,13 @@ class CreateClusterComboDto(BaseModel):
     azStrategy: Literal["SINGLE", "MULTI"] = Field(
         "SINGLE", description="Availability-zone strategy"
     )
-    description: Optional[str] = Field(None, description="Cluster description")
+    description: Optional[str] = Field(
+        None,
+        description=(
+            "Cluster description — ASCII only: letters, digits, spaces and "
+            "'-_.@' (NO accented/Unicode characters), max 255 chars"
+        ),
+    )
     subnetId: Optional[str] = Field(None, description="Subnet ID (from list_subnets)")
     cidr: Optional[str] = Field(
         None, description="Required when networkType is CILIUM_OVERLAY or TIGERA"
