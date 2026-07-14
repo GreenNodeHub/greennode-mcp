@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.8.0...vks-mcp-server-v0.9.0) (2026-07-14)
+
+
+### Features
+
+* field-test fixes — vDNS flag, partial updates, kubeconfig envelope + generate tool, force delete ([#38](https://github.com/vngcloud/greennode-mcp/issues/38)) ([7713736](https://github.com/vngcloud/greennode-mcp/commit/7713736086c316349a6f2ab5ad2b26cf3099d933))
+
 ## [0.8.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.7.0...vks-mcp-server-v0.8.0) (2026-07-12)
 
 
