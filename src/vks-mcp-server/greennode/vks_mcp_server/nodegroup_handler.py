@@ -161,7 +161,9 @@ class NodeGroupHandler:
 
         Local rules (name 5-15 chars: lowercase + digits + hyphens, letter/digit
         at both ends; autoscale bounds) plus cross-checks against live discovery
-        (cached): the subnet belongs to the cluster's VPC, flavorId and diskType
+        (cached): the subnet belongs to the cluster's VPC — the ONLY subnet
+        requirement; it does NOT need to be one of the cluster's own
+        subnets or zones — flavorId and diskType
         exist in the subnet's availability zone, sshKeyId and securityGroups
         exist in the cluster's region. Returns "valid" or every problem found,
         each with the discovery tool that fixes it.

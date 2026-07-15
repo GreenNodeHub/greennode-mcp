@@ -38,7 +38,8 @@ xác nhận trước khi thực thi. Bạn KHÔNG cần biết ID tài nguyên t
 - Tên cluster: 5–20 ký tự (thường + số + gạch nối, đầu/cuối là chữ-số).
 - Tên node group: 5–15 ký tự, cùng quy tắc.
 - Network type (3 loại): `CILIUM_OVERLAY` và `TIGERA` cần `cidr` (vd `10.96.0.0/16`);
-  `CILIUM_NATIVE_ROUTING` cần `secondarySubnets` (lấy từ `list_subnets`).
+  `CILIUM_NATIVE_ROUTING` cần `secondarySubnets` — danh sách CIDR lấy từ
+  field `secondary_subnets` của `list_subnets` (không phải id).
   Default an toàn cho người mới: `CILIUM_OVERLAY` + cidr.
 
 ## Tác vụ nào → tool nào
@@ -101,8 +102,9 @@ def _create_cluster_guidance() -> str:
       MULTI: chọn nhiều → `listSubnetIds`.
    h. networkType: `CILIUM_OVERLAY` + `cidr: 10.96.0.0/16` (mặc định — đổi cidr
       nếu trùng dải mạng hiện có); `TIGERA` cũng cần `cidr`;
-      `CILIUM_NATIVE_ROUTING` → chọn `secondarySubnets` (mỗi subnet trả kèm
-      `secondary_subnets`) và hỏi `nodeNetmaskSize`.
+      `CILIUM_NATIVE_ROUTING` → chọn `secondarySubnets` = danh sách **CIDR**
+      (vd `10.5.60.0/22`, lấy từ field `secondary_subnets` của list_subnets —
+      KHÔNG phải id `sec-sub-*`) và hỏi `nodeNetmaskSize`.
    i. Tuỳ chọn: plugins — `enabledLoadBalancerPlugin`,
       `enabledBlockStoreCsiPlugin` (mặc định bật cả hai).
    j. Tuỳ chọn: `autoUpgradeConfig` (weekdays + time).
@@ -158,8 +160,10 @@ def _create_nodegroup_guidance(cluster_id: str | None) -> str:
    b. Public/private: `enablePrivateNodes` (mặc định false → node có IP public).
    c. os: `ubuntu` (mặc định; hoặc `linux`, `rocky`).
    d. `list_subnets vpc_id=<vpcId>` → user chọn → `subnetId` (zone của subnet quyết
-      định flavor và volume type — hai tool dưới tự suy ra). VPC chỉ có đúng 1 subnet
-      ACTIVE → `[auto]`; nhiều hơn → bắt buộc hỏi.
+      định flavor và volume type — hai tool dưới tự suy ra). MỌI subnet ACTIVE
+      thuộc VPC của cluster đều hợp lệ — KHÔNG cần trùng subnet/zone mà cluster
+      đang dùng (kể cả cluster MULTI-AZ). VPC chỉ có đúng 1 subnet ACTIVE →
+      `[auto]`; nhiều hơn → bắt buộc hỏi.
    e. Tuỳ chọn: `securityGroups` (id từ `list_security_groups`), `secondarySubnets`.
    f. `list_flavors cluster_id=<id> subnet_id=<subnetId>` (lọc `need` nếu rõ nhu cầu)
       → user chọn → `flavorId`; gợi ý flavor nhỏ nhất theo vCPU/RAM (dev/test).

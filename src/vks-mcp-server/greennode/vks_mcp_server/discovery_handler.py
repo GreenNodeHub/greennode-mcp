@@ -549,6 +549,9 @@ class DiscoveryHandler:
         subnets are excluded because nodes cannot join them.
 
         ## Workflow
+        - For node groups: ANY ACTIVE subnet of the cluster's VPC is eligible —
+          it does not need to match the subnets/zones the cluster itself uses
+          (including MULTI-AZ clusters).
         - create_nodegroup flow, step 1: call get_cluster first for the cluster's
           vpc_id, then present this list to the user and let them choose.
           IMPORTANT: do NOT pick a subnet silently when more than one exists.

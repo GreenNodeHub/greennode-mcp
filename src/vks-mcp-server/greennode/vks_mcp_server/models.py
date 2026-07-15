@@ -501,7 +501,11 @@ class SubnetItem(BaseModel):
     )
     secondary_subnets: list[str] = Field(
         default_factory=list,
-        description="Secondary subnet IDs — use as `secondarySubnets` for CILIUM_NATIVE_ROUTING",
+        description=(
+            "Secondary subnet CIDRs (e.g. '10.5.60.0/22') — use as "
+            "`secondarySubnets` for CILIUM_NATIVE_ROUTING (the API takes "
+            "CIDRs, not sec-sub ids)"
+        ),
     )
 
     @classmethod
@@ -517,7 +521,7 @@ class SubnetItem(BaseModel):
                 else None
             ),
             secondary_subnets=[
-                ss.get("uuid", "") if isinstance(ss, dict) else str(ss)
+                ss.get("cidr", "") if isinstance(ss, dict) else str(ss)
                 for ss in (s.get("secondarySubnets") or [])
             ],
         )
@@ -884,7 +888,13 @@ class NodeGroupSpec(BaseModel):
         default_factory=UpgradeConfig, description="Upgrade config (SURGE 1/0 by default)"
     )
     subnetId: Optional[str] = Field(None, description="Private subnet ID (from list_subnets)")
-    secondarySubnets: Optional[list[str]] = Field(None, description="Secondary subnet IDs")
+    secondarySubnets: Optional[list[str]] = Field(
+        None,
+        description=(
+            "Secondary subnet CIDRs (e.g. '10.5.60.0/22', from list_subnets "
+            "`secondary_subnets`) — CIDR strings, NOT sec-sub ids"
+        ),
+    )
     labels: Optional[dict[str, str]] = Field(None, description="Node labels")
     taints: Optional[list[NodeGroupTaint]] = Field(None, description="Node taints")
     tags: Optional[dict[str, str]] = Field(None, description="Node tags")
@@ -968,7 +978,12 @@ class CreateClusterComboDto(BaseModel):
         None, description="Required when networkType is CILIUM_OVERLAY or TIGERA"
     )
     secondarySubnets: Optional[list[str]] = Field(
-        None, description="Required when networkType is CILIUM_NATIVE_ROUTING"
+        None,
+        description=(
+            "Secondary subnet CIDRs (e.g. '10.5.60.0/22', from list_subnets "
+            "`secondary_subnets`) — required when networkType is "
+            "CILIUM_NATIVE_ROUTING; CIDR strings, NOT sec-sub ids"
+        ),
     )
     listSubnetIds: Optional[list[str]] = Field(None, description="Subnet IDs for the cluster")
     nodeNetmaskSize: Optional[int] = Field(None, description="Node netmask size")

@@ -785,7 +785,7 @@ dev = [
 
 [[package]]
 name = "greennode-vks-mcp-server"
-version = "0.10.0"
+version = "0.11.1"
 source = { editable = "src/vks-mcp-server" }
 dependencies = [
     { name = "cachetools" },

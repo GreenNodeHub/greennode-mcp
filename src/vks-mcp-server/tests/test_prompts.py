@@ -202,3 +202,13 @@ async def test_create_cluster_prompt_multi_requires_vdns_vpc():
     i = text.index("enabled_dns")
     seg = text[max(0, i - 250) : i + 250]
     assert "MULTI" in seg  # the rule is tied to the MULTI strategy
+
+
+@pytest.mark.asyncio
+async def test_nodegroup_prompt_subnet_only_needs_vpc_membership():
+    """Field finding: an agent speculated that a node-group subnet outside the
+    cluster's own subnets might be rejected. The product rule is explicit: any
+    ACTIVE subnet of the cluster's VPC is eligible."""
+    server = create_server()
+    text = await _prompt_text(server, "vks_create_nodegroup", {})
+    assert "KHÔNG cần trùng subnet/zone" in text

@@ -174,9 +174,9 @@ def test_subnet_item_zone_absent():
     assert item.zone is None
 
 
-def test_subnet_item_exposes_secondary_subnets():
-    """SubnetItem surfaces secondary subnet IDs for CILIUM_NATIVE_ROUTING discovery."""
-    # API returns SecondarySubnetDto objects {uuid, name, cidr} — extract the uuid
+def test_subnet_item_exposes_secondary_subnet_cidrs():
+    """The create APIs take secondarySubnets as CIDR strings (per API spec) —
+    NOT the sec-sub-* uuids. Extract the cidr from SecondarySubnetDto."""
     item = SubnetItem.from_api(
         {
             "uuid": "sub-9",
@@ -187,11 +187,11 @@ def test_subnet_item_exposes_secondary_subnets():
             ],
         }
     )
-    assert item.secondary_subnets == ["ssub-1", "ssub-2"]
-    # plain strings are tolerated; absent -> empty list
+    assert item.secondary_subnets == ["10.1.0.0/24", "10.1.1.0/24"]
+    # plain strings are tolerated (already CIDRs); absent -> empty list
     assert SubnetItem.from_api(
-        {"uuid": "sub-8", "secondarySubnets": ["ssub-3"]}
-    ).secondary_subnets == ["ssub-3"]
+        {"uuid": "sub-8", "secondarySubnets": ["10.2.0.0/24"]}
+    ).secondary_subnets == ["10.2.0.0/24"]
     assert SubnetItem.from_api({"uuid": "sub-0"}).secondary_subnets == []
 
 
