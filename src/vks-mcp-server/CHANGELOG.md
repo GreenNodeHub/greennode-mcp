@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.11.1...vks-mcp-server-v0.12.0) (2026-07-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* apply_yaml's yaml_path parameter is replaced by yaml_content; generate_app_manifest no longer accepts output_dir and requires no --allow-write.
+
+### Bug Fixes
+
+* re-land 4 commits orphaned by the [#49](https://github.com/vngcloud/greennode-mcp/issues/49) merge race ([#51](https://github.com/vngcloud/greennode-mcp/issues/51)) ([e591f89](https://github.com/vngcloud/greennode-mcp/commit/e591f898a51feb9a67557921955d80c04d380235))
+* secondarySubnets are CIDR strings, not sec-sub ids ([#49](https://github.com/vngcloud/greennode-mcp/issues/49)) ([69be85b](https://github.com/vngcloud/greennode-mcp/commit/69be85b3f441c965015a7b4424e905c9418caf00))
+
 ## [0.11.1](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.11.0...vks-mcp-server-v0.11.1) (2026-07-14)
 
 
