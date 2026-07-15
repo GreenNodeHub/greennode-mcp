@@ -15,6 +15,22 @@ resources inside them.
 - **SERVER_INSTRUCTIONS are mode-aware**: `create_server()` appends a runtime addendum (write on/off, sensitive-data on/off) so agents refuse impossible flows up front.
 - **Structured output** — data tools return Pydantic models; FastMCP emits `outputSchema` + `structuredContent` (JSON). Blob tools (`get_access_token`, `get_cluster_kubeconfig`) stay `str`. Region is a fixed `Literal["HCM-3", "HAN"]`.
 
+## Guidance placement policy
+
+Four layers, each with ONE job — do not let content drift between them:
+
+| Layer | Carries | Never carries |
+|---|---|---|
+| Docstring / param description | The tool CONTRACT: semantics, ranges, formats, hard API constraints, cross-tool id mapping | Conversation choreography, rendering rules |
+| `get_creation_guide` / prompts | Choreography: question order, ask-the-user steps, confirm gates, defaults | — |
+| `SERVER_INSTRUCTIONS` | Session-wide principles (region model, id-first rendering, never-silent-defaults) | Per-tool detail |
+| Error messages | The next step to fix THIS failure | — |
+
+A behavioral hint may live in a docstring only when the tool is not covered
+by any guide AND it fits in one line — and prefer generalizing it into an
+instructions principle instead. (History: the id-first docstring hints were
+reverted for exactly this reason — see #46/#47.)
+
 ## VKS API quirks
 
 - **Pagination is 0-based**: page 0 = first page

@@ -166,9 +166,6 @@ class K8sHandler:
             ...,
             description="Full container image URI with tag, e.g. 'vcr.vngcloud.vn/<repo>:<tag>'.",
         ),
-        output_dir: str = Field(
-            ..., description="Absolute path to the directory to save the manifest file."
-        ),
         port: int = Field(
             80, ge=1, le=65535, description="Container/Service port the application listens on."
         ),
@@ -188,12 +185,9 @@ class K8sHandler:
     ) -> str:
         """Generate a Kubernetes Deployment + LoadBalancer Service manifest for an app.
 
-        Writes `<app_name>-manifest.yaml` to output_dir and returns the YAML, ready to
-        deploy with the apply_yaml tool. Use this instead of hand-writing manifests.
-
-        ## Requirements
-        - The server must be run with the `--allow-write` flag
-        - output_dir must be an absolute path
+        Returns the YAML in the response — review it with the user, then deploy
+        it via apply_yaml (yaml_content). Nothing touches any filesystem. Use
+        this instead of hand-writing manifests.
 
         ## Generated resources
         - Deployment: manages the app pods (replicas, resource requests/limits)
@@ -201,16 +195,10 @@ class K8sHandler:
           (vks.vngcloud.vn/scheme annotation controls internal vs internet-facing)
 
         ## Workflow
-        1. generate_app_manifest  -> creates the YAML file
-        2. (review/edit the file if needed)
-        3. apply_yaml             -> applies it to the cluster
+        1. generate_app_manifest  -> returns the YAML
+        2. (review/edit with the user if needed)
+        3. apply_yaml(yaml_content=...) -> applies it to the cluster
         """
-        if not self.allow_write:
-            raise RuntimeError(
-                "Write access denied: generate_app_manifest requires --allow-write flag."
-            )
-        if not os.path.isabs(output_dir):
-            raise RuntimeError(f"Path must be absolute: {output_dir}")
         self._validate_dns_label(app_name, "app_name")
         self._validate_dns_label(namespace, "namespace")
 
@@ -228,15 +216,10 @@ class K8sHandler:
             ["deployment.yaml", "service.yaml"], template_values
         )
 
-        os.makedirs(output_dir, exist_ok=True)
-        output_file_path = os.path.abspath(os.path.join(output_dir, f"{app_name}-manifest.yaml"))
-        with open(output_file_path, "w") as f:
-            f.write(combined_yaml)
-
-        logger.info("Generated manifest for %s at %s", app_name, output_file_path)
+        logger.info("Generated manifest for %s", app_name)
         return (
-            f"Successfully generated manifest for **{app_name}** "
-            f"(image `{image_uri}`) and saved to `{output_file_path}`.\n\n"
+            f"Generated manifest for **{app_name}** (image `{image_uri}`) — review, "
+            f"then deploy with apply_yaml(yaml_content=...).\n\n"
             f"```yaml\n{combined_yaml}\n```"
         )
 
@@ -391,7 +374,8 @@ class K8sHandler:
                 previous=previous,
             )
 
-            log_lines = logs.splitlines(keepends=False)
+            # A pod with no logs yet (Pending / container not started) yields None.
+            log_lines = (logs or "").splitlines(keepends=False)
             if log_lines and log_lines[-1].endswith("\n"):
                 log_lines.append("")
 
@@ -661,9 +645,11 @@ class K8sHandler:
 
     async def apply_yaml(
         self,
-        yaml_path: str = Field(
+        yaml_content: str = Field(
             ...,
-            description="Absolute path to the YAML file to apply.\n            IMPORTANT: Must be an absolute path (e.g., '/home/user/manifests/app.yaml') as the MCP client and server might not run from the same location.",
+            description="The YAML manifest content to apply (multi-document "
+            "supported). Pass the content itself — the server may run remotely "
+            "and cannot read files from the client's machine.",
         ),
         cluster_id: str = Field(..., description="VKS Cluster ID"),
         namespace: str = Field(
@@ -676,19 +662,17 @@ class K8sHandler:
         ),
         region: Region = Field("HCM-3", description="Region override"),
     ) -> ApplyYamlData:
-        """Apply a Kubernetes YAML from a local file.
+        """Apply Kubernetes YAML content to a VKS cluster.
 
-        This tool applies Kubernetes resources defined in a YAML file to a VKS cluster,
-        similar to the `kubectl apply` command. It supports multi-document YAML files
-        and can create or update resources, useful for deploying applications, creating
-        Kubernetes resources, and applying complete application stacks.
+        Applies the given manifest (multi-document supported), similar to
+        `kubectl apply`: creates resources, and updates existing ones when
+        force=True. Read a local file on the CLIENT side first and pass its
+        content here — the server may run remotely.
 
         IMPORTANT: Use this tool instead of 'kubectl apply -f' commands.
 
         ## Requirements
         - The server must be run with the `--allow-write` flag
-        - The YAML file must exist and be accessible to the server
-        - The path must be absolute (e.g., '/home/user/manifests/app.yaml')
         - The VKS cluster must exist and be accessible
 
         ## Response Information
@@ -698,20 +682,8 @@ class K8sHandler:
         if not self.allow_write:
             raise RuntimeError("Write access denied: apply_yaml requires --allow-write flag.")
 
-        if not os.path.isabs(yaml_path):
-            raise RuntimeError(f"Path must be absolute: {yaml_path}")
-
         try:
             k8s_client = await self.get_client(cluster_id, region)
-
-            logger.info("Reading YAML content from file: %s", yaml_path)
-            try:
-                with open(yaml_path, "r") as yaml_file:
-                    yaml_content = yaml_file.read()
-            except FileNotFoundError:
-                raise RuntimeError(f"YAML file not found: {yaml_path}")
-            except IOError as e:
-                raise RuntimeError(f"Error reading YAML file {yaml_path}: {str(e)}")
 
             yaml_objects = list(yaml.safe_load_all(yaml_content))
             yaml_objects = [doc for doc in yaml_objects if doc is not None]
@@ -724,7 +696,7 @@ class K8sHandler:
             )
 
             success_msg = (
-                f"Successfully applied all resources from YAML file {yaml_path}"
+                f"Successfully applied all resources from the manifest"
                 f" ({created_count} created, {updated_count} updated)"
             )
             logger.info(success_msg)
@@ -736,6 +708,6 @@ class K8sHandler:
             )
             return data
         except Exception as e:
-            error_msg = f"Error applying YAML from file: {str(e)}"
+            error_msg = f"Error applying YAML: {str(e)}"
             logger.error(error_msg)
             raise RuntimeError(error_msg)

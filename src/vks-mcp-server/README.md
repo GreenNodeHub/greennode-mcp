@@ -169,7 +169,7 @@ a region/zone mismatch is impossible.
 
 ### Kubernetes (7)
 
-`list_k8s_resources`, `manage_k8s_resource` (CRUD one resource), `apply_yaml`,
+`list_k8s_resources`, `manage_k8s_resource` (CRUD one resource), `apply_yaml` (takes YAML content — works with remote servers),
 `generate_app_manifest`, `get_pod_logs`, `get_k8s_events`, `list_api_versions`.
 Always registered; mutating operations require `--allow-write`, and reading
 Secrets/logs/events requires `--allow-sensitive-data-access`.

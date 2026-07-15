@@ -537,7 +537,10 @@ class ClusterHandler:
         self,
         cluster_id: str = Field(..., description="Cluster ID to generate a kubeconfig for"),
         expiration_days: int = Field(
-            30, ge=1, le=1825, description="Days until the kubeconfig expires (default 30)"
+            30,
+            ge=1,
+            le=1825,
+            description="Days until the kubeconfig expires (1-1825; a user decision)",
         ),
         region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
