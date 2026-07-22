@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -270,7 +271,8 @@ class K8sHandler:
         """
         try:
             k8s_client = await self.get_client(cluster_id, region)
-            response = k8s_client.list_resources(
+            response = await asyncio.to_thread(
+                k8s_client.list_resources,
                 kind,
                 api_version,
                 namespace=namespace,
@@ -364,7 +366,8 @@ class K8sHandler:
 
         try:
             k8s_client = await self.get_client(cluster_id, region)
-            logs = k8s_client.get_pod_logs(
+            logs = await asyncio.to_thread(
+                k8s_client.get_pod_logs,
                 pod_name=pod_name,
                 namespace=namespace,
                 container_name=container_name,
@@ -444,7 +447,9 @@ class K8sHandler:
 
         try:
             k8s_client = await self.get_client(cluster_id, region)
-            events = k8s_client.get_events(kind=kind, name=name, namespace=namespace)
+            events = await asyncio.to_thread(
+                k8s_client.get_events, kind=kind, name=name, namespace=namespace
+            )
 
             resource_name = f"{namespace}/{name}" if namespace else name
 
@@ -503,7 +508,7 @@ class K8sHandler:
         """
         try:
             k8s_client = await self.get_client(cluster_id, region)
-            api_versions = k8s_client.get_api_versions()
+            api_versions = await asyncio.to_thread(k8s_client.get_api_versions)
 
             logger.info("Retrieved %d API versions from cluster %s", len(api_versions), cluster_id)
 
@@ -604,7 +609,8 @@ class K8sHandler:
 
         try:
             k8s_client = await self.get_client(cluster_id, region)
-            response = k8s_client.manage_resource(
+            response = await asyncio.to_thread(
+                k8s_client.manage_resource,
                 operation_enum,
                 kind,
                 api_version,
@@ -689,7 +695,8 @@ class K8sHandler:
             yaml_objects = [doc for doc in yaml_objects if doc is not None]
             logger.info("Found %d resources in the manifest", len(yaml_objects))
 
-            results, created_count, updated_count = k8s_client.apply_from_yaml(
+            results, created_count, updated_count = await asyncio.to_thread(
+                k8s_client.apply_from_yaml,
                 yaml_objects=yaml_objects,
                 namespace=namespace,
                 force=force,

@@ -57,12 +57,17 @@ async def test_get_client_fetches_kubeconfig(sample_config):
     tm = TokenManager(config)
     vks_client = VksClient(config, tm)
     cache = K8sClientCache(vks_client)
-    with patch("greennode.vks_mcp_server.k8s_client_cache.K8sApis") as MockK8sApis:
+    with (
+        patch("greennode.vks_mcp_server.k8s_client_cache.K8sApis") as MockK8sApis,
+        patch("greennode.vks_mcp_server.k8s_client_cache._probe_endpoint") as probe,
+    ):
         mock_instance = MagicMock()
         MockK8sApis.from_api_client.return_value = mock_instance
         client = await cache.get_client("k8s-123")
         assert client == mock_instance
         MockK8sApis.from_api_client.assert_called_once()
+        # the probe guards every client build, with the kubeconfig's server URL
+        probe.assert_called_once_with("https://10.0.0.1:6443")
 
 
 @respx.mock
@@ -76,12 +81,70 @@ async def test_get_client_uses_cache(sample_config):
     tm = TokenManager(config)
     vks_client = VksClient(config, tm)
     cache = K8sClientCache(vks_client)
-    with patch("greennode.vks_mcp_server.k8s_client_cache.K8sApis") as MockK8sApis:
+    with (
+        patch("greennode.vks_mcp_server.k8s_client_cache.K8sApis") as MockK8sApis,
+        patch("greennode.vks_mcp_server.k8s_client_cache._probe_endpoint"),
+    ):
         mock_instance = MagicMock()
         MockK8sApis.from_api_client.return_value = mock_instance
         await cache.get_client("k8s-123")
         await cache.get_client("k8s-123")
         assert route.call_count == 1
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_unreachable_endpoint_fails_fast_and_does_not_poison_cache(sample_config):
+    """A PRIVATE cluster's endpoint must fail in seconds with an actionable
+    error — and the failed client must NOT be cached, so other clusters and
+    later retries are unaffected (field bug: after a private-cluster call,
+    the next public-cluster call appeared to 'reuse' the private kubeconfig
+    because the server was still stuck connecting to it)."""
+    _mock_iam()
+    respx.get(f"{VKS_BASE}/v1/clusters/k8s-priv/kubeconfig").mock(
+        return_value=httpx.Response(200, text=SAMPLE_KUBECONFIG),
+    )
+    config = load_config(sample_config)
+    tm = TokenManager(config)
+    vks_client = VksClient(config, tm)
+    cache = K8sClientCache(vks_client)
+    with patch(
+        "greennode.vks_mcp_server.k8s_client_cache._probe_endpoint",
+        side_effect=ValueError("endpoint is not reachable (PRIVATE cluster?)"),
+    ):
+        with pytest.raises(ValueError, match="not reachable"):
+            await cache.get_client("k8s-priv")
+    assert len(cache._cache) == 0  # nothing poisoned
+
+
+def test_probe_endpoint_error_teaches_private_cluster():
+    """The unreachable-endpoint error names the likely cause (private cluster)
+    and says other clusters are unaffected."""
+    from greennode.vks_mcp_server.k8s_client_cache import _probe_endpoint
+
+    with pytest.raises(ValueError) as exc_info:
+        _probe_endpoint("https://10.255.255.1:6443", timeout=0.05)
+    msg = str(exc_info.value)
+    assert "not reachable" in msg
+    assert "PRIVATE" in msg and "enablePrivateCluster" in msg
+    assert "other" in msg.lower()  # other clusters are unaffected
+
+
+def test_server_url_of_follows_current_context():
+    from greennode.vks_mcp_server.k8s_client_cache import _server_url_of
+
+    cfg = {
+        "current-context": "b",
+        "contexts": [
+            {"name": "a", "context": {"cluster": "cl-a"}},
+            {"name": "b", "context": {"cluster": "cl-b"}},
+        ],
+        "clusters": [
+            {"name": "cl-a", "cluster": {"server": "https://a:6443"}},
+            {"name": "cl-b", "cluster": {"server": "https://b:6443"}},
+        ],
+    }
+    assert _server_url_of(cfg) == "https://b:6443"
 
 
 @pytest.mark.asyncio
