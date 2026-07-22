@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.13.0...vks-mcp-server-v0.13.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* generate_kubeconfig expiration_days is 1-365, not 1-1825 ([#58](https://github.com/vngcloud/greennode-mcp/issues/58)) ([7f1b3bb](https://github.com/vngcloud/greennode-mcp/commit/7f1b3bb57a46929e39945040282cbc284b25891d))
+
 ## [0.13.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.12.0...vks-mcp-server-v0.13.0) (2026-07-22)
 
 
