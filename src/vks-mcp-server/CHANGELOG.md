@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.12.0...vks-mcp-server-v0.13.0) (2026-07-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* create_nodegroup bodies must include subnetId and secondarySubnets; create_cluster bodies must not include secondarySubnets.
+* generate_kubeconfig callers must now pass expiration_days.
+
+### Features
+
+* secondarySubnets belongs to the node group, mirrored from its subnet ([#54](https://github.com/vngcloud/greennode-mcp/issues/54)) ([41e226d](https://github.com/vngcloud/greennode-mcp/commit/41e226d927f5eb9f071155bba600f14438aa5e85))
+* send a vks-mcp-server User-Agent on every outbound API request ([#56](https://github.com/vngcloud/greennode-mcp/issues/56)) ([c6a2773](https://github.com/vngcloud/greennode-mcp/commit/c6a27735fa90b2a545bb52446b68c8a79e70c98e))
+
+
+### Bug Fixes
+
+* generate_kubeconfig must ask the user for expiration_days ([#53](https://github.com/vngcloud/greennode-mcp/issues/53)) ([1565b79](https://github.com/vngcloud/greennode-mcp/commit/1565b79610c4e4b5ae3361e8eeff12071dfdd122))
+* private-cluster k8s calls no longer freeze the server ([#55](https://github.com/vngcloud/greennode-mcp/issues/55)) ([2d91210](https://github.com/vngcloud/greennode-mcp/commit/2d91210b2c8652607f348e4e3850b871c181e393))
+
 ## [0.12.0](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.11.1...vks-mcp-server-v0.12.0) (2026-07-15)
 
 

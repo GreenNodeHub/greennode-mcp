@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/vngcloud/greennode-mcp/compare/mcp-core-v0.3.0...mcp-core-v0.4.0) (2026-07-22)
+
+
+### Features
+
+* send a vks-mcp-server User-Agent on every outbound API request ([#56](https://github.com/vngcloud/greennode-mcp/issues/56)) ([c6a2773](https://github.com/vngcloud/greennode-mcp/commit/c6a27735fa90b2a545bb52446b68c8a79e70c98e))
+
 ## [0.3.0](https://github.com/vngcloud/greennode-mcp/compare/mcp-core-v0.2.0...mcp-core-v0.3.0) (2026-07-14)
 
 

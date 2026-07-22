@@ -1,4 +1,4 @@
 {
-  "src/vks-mcp-server": "0.12.0",
-  "src/mcp-core": "0.3.0"
+  "src/vks-mcp-server": "0.13.0",
+  "src/mcp-core": "0.4.0"
 }
