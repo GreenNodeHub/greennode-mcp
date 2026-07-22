@@ -57,10 +57,14 @@ class BaseClient:
         config: _HasBaseUrls,
         token_manager: TokenManager,
         default_service: str = "api",
+        user_agent: str | None = None,
     ) -> None:
         self._config = config
         self._token_manager = token_manager
         self._default_service = default_service
+        # Sent on every request so the product API can attribute/track traffic
+        # originating from this MCP server (None keeps httpx's default UA).
+        self._user_agent = user_agent
 
     async def _request(
         self,
@@ -100,6 +104,8 @@ class BaseClient:
         for attempt in range(MAX_RETRIES + 1):
             token = user_token if user_token else await self._token_manager.get_token()
             headers = {"Authorization": f"Bearer {token}"}
+            if self._user_agent:
+                headers["User-Agent"] = self._user_agent
 
             try:
                 async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:

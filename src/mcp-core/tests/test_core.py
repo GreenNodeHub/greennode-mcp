@@ -89,6 +89,24 @@ async def test_base_client_uses_default_service_and_bearer():
 
 @respx.mock
 @pytest.mark.asyncio
+async def test_base_client_sends_user_agent_when_configured():
+    """A product server can brand its traffic for API-side tracking; without
+    the option, httpx's default UA is left untouched."""
+    _mock_iam(respx.mock)
+    route = respx.get("https://api.example.test/v1/things").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    branded = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()), user_agent="acme-mcp/1.0")
+    await branded.get("/v1/things")
+    assert route.calls.last.request.headers["user-agent"] == "acme-mcp/1.0"
+
+    plain = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    await plain.get("/v1/things")
+    assert route.calls.last.request.headers["user-agent"].startswith("python-httpx/")
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_base_client_service_override():
     _mock_iam(respx.mock)
     respx.get("https://other.example.test/v1/x").mock(return_value=httpx.Response(200, json=[1]))

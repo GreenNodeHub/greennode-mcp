@@ -46,8 +46,10 @@ class K8sApis:
             configuration.verify_ssl = False
 
         try:
+            from greennode.vks_mcp_server.useragent import USER_AGENT
+
             self.api_client = client.ApiClient(configuration)
-            self.api_client.user_agent = "greennode-mcp/vks-mcp-server"
+            self.api_client.user_agent = USER_AGENT
             self.dynamic_client = dynamic.DynamicClient(self.api_client)
         except ImportError:
             if hasattr(self, "_ca_cert_file_path") and self._ca_cert_file_path:
@@ -69,12 +71,13 @@ class K8sApis:
         Returns:
             K8sApis instance with the provided ApiClient.
         """
+        from greennode.vks_mcp_server.useragent import USER_AGENT
         from kubernetes import dynamic
 
         instance = cls.__new__(cls)
         instance._ca_cert_file_path = None
         instance.api_client = api_client
-        instance.api_client.user_agent = "greennode-mcp/vks-mcp-server"
+        instance.api_client.user_agent = USER_AGENT
         instance.dynamic_client = dynamic.DynamicClient(api_client)
         return instance
 

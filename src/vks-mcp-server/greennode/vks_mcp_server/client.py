@@ -11,6 +11,7 @@ from greennode.mcp_core.http import (
 )
 from greennode.vks_mcp_server.auth import TokenManager
 from greennode.vks_mcp_server.config import VksConfig
+from greennode.vks_mcp_server.useragent import USER_AGENT
 from typing import Any
 
 
@@ -27,7 +28,7 @@ class VksClient(BaseClient):
     """Async client for the VKS API, with vServer access for discovery."""
 
     def __init__(self, config: VksConfig, token_manager: TokenManager) -> None:
-        super().__init__(config, token_manager, default_service="vks")
+        super().__init__(config, token_manager, default_service="vks", user_agent=USER_AGENT)
 
     async def vserver_get(
         self,
