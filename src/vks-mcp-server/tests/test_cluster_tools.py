@@ -562,12 +562,32 @@ async def test_generate_kubeconfig_is_write_gated(config, client):
 
 
 def test_extract_kubeconfig_not_generated_teaches_generate():
-    """A cluster whose kubeconfig was never generated: point at generate_kubeconfig."""
+    """A cluster whose kubeconfig was never generated: point at generate_kubeconfig,
+    with the ask-the-user step for the expiration (a credential lifetime is a user
+    decision) — and no pointer at guides that don't exist."""
     from greennode.vks_mcp_server.kubeconfig import extract_kubeconfig
 
     envelope = _json.dumps({"renewalWarning": None, "status": "CREATING"})
-    with pytest.raises(ValueError, match="generate_kubeconfig"):
+    with pytest.raises(ValueError) as exc_info:
         extract_kubeconfig(envelope)
+    message = str(exc_info.value)
+    assert "generate_kubeconfig" in message
+    assert "ask the user" in message
+    assert "expiration_days" in message
+    # get_creation_guide only serves cluster|nodegroup — a 'kubeconfig' pointer
+    # would send the agent into a validation error (regression: reverted guide)
+    assert "get_creation_guide" not in message
+
+
+@pytest.mark.asyncio
+async def test_generate_kubeconfig_expiration_is_required(config, client):
+    """expiration_days has NO schema default: a credential lifetime is a user
+    decision, and a default is an escape hatch agents will silently take."""
+    handler = ClusterHandler(FastMCP("t-schema"), config, client, allow_write=True)
+    tool = next(t for t in await handler.mcp.list_tools() if t.name == "generate_kubeconfig")
+    schema = tool.inputSchema
+    assert "expiration_days" in schema.get("required", [])
+    assert "default" not in schema["properties"]["expiration_days"]
 
 
 @respx.mock

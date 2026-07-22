@@ -125,7 +125,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `delete_cluster` | **write** | Delete a cluster (IRREVERSIBLE; dry-run first) |
 | `configure_auto_upgrade` / `delete_auto_upgrade` | **write** | Manage the auto-upgrade schedule |
 | `configure_auto_healing` | **write** | Configure node auto-healing |
-| `generate_kubeconfig` | **write** | Mint a kubeconfig (async; required once for a new cluster) |
+| `generate_kubeconfig` | **write** | Mint a kubeconfig (async; required once for a new cluster; `expiration_days` 1-1825 is required — the agent must ask the user, no silent default) |
 
 ### Node group (10)
 

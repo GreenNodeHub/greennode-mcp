@@ -32,10 +32,11 @@ def extract_kubeconfig(raw: str) -> str:
         status = envelope.get("status", "unknown") if isinstance(envelope, dict) else "unknown"
         raise ValueError(
             f"Kubeconfig is not available (status: '{status}'). A new cluster has "
-            "no kubeconfig until one is generated: call "
-            "generate_kubeconfig(cluster_id) first (requires --allow-write; "
-            "generation is asynchronous), then retry this tool until it returns "
-            "YAML. Also make sure the cluster itself is ACTIVE (get_cluster). "
-            "Full flow: get_creation_guide(resource='kubeconfig')."
+            "no kubeconfig until one is generated: ask the user how many days the "
+            "kubeconfig should stay valid (1-1825), then call "
+            "generate_kubeconfig(cluster_id, expiration_days=...) (requires "
+            "--allow-write; generation is asynchronous) and retry this tool until "
+            "it returns YAML. Also make sure the cluster itself is ACTIVE "
+            "(get_cluster)."
         )
     return kubeconfig
