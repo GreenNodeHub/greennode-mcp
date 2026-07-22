@@ -535,9 +535,9 @@ class ClusterHandler:
         expiration_days: int = Field(
             ...,
             ge=1,
-            le=1825,
+            le=365,
             description=(
-                "Days until the kubeconfig expires (1-1825). A user decision — "
+                "Days until the kubeconfig expires (1-365). A user decision — "
                 "ask the user for the value; never pick one for them."
             ),
         ),

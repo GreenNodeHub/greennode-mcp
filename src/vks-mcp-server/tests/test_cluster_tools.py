@@ -585,8 +585,12 @@ async def test_generate_kubeconfig_expiration_is_required(config, client):
     handler = ClusterHandler(FastMCP("t-schema"), config, client, allow_write=True)
     tool = next(t for t in await handler.mcp.list_tools() if t.name == "generate_kubeconfig")
     schema = tool.inputSchema
+    prop = schema["properties"]["expiration_days"]
     assert "expiration_days" in schema.get("required", [])
-    assert "default" not in schema["properties"]["expiration_days"]
+    assert "default" not in prop
+    # API contract: 1-365 days (QC-confirmed; the old 1825 bound was wrong)
+    assert prop["minimum"] == 1
+    assert prop["maximum"] == 365
 
 
 @respx.mock

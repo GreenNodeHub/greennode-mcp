@@ -33,7 +33,7 @@ def extract_kubeconfig(raw: str) -> str:
         raise ValueError(
             f"Kubeconfig is not available (status: '{status}'). A new cluster has "
             "no kubeconfig until one is generated: ask the user how many days the "
-            "kubeconfig should stay valid (1-1825), then call "
+            "kubeconfig should stay valid (1-365), then call "
             "generate_kubeconfig(cluster_id, expiration_days=...) (requires "
             "--allow-write; generation is asynchronous) and retry this tool until "
             "it returns YAML. Also make sure the cluster itself is ACTIVE "
