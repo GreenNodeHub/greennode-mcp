@@ -208,16 +208,16 @@ def test_cluster_create_validate_missing_enable_private_cluster():
     assert "enablePrivateCluster" in text
 
 
-def test_cluster_create_validate_cilium_native_routing_needs_secondary_subnets():
-    """CILIUM_NATIVE_ROUTING without secondarySubnets returns an error."""
+def test_cluster_create_validate_cilium_native_routing_valid_without_secondary_subnets():
+    """secondarySubnets is a NODE-GROUP concern (each group sets its own at
+    creation) — a CILIUM_NATIVE_ROUTING cluster body without it is valid."""
     body = {
         **_VALID_BODY,
         "networkType": "CILIUM_NATIVE_ROUTING",
     }
     body.pop("cidr", None)
     result = _cluster_create_validate({"body": body})
-    text = result[0].text
-    assert "secondarySubnets" in text
+    assert result[0].text == "valid"
 
 
 def test_cluster_create_validate_tigera_valid():
@@ -354,7 +354,6 @@ async def test_cluster_create_accepts_dto(handler_write, respx_mock):
         networkType="CILIUM_NATIVE_ROUTING",
         vpcId="net-1",
         enablePrivateCluster=False,
-        secondarySubnets=["sub-1"],
     )
     result = await handler_write.create_cluster(body=dto, region=None)
     sent = _json.loads(respx_mock.calls.last.request.content)

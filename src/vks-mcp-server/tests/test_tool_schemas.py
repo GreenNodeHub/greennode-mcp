@@ -109,7 +109,36 @@ async def test_cluster_create_body_lists_valid_values(config, client):
     assert "RAPID" in release_channel_enum and "STABLE" in release_channel_enum
     network_type_enum = dto_def["properties"]["networkType"]["enum"]
     assert "CILIUM_NATIVE_ROUTING" in network_type_enum
-    assert "secondarySubnets" in dto_def["properties"]
+    # secondary subnets belong to node groups, not the cluster
+    assert "secondarySubnets" not in dto_def["properties"]
+
+
+@pytest.mark.asyncio
+async def test_nodegroup_create_body_requires_subnet_id(config, client):
+    """subnetId is required in the node-group DTO; secondarySubnets stays
+    optional at the schema level (CILIUM_NATIVE_ROUTING-only — enforced by
+    validate_nodegroup_create, since JSON Schema can't require-if)."""
+    schema = await _schema_for(
+        lambda mcp: NodeGroupHandler(mcp, config, client, allow_write=True),
+        "create_nodegroup",
+    )
+    dto_def = schema.get("$defs", {})["CreateNodeGroupDto"]
+    required = dto_def["required"]
+    assert "subnetId" in required
+    assert "secondarySubnets" not in required
+
+
+@pytest.mark.asyncio
+async def test_delete_nodegroup_force_delete_is_required(config, client):
+    """force_delete (= skip draining the nodes) has NO default: drain-or-not
+    is a user decision, and a default is an escape hatch agents silently take."""
+    schema = await _schema_for(
+        lambda mcp: NodeGroupHandler(mcp, config, client, allow_write=True),
+        "delete_nodegroup",
+    )
+    assert "force_delete" in schema["required"]
+    assert "default" not in schema["properties"]["force_delete"]
+    assert "drain" in schema["properties"]["force_delete"]["description"]
 
 
 @pytest.mark.asyncio

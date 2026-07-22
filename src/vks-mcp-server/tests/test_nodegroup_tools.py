@@ -375,6 +375,8 @@ async def test_nodegroup_create_accepts_dto(handler_write, respx_mock):
         numNodes=2,
         securityGroups=["sg-001"],
         sshKeyId="key-001",
+        subnetId="sub-1",
+        secondarySubnets=[],
         os="rocky",
     )
     result = await handler_write.create_nodegroup(cluster_id=cluster_id, body=dto, region=None)
@@ -567,6 +569,8 @@ async def test_nodegroup_create_error_teaches_the_guide(handler_write, respx_moc
         diskType="vtype-001",
         numNodes=1,
         sshKeyId="ssh-001",
+        subnetId="sub-1",
+        secondarySubnets=[],
     )
     with pytest.raises(RuntimeError, match="get_creation_guide"):
         await handler_write.create_nodegroup(cluster_id="k8s-abc", body=dto, region=None)
@@ -609,16 +613,28 @@ def _valid_ng_body(**over):
         "diskSize": 100,
         "numNodes": 2,
         "sshKeyId": "ssh-ok",
+        # sub-ok carries secondary subnets — a node group requires a subnet
+        # that has them, mirrored verbatim into secondarySubnets.
         "subnetId": "sub-ok",
+        "secondarySubnets": ["10.200.0.0/22"],
     }
     body.update(over)
     return CreateNodeGroupDto(**body)
 
 
 def _mock_validation_chain(respx_mock):
-    """Cluster + full zone-scoped discovery chain, all healthy."""
+    """Clusters (native-routing + overlay) + full zone-scoped discovery chain."""
     respx_mock.get(f"{VKS_BASE}/v1/clusters/k8s-abc").mock(
-        return_value=httpx.Response(200, json={"uid": "k8s-abc", "vpcId": "net-1"})
+        return_value=httpx.Response(
+            200,
+            json={"uid": "k8s-abc", "vpcId": "net-1", "networkType": "CILIUM_NATIVE_ROUTING"},
+        )
+    )
+    respx_mock.get(f"{VKS_BASE}/v1/clusters/k8s-ovl").mock(
+        return_value=httpx.Response(
+            200,
+            json={"uid": "k8s-ovl", "vpcId": "net-1", "networkType": "CILIUM_OVERLAY"},
+        )
     )
     respx_mock.get(f"{VS_BASE}/v2/{_PID}/networks/net-1/subnets").mock(
         return_value=httpx.Response(
@@ -630,9 +646,23 @@ def _mock_validation_chain(respx_mock):
                         "name": "s1",
                         "status": "ACTIVE",
                         "zone": {"uuid": "HCM03-1A", "name": "1A"},
-                    }
+                        "secondarySubnets": [{"cidr": "10.200.0.0/22"}],
+                    },
+                    {
+                        "uuid": "sub-sec",
+                        "name": "s2",
+                        "status": "ACTIVE",
+                        "zone": {"uuid": "HCM03-1A", "name": "1A"},
+                        "secondarySubnets": [{"cidr": "10.5.60.0/22"}],
+                    },
+                    {
+                        "uuid": "sub-bare",
+                        "name": "s3",
+                        "status": "ACTIVE",
+                        "zone": {"uuid": "HCM03-1A", "name": "1A"},
+                    },
                 ],
-                "totalItem": 1,
+                "totalItem": 3,
             },
         )
     )
@@ -742,6 +772,100 @@ async def test_validate_nodegroup_create_unknown_ssh_key(validate_handler, respx
         cluster_id="k8s-abc", body=_valid_ng_body(sshKeyId="ssh-ghost")
     )
     assert result != "valid" and "sshKeyId" in result and "list_ssh_keys" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_secondary_subnets_must_mirror_subnet(
+    validate_handler, respx_mock
+):
+    """secondarySubnets must copy the chosen subnet's secondary_subnets CIDRs
+    verbatim — an empty list on a subnet that HAS secondaries is an error."""
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body(subnetId="sub-sec", secondarySubnets=[])
+    )
+    assert result != "valid"
+    assert "secondarySubnets" in result and "10.5.60.0/22" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_rejects_subnet_without_secondary_subnets(
+    validate_handler, respx_mock
+):
+    """CILIUM_NATIVE_ROUTING: a subnet with NO secondary subnets cannot host a
+    node group — the validator must say so and point at list_subnets (not
+    report a mirror mismatch against [])."""
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body(subnetId="sub-bare", secondarySubnets=[])
+    )
+    assert result != "valid"
+    assert "has no secondary subnets" in result and "list_subnets" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_overlay_cluster_ignores_secondary_subnets(
+    validate_handler, respx_mock
+):
+    """secondarySubnets only apply to CILIUM_NATIVE_ROUTING — on any other
+    networkType the field is simply not used: omitting it is valid on any
+    ACTIVE subnet of the VPC (even one without secondaries)."""
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-ovl", body=_valid_ng_body(subnetId="sub-bare", secondarySubnets=None)
+    )
+    assert result == "valid"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_native_routing_requires_secondary_subnets(
+    validate_handler, respx_mock
+):
+    """Omitting secondarySubnets on a CILIUM_NATIVE_ROUTING cluster is an
+    error that names the requirement and the expected CIDRs."""
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc", body=_valid_ng_body(secondarySubnets=None)
+    )
+    assert result != "valid"
+    assert "required for a CILIUM_NATIVE_ROUTING cluster" in result
+    assert "10.200.0.0/22" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_secondary_subnets_verbatim_ok(validate_handler, respx_mock):
+    """The subnet's CIDRs copied verbatim pass validation."""
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc",
+        body=_valid_ng_body(subnetId="sub-sec", secondarySubnets=["10.5.60.0/22"]),
+    )
+    assert result == "valid"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_nodegroup_secondary_subnets_rejects_foreign_cidr(
+    validate_handler, respx_mock
+):
+    """CIDRs that are not the chosen subnet's secondaries are rejected."""
+    _mock_iam(respx_mock)
+    _mock_validation_chain(respx_mock)
+    result = await validate_handler.validate_nodegroup_create(
+        cluster_id="k8s-abc",
+        body=_valid_ng_body(secondarySubnets=["10.9.9.0/24"]),
+    )
+    assert result != "valid" and "secondarySubnets" in result
 
 
 @respx.mock

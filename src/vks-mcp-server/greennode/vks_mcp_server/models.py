@@ -502,9 +502,11 @@ class SubnetItem(BaseModel):
     secondary_subnets: list[str] = Field(
         default_factory=list,
         description=(
-            "Secondary subnet CIDRs (e.g. '10.5.60.0/22') — use as "
-            "`secondarySubnets` for CILIUM_NATIVE_ROUTING (the API takes "
-            "CIDRs, not sec-sub ids)"
+            "Secondary subnet CIDRs (e.g. '10.5.60.0/22') — in a "
+            "CILIUM_NATIVE_ROUTING cluster, pass this list verbatim as the node "
+            "group's `secondarySubnets` (the API takes CIDRs, not sec-sub ids; "
+            "empty ⇒ this subnet cannot host that cluster's node groups). Other "
+            "networkTypes don't use it (omit the field)"
         ),
     )
 
@@ -887,12 +889,17 @@ class NodeGroupSpec(BaseModel):
     upgradeConfig: UpgradeConfig = Field(
         default_factory=UpgradeConfig, description="Upgrade config (SURGE 1/0 by default)"
     )
-    subnetId: Optional[str] = Field(None, description="Private subnet ID (from list_subnets)")
+    subnetId: str = Field(
+        ..., description="Subnet ID the nodes join (from list_subnets; the user's choice)"
+    )
     secondarySubnets: Optional[list[str]] = Field(
         None,
         description=(
-            "Secondary subnet CIDRs (e.g. '10.5.60.0/22', from list_subnets "
-            "`secondary_subnets`) — CIDR strings, NOT sec-sub ids"
+            "CILIUM_NATIVE_ROUTING clusters ONLY — there it is required: the "
+            "`secondary_subnets` CIDRs of the chosen subnetId, copied verbatim from "
+            "that subnet's list_subnets entry (e.g. ['10.5.60.0/22'], non-empty — "
+            "the subnet must HAVE secondary subnets; CIDR strings, NOT sec-sub "
+            "ids). Omit for any other networkType"
         ),
     )
     labels: Optional[dict[str, str]] = Field(None, description="Node labels")
@@ -976,14 +983,6 @@ class CreateClusterComboDto(BaseModel):
     subnetId: Optional[str] = Field(None, description="Subnet ID (from list_subnets)")
     cidr: Optional[str] = Field(
         None, description="Required when networkType is CILIUM_OVERLAY or TIGERA"
-    )
-    secondarySubnets: Optional[list[str]] = Field(
-        None,
-        description=(
-            "Secondary subnet CIDRs (e.g. '10.5.60.0/22', from list_subnets "
-            "`secondary_subnets`) — required when networkType is "
-            "CILIUM_NATIVE_ROUTING; CIDR strings, NOT sec-sub ids"
-        ),
     )
     listSubnetIds: Optional[list[str]] = Field(None, description="Subnet IDs for the cluster")
     nodeNetmaskSize: Optional[int] = Field(None, description="Node netmask size")

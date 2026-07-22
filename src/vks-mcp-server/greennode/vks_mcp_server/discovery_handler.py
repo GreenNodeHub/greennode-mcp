@@ -180,15 +180,15 @@ async def _locate_cluster(
     cache: DiscoveryCache,
     cluster_id: str,
     refresh: bool = False,
-) -> tuple[str, str]:
-    """Find which region hosts *cluster_id*; return ``(region, vpc_id)``.
+) -> tuple[str, str, str]:
+    """Find which region hosts *cluster_id*; return ``(region, vpc_id, network_type)``.
 
     The VKS API is region-scoped, so the cluster is looked up in the default
     region first, then the remaining ones. Cached: a cluster never moves.
     """
     regions = [config.default_region] + [r for r in config.regions if r != config.default_region]
 
-    async def fetch() -> tuple[str, str]:
+    async def fetch() -> tuple[str, str, str]:
         errors: list[str] = []
         for region in regions:
             try:
@@ -196,8 +196,11 @@ async def _locate_cluster(
             except RuntimeError as exc:
                 errors.append(f"{region}: {exc}")
                 continue
-            vpc_id = data.get("vpcId", "") if isinstance(data, dict) else ""
-            return (region, vpc_id)
+            if not isinstance(data, dict):
+                data = {}
+            vpc_id = data.get("vpcId", "")
+            network_type = data.get("networkType", data.get("network", {}).get("type", ""))
+            return (region, vpc_id, network_type)
         raise ValueError(
             f"Cluster '{cluster_id}' was not found in any region "
             f"({', '.join(regions)}). Check the id via list_clusters. "
@@ -225,7 +228,7 @@ async def _resolve_zone_context(
     """
     validate_id(cluster_id, "cluster_id")
     validate_id(subnet_id, "subnet_id")
-    region, vpc_id = await _locate_cluster(config, client, cache, cluster_id, refresh)
+    region, vpc_id, _ = await _locate_cluster(config, client, cache, cluster_id, refresh)
     if not vpc_id:
         raise ValueError(f"Cluster '{cluster_id}' reports no VPC — cannot derive a zone.")
 
@@ -557,8 +560,10 @@ class DiscoveryHandler:
           IMPORTANT: do NOT pick a subnet silently when more than one exists.
         - The chosen subnet's `zone.uuid` scopes the next steps: pass it to
           list_flavors and list_volume_types (flavors/disk types differ per zone).
-        - Use the chosen `id` as `subnetId`; use its `secondary_subnets` as
-          `secondarySubnets` when networkType is CILIUM_NATIVE_ROUTING.
+        - Use the chosen `id` as `subnetId`; for create_nodegroup in a
+          CILIUM_NATIVE_ROUTING cluster, copy its `secondary_subnets` verbatim
+          as `secondarySubnets` (empty ⇒ that subnet cannot host the node
+          group); other networkTypes omit the field.
         """
         return await _subnet_list(
             self.config, self.client, self.cache, vpc_id=vpc_id, region=region, refresh=refresh

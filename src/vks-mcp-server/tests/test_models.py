@@ -321,7 +321,14 @@ def test_upgrade_config_maxsurge_min_one():
 def test_nodegroup_spec_os_top_level_default_ubuntu():
     """NodeGroupSpec exposes `os` at the top level, defaulting to ubuntu."""
     spec = NodeGroupSpec(
-        name="ng", flavorId="f", diskSize=100, diskType="SSD", numNodes=1, sshKeyId="k"
+        name="ng",
+        flavorId="f",
+        diskSize=100,
+        diskType="SSD",
+        numNodes=1,
+        sshKeyId="k",
+        subnetId="sub-1",
+        secondarySubnets=[],
     )
     assert spec.os == "ubuntu"
     dumped = spec.model_dump(exclude_none=True)
@@ -339,6 +346,8 @@ def test_nodegroup_spec_os_supports_rocky():
             diskType="SSD",
             numNodes=1,
             sshKeyId="k",
+            subnetId="sub-1",
+            secondarySubnets=[],
             os="rocky",
         ).os
         == "rocky"
@@ -351,7 +360,46 @@ def test_nodegroup_spec_os_supports_rocky():
             diskType="SSD",
             numNodes=1,
             sshKeyId="k",
+            subnetId="sub-1",
+            secondarySubnets=[],
             os="windows",
+        )
+
+
+def test_nodegroup_spec_requires_subnet_id():
+    """subnetId is required; secondarySubnets is optional at the schema level
+    (only CILIUM_NATIVE_ROUTING clusters use it — the validator enforces that)
+    and stays off the wire when omitted."""
+    with pytest.raises(ValidationError, match="subnetId"):
+        NodeGroupSpec(
+            name="ng",
+            flavorId="f",
+            diskSize=100,
+            diskType="SSD",
+            numNodes=1,
+            sshKeyId="k",
+        )
+    spec = NodeGroupSpec(
+        name="ng",
+        flavorId="f",
+        diskSize=100,
+        diskType="SSD",
+        numNodes=1,
+        sshKeyId="k",
+        subnetId="sub-1",
+    )
+    assert "secondarySubnets" not in spec.model_dump(exclude_none=True)
+
+
+def test_create_cluster_combo_rejects_secondary_subnets():
+    """secondarySubnets moved to the node group — the cluster DTO rejects it."""
+    with pytest.raises(ValidationError, match="secondarySubnets"):
+        CreateClusterComboDto(
+            name="demo01",
+            version="v1.29.0",
+            networkType="CILIUM_NATIVE_ROUTING",
+            vpcId="net-1",
+            secondarySubnets=["10.5.60.0/22"],
         )
 
 
@@ -518,7 +566,6 @@ def test_create_cluster_combo_new_fields():
         azStrategy="MULTI",
         description="prod cluster",
         subnetId="sub-1",
-        secondarySubnets=["sub-a"],
         listSubnetIds=["sub-a", "sub-b"],
         nodeNetmaskSize=25,
         autoUpgradeConfig=AutoUpgradeConfig(weekdays="Mon", time="03:00"),

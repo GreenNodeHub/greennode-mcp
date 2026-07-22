@@ -31,7 +31,6 @@ _DESCRIPTION_RE = re.compile(r"^[a-zA-Z0-9-_. @]{0,255}$")
 
 _VALID_NETWORK_TYPES = {"CILIUM_OVERLAY", "CILIUM_NATIVE_ROUTING", "TIGERA"}
 _NETWORK_NEEDS_CIDR = {"CILIUM_OVERLAY", "TIGERA"}
-_NETWORK_NEEDS_SECONDARY_SUBNETS = {"CILIUM_NATIVE_ROUTING"}
 
 _REQUIRED_CLUSTER_FIELDS = ["vpcId", "networkType", "version", "releaseChannel"]
 
@@ -284,10 +283,6 @@ def _cluster_create_validate(
         if not body.get("cidr"):
             errors.append(f"networkType={network_type} requires 'cidr' field.")
 
-    if network_type in _NETWORK_NEEDS_SECONDARY_SUBNETS:
-        if not body.get("secondarySubnets"):
-            errors.append(f"networkType={network_type} requires 'secondarySubnets' field.")
-
     if errors:
         text = "\n".join(errors)
     else:
@@ -399,8 +394,10 @@ class ClusterHandler:
                 "(the deprecated nodeGroups array is not accepted). Optional: enablePrivateCluster, "
                 "releaseChannel, enabledLoadBalancerPlugin, enabledBlockStoreCsiPlugin, "
                 "enabledServiceEndpoint (private clusters only, default true), "
-                "azStrategy, description, subnetId, cidr, secondarySubnets, listSubnetIds, "
-                "nodeNetmaskSize, autoUpgradeConfig, autoHealingConfig."
+                "azStrategy, description, subnetId, cidr, listSubnetIds, "
+                "nodeNetmaskSize, autoUpgradeConfig, autoHealingConfig. Secondary "
+                "subnets are NOT set on the cluster — each node group sets its own "
+                "secondarySubnets at creation."
             ),
         ),
         poc: bool = Field(False, description="Whether this is a Proof-of-Concept cluster"),
@@ -420,8 +417,7 @@ class ClusterHandler:
            question, confirm gate).
         2. Resolve ids via discovery, all in the target region: get_quota
            first -> list_vpcs (vpcId) -> list_cluster_versions (version) ->
-           list_subnets (subnetId / listSubnetIds; `secondarySubnets` for
-           CILIUM_NATIVE_ROUTING).
+           list_subnets (subnetId / listSubnetIds).
         3. validate_cluster_create -> fix every reported error -> present the
            FULL body in the same message as the confirmation question ->
            create_cluster, then poll get_cluster until ACTIVE (~15-20 min)

@@ -135,11 +135,11 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `get_nodegroup` | read | Full node-group detail (incl. subnet, encryption, placement) |
 | `list_nodes` | read | Nodes of a node group (floating/fixed IP, ready, poc) |
 | `delete_nodegroup_dryrun` | read | Preview a node-group deletion |
-| `validate_nodegroup_create` | read | Validate a create body before creating (name rules + subnet-in-VPC + flavor/diskType-in-zone + key/secgroup existence) |
+| `validate_nodegroup_create` | read | Validate a create body before creating (name rules + subnet-in-VPC + secondarySubnets-by-networkType + flavor/diskType-in-zone + key/secgroup existence) |
 | `create_nodegroup` | **write** | Create a node group (full CLI parity: os, labels/taints/tags, autoscale, placement, encryption, private subnet) |
 | `update_nodegroup` | **write** | Update numNodes / securityGroups / autoScaleConfig / upgradeConfig |
 | `update_nodegroup_metadata` | **write** | Update labels, tags, taints (`PATCH .../metadata`) |
-| `delete_nodegroup` | **write** | Delete a node group (IRREVERSIBLE; dry-run first; `force_delete` as escalation) |
+| `delete_nodegroup` | **write** | Delete a node group (IRREVERSIBLE; dry-run first; `force_delete` required — true = skip draining the nodes, a user decision) |
 | `upgrade_nodegroup_version` | **write** | Upgrade a node group's Kubernetes version |
 
 ### Discovery (8) — resolve names → IDs for create bodies
@@ -147,7 +147,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | Tool | Feeds | Cache TTL |
 |------|-------|-----------|
 | `list_vpcs` | `vpcId` + `enabled_dns` (azStrategy=MULTI needs a vDNS-enabled VPC; ACTIVE only) | 2 min |
-| `list_subnets` | `subnetId` / `listSubnetIds`, `secondarySubnets` + each subnet's availability zone (ACTIVE only) | 2 min |
+| `list_subnets` | `subnetId` / `listSubnetIds` + each subnet's availability zone and `secondary_subnets` CIDRs (→ the node group's `secondarySubnets` in CILIUM_NATIVE_ROUTING clusters, copied verbatim; ACTIVE only) | 2 min |
 | `list_flavors` | `flavorId` (tagged by deployment-need group; sold-out excluded) | 30 min |
 | `list_ssh_keys` | `sshKeyId` | 30 s |
 | `list_security_groups` | `securityGroups` (ACTIVE only) | 2 min |

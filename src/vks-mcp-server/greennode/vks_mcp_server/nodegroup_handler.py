@@ -161,9 +161,11 @@ class NodeGroupHandler:
 
         Local rules (name 5-15 chars: lowercase + digits + hyphens, letter/digit
         at both ends; autoscale bounds) plus cross-checks against live discovery
-        (cached): the subnet belongs to the cluster's VPC — the ONLY subnet
-        requirement; it does NOT need to be one of the cluster's own
-        subnets or zones — flavorId and diskType
+        (cached): the subnet belongs to the cluster's VPC (it does NOT need to
+        be one of the cluster's own subnets or zones) — on a
+        CILIUM_NATIVE_ROUTING cluster secondarySubnets must be the chosen
+        subnet's `secondary_subnets` CIDRs verbatim (non-empty; other
+        networkTypes don't use the field), flavorId and diskType
         exist in the subnet's availability zone, sshKeyId and securityGroups
         exist in the cluster's region. Returns "valid" or every problem found,
         each with the discovery tool that fixes it.
@@ -189,9 +191,11 @@ class NodeGroupHandler:
 
         from greennode.vks_mcp_server.discovery_handler import (
             _flavor_list,
+            _locate_cluster,
             _resolve_zone_context,
             _secgroup_list,
             _sshkey_list,
+            _subnet_list,
             _volumetype_list,
         )
 
@@ -202,6 +206,33 @@ class NodeGroupHandler:
         except ValueError as exc:
             errors.append(str(exc))
             return self._validation_report(errors)
+
+        # secondarySubnets are a CILIUM_NATIVE_ROUTING concern only: those
+        # clusters need a subnet WITH secondary subnets, mirrored verbatim into
+        # the body; other networkTypes don't use the field at all. (Both calls
+        # are cache hits — _resolve_zone_context just fetched.)
+        _, vpc_id, network_type = await _locate_cluster(
+            self.config, self.client, self.cache, cluster_id
+        )
+        if network_type == "CILIUM_NATIVE_ROUTING":
+            subnets = await _subnet_list(self.config, self.client, self.cache, vpc_id, region)
+            chosen = next(s for s in subnets.subnets if s.id == body.subnetId)
+            if not chosen.secondary_subnets:
+                errors.append(
+                    f"subnetId: subnet '{body.subnetId}' has no secondary subnets — a "
+                    "node group in a CILIUM_NATIVE_ROUTING cluster requires a subnet "
+                    "that has them. Pick a subnet with a non-empty `secondary_subnets` "
+                    "via list_subnets, or add a secondary subnet to this one in the "
+                    "console first (then list_subnets refresh=true)"
+                )
+            elif sorted(body.secondarySubnets or []) != sorted(chosen.secondary_subnets):
+                errors.append(
+                    f"secondarySubnets: required for a CILIUM_NATIVE_ROUTING cluster — "
+                    f"must be exactly the `secondary_subnets` CIDRs of the chosen "
+                    f"subnet '{body.subnetId}': expected {chosen.secondary_subnets}, "
+                    f"got {body.secondarySubnets} (copy the list from list_subnets "
+                    "verbatim)"
+                )
 
         flavors = await _flavor_list(
             self.config, self.client, self.cache, zone=zone, region=region
@@ -298,11 +329,15 @@ class NodeGroupHandler:
             ...,
             description=(
                 "CreateNodeGroupDto body. Required: name, flavorId, diskType, sshKeyId, "
-                "diskSize (20-5000), numNodes (0-10), subnetId. Optional groups — offer "
+                "diskSize (20-5000), numNodes (0-10), subnetId — plus, on a "
+                "CILIUM_NATIVE_ROUTING cluster only, secondarySubnets (the chosen "
+                "subnet's secondary_subnets CIDRs copied verbatim from list_subnets, "
+                "non-empty — the subnet must have them; omit for other networkTypes). "
+                "Optional groups — offer "
                 "each to the user (see the tool's Workflow): os (ubuntu|linux|rocky, "
                 "default ubuntu) and upgradeConfig; networking/security "
-                "(enablePrivateNodes, enabledEncryptionVolume, securityGroups, "
-                "secondarySubnets); scaling (autoScaleConfig); scheduling metadata "
+                "(enablePrivateNodes, enabledEncryptionVolume, securityGroups); "
+                "scaling (autoScaleConfig); scheduling metadata "
                 "(labels, taints, tags); placement (placementGroupConfigDto)."
             ),
         ),
@@ -429,11 +464,12 @@ class NodeGroupHandler:
         cluster_id: str = Field(..., description="VKS Cluster ID"),
         nodegroup_id: str = Field(..., description="Node Group ID to delete. IRREVERSIBLE."),
         force_delete: bool = Field(
-            False,
+            ...,
             description=(
-                "Force the deletion on the API side (forceDelete=true). Use ONLY "
-                "as an escalation after a normal delete failed or the node group "
-                "is stuck (e.g. ERROR state) — and confirm with the user first."
+                "Whether to SKIP draining the nodes before deletion. "
+                "false = drain first (pods are evicted gracefully); true = delete "
+                "without draining (pods are killed immediately — for stuck/ERROR "
+                "node groups). A user decision — ask the user; never pick for them."
             ),
         ),
         region: Region = Field("HCM-3", description="Region override"),
@@ -445,8 +481,8 @@ class NodeGroupHandler:
 
         ## Workflow
         - Call delete_nodegroup_dryrun first to preview what will be removed.
-        - If a normal delete fails or the node group is stuck, ask the user
-          before retrying with force_delete=true.
+        - Ask the user whether to drain the nodes before deletion
+          (force_delete=false) or skip the drain (force_delete=true).
         """
         validate_id(cluster_id, "cluster_id")
         validate_id(nodegroup_id, "nodegroup_id")
