@@ -1,6 +1,6 @@
 [project]
 name = "greennode.vks-mcp-server"
-version = "0.13.1"
+version = "0.13.2"
 description = "GreenNode MCP Server for GreenNode Kubernetes Service (VKS)"
 readme = "README.md"
 requires-python = ">=3.11"

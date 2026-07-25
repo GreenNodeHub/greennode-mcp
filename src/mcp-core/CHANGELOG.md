@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/vngcloud/greennode-mcp/compare/mcp-core-v0.4.0...mcp-core-v0.4.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* migrate config dir to ~/.greennode with legacy fallback ([#61](https://github.com/vngcloud/greennode-mcp/issues/61)) ([040c479](https://github.com/vngcloud/greennode-mcp/commit/040c479c32866f4dfb15e1d354f11c64c7d654b4))
+
 ## [0.4.0](https://github.com/vngcloud/greennode-mcp/compare/mcp-core-v0.3.0...mcp-core-v0.4.0) (2026-07-22)
 
 

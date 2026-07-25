@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.13.1...vks-mcp-server-v0.13.2) (2026-07-25)
+
+
+### Bug Fixes
+
+* migrate config dir to ~/.greennode with legacy fallback ([#61](https://github.com/vngcloud/greennode-mcp/issues/61)) ([040c479](https://github.com/vngcloud/greennode-mcp/commit/040c479c32866f4dfb15e1d354f11c64c7d654b4))
+
 ## [0.13.1](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.13.0...vks-mcp-server-v0.13.1) (2026-07-22)
 
 

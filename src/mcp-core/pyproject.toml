@@ -1,6 +1,6 @@
 [project]
 name = "greennode.mcp-core"
-version = "0.4.0"
+version = "0.4.1"
 description = "Shared core for GreenNode MCP servers: config, IAM auth, HTTP client, validators, discovery cache"
 readme = "README.md"
 requires-python = ">=3.11"
