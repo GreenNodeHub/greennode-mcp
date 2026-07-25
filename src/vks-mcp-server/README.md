@@ -28,8 +28,9 @@ uv sync
 
 ## Configuration
 
-Credentials and region are read from `~/.greenode/credentials` and
-`~/.greenode/config` (INI format, shared with greennode-cli).
+Credentials and region are read from `~/.greennode/credentials` and
+`~/.greennode/config` (INI format, shared with greennode-cli). The pre-rename
+`~/.greenode` is still read as a fallback when only it exists.
 
 Environment variables override the config files (highest priority):
 
@@ -94,7 +95,7 @@ One behavior, no flags — the upstream identity is resolved per request:
    service account. All caches (discovery, kubernetes clients, project_id)
    are isolated per caller.
 2. No token, but service-account credentials are configured
-   (`~/.greenode` or `GRN_CLIENT_ID`/`GRN_CLIENT_SECRET`) → the shared
+   (`~/.greennode` or `GRN_CLIENT_ID`/`GRN_CLIENT_SECRET`) → the shared
    service account.
 3. Neither → **401** + `WWW-Authenticate`.
 
@@ -216,7 +217,7 @@ adding new tools.
 ### Manual testing with MCP Inspector (stdio)
 
 Interactive UI to browse tools/prompts, inspect input/output schemas, and call
-tools against the **real** VKS API (credentials are read from `~/.greenode/`,
+tools against the **real** VKS API (credentials are read from `~/.greennode/`,
 same as the CLI — run `grn configure` once if you haven't):
 
 ```bash
@@ -243,7 +244,7 @@ Notes:
 - `uv run mcp dev` does **not** work here: the FastMCP instance is built by
   `create_server()` inside `main()`, so there is no module-level `mcp` object.
   Use the Inspector command above instead.
-- To test another account/region without touching `~/.greenode/`, prefix env
+- To test another account/region without touching `~/.greennode/`, prefix env
   overrides: `GRN_DEFAULT_REGION=HAN GRN_PROFILE=staging npx ...`
 
 ### Scripted smoke test over stdio (no UI)

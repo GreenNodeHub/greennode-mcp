@@ -3,7 +3,7 @@
 Product servers (src/<product>-mcp-server) import from here instead of
 copying config/auth/HTTP plumbing:
 
-- config:     load_profile() — ~/.greenode credentials/config + GRN_* env overrides
+- config:     load_profile() — ~/.greennode credentials/config + GRN_* env overrides
 - auth:       TokenManager — GreenNode IAM client-credentials token with auto-refresh
 - http:       BaseClient — retry on 5xx/timeout, auto-refresh on 401
 - validators: validate_id — safe resource-ID validation for URL construction
@@ -12,7 +12,7 @@ copying config/auth/HTTP plumbing:
 
 from greennode.mcp_core.auth import IAM_TOKEN_URL, TokenManager
 from greennode.mcp_core.cache import DEFAULT_MAXSIZE, DiscoveryCache
-from greennode.mcp_core.config import ProfileSettings, load_profile
+from greennode.mcp_core.config import ProfileSettings, load_profile, resolve_config_dir
 from greennode.mcp_core.http import BaseClient
 from greennode.mcp_core.validators import validate_id
 
@@ -26,6 +26,7 @@ __all__ = [
     "DiscoveryCache",
     "ProfileSettings",
     "load_profile",
+    "resolve_config_dir",
     "BaseClient",
     "validate_id",
     "__version__",

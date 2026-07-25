@@ -12,6 +12,7 @@ from greennode.mcp_core import (
     ProfileSettings,
     TokenManager,
     load_profile,
+    resolve_config_dir,
     validate_id,
 )
 
@@ -54,6 +55,21 @@ def test_load_profile_env_overrides(config_dir, monkeypatch):
 def test_load_profile_missing_credentials(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_profile(tmp_path / "nowhere")
+
+
+def test_resolve_config_dir_prefers_greennode(tmp_path):
+    (tmp_path / ".greennode").mkdir()
+    (tmp_path / ".greenode").mkdir()  # legacy also present — must be ignored
+    assert resolve_config_dir(tmp_path) == tmp_path / ".greennode"
+
+
+def test_resolve_config_dir_falls_back_to_legacy(tmp_path):
+    (tmp_path / ".greenode").mkdir()  # only the legacy dir exists
+    assert resolve_config_dir(tmp_path) == tmp_path / ".greenode"
+
+
+def test_resolve_config_dir_defaults_to_greennode_when_neither(tmp_path):
+    assert resolve_config_dir(tmp_path) == tmp_path / ".greennode"
 
 
 # ---------------------------------------------------------------------------

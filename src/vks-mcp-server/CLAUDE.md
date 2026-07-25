@@ -35,7 +35,7 @@ reverted for exactly this reason — see #46/#47.)
 
 - **Pagination is 0-based**: page 0 = first page
 - **API returns 202** for most successful operations (not 200)
-- **The greennode-cli is the source of truth for the current API** — the bundled `~/.greenode/mcp-specs/vks.json` OpenAPI file is stale
+- **The greennode-cli is the source of truth for the current API** — the bundled `~/.greennode/mcp-specs/vks.json` OpenAPI file is stale
 - Discovery (vpc/subnet/flavor/sshkey/secgroup/volume-type/placement-group) goes to the **vServer API** (token-only auth); `project_id` is auto-discovered from `GET /v1/projects` when unset
 - **vServer list pagination is effectively a no-op**: `page`/`size` query params are ignored and every list endpoint returns the full set in one response (envelope reports `page=0 / pageSize=0 / totalPage=0`, `len(listData) == totalItem`). Discovery fetchers go through `_fetch_all_items`, which uses that single-call fast path but pages explicitly as a safety net if a response ever reports `totalItem > len(listData)` — so results never truncate silently as an account grows.
 - **VKS list pagination IS enforced** (opposite of vServer): server-side default `pageSize=10` silently truncates bare calls. `list_clusters` / `list_nodegroups` / `list_nodes` go through `paging.fetch_all_vks_items` and never expose paging params.
@@ -67,7 +67,7 @@ Per-request upstream identity, no flags: an IAM bearer token in `Authorization`
 (forwarded by the AgentBase Gateway) → every VKS/vServer call runs as that
 caller (per-user projects; caches isolated per caller identity; a rejected user
 token never falls back to the service account). No token → the shared service
-account (`~/.greenode` / `GRN_CLIENT_ID`+`GRN_CLIENT_SECRET`). Neither → 401.
+account (`~/.greennode` / `GRN_CLIENT_ID`+`GRN_CLIENT_SECRET`). Neither → 401.
 The server boots credential-less on HTTP (passthrough-only); stdio requires
 service-account credentials. `/health` is always open.
 `--auth-debug` (env `GRN_MCP_AUTH_DEBUG=1`) is an opt-in, redacted, HTTP-only diagnostic: logs a summary of inbound request auth and exposes `GET /whoami`. Never verifies signatures, never logs the full token; off by default; not for production.
@@ -117,11 +117,11 @@ cd src/vks-mcp-server && uv run pytest tests/ -v
 ```
 
 - Tests cover all handlers (incl. tool-schema introspection and outputSchema assertions); `respx` mocks all HTTP — no credentials needed
-- **Manual testing** (real API, credentials from `~/.greenode/`): MCP Inspector over stdio or piped JSON-RPC — full walkthrough in `README.md` → Development. Do NOT use `uv run mcp dev` (FastMCP is built inside `create_server()`/`main()`, no module-level `mcp` object). Verify auth first with the `get_access_token` tool.
+- **Manual testing** (real API, credentials from `~/.greennode/`): MCP Inspector over stdio or piped JSON-RPC — full walkthrough in `README.md` → Development. Do NOT use `uv run mcp dev` (FastMCP is built inside `create_server()`/`main()`, no module-level `mcp` object). Verify auth first with the `get_access_token` tool.
 
 ## Relationship with greennode-cli
 
-Both projects share config files (`~/.greenode/`), the REGIONS endpoints, the
+Both projects share config files (`~/.greennode/`, legacy `~/.greenode` fallback), the REGIONS endpoints, the
 IAM auth flow, and the `GRN_*` env var names. Tool names map 1:1 to CLI
 command names. Key differences: the MCP server is **async** (CLI is sync),
 returns **structured JSON** for data tools, and adds **K8s resource

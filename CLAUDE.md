@@ -70,8 +70,11 @@ GitHub Actions live in `.github/workflows/`:
 
 ## Configuration
 
-All servers read `~/.greenode/credentials` and `~/.greenode/config` (INI
-format, shared with greennode-cli) via `mcp_core.config.load_profile`.
+All servers read `~/.greennode/credentials` and `~/.greennode/config` (INI
+format, shared with greennode-cli) via `mcp_core.config.load_profile`. Resolve
+the directory with `mcp_core.config.resolve_config_dir()` — it prefers
+`~/.greennode` and falls back to the pre-rename `~/.greenode` when only the
+legacy directory exists (mirrors greennode-cli).
 
 **Environment variable overrides** (highest priority):
 

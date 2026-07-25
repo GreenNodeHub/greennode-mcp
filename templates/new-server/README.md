@@ -8,7 +8,7 @@ An MCP (Model Context Protocol) server for **{{PRODUCT}}** on VNG Cloud.
 
 ## Configuration
 
-Credentials are read from `~/.greenode/credentials` and `~/.greenode/config`
+Credentials are read from `~/.greennode/credentials` and `~/.greennode/config`
 (INI format, shared with greennode-cli; `GRN_*` env vars override — see the
 repo-root CLAUDE.md).
 

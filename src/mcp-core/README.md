@@ -5,7 +5,7 @@ Shared core for GreenNode MCP servers. Product servers
 
 | Module | Provides |
 |--------|----------|
-| `config` | `load_profile()` — `~/.greenode` credentials/config INI + `GRN_*` env overrides |
+| `config` | `load_profile()` — `~/.greennode` credentials/config INI + `GRN_*` env overrides; `resolve_config_dir()` picks `~/.greennode` (legacy `~/.greenode` fallback) |
 | `auth` | `TokenManager` — GreenNode IAM client-credentials token, auto-refresh (camelCase API) |
 | `http` | `BaseClient` — retry on 5xx/timeout (1s→2s→4s), auto-refresh on 401, 30s timeout; `user_token_var`/`current_identity` for per-request token passthrough + cache isolation |
 | `validators` | `validate_id()` — safe resource-ID check before URL construction |
@@ -14,9 +14,11 @@ Shared core for GreenNode MCP servers. Product servers
 ## Usage in a product server
 
 ```python
-from greennode.mcp_core import BaseClient, DiscoveryCache, TokenManager, load_profile
+from greennode.mcp_core import (
+    BaseClient, DiscoveryCache, TokenManager, load_profile, resolve_config_dir,
+)
 
-profile = load_profile(Path.home() / ".greenode")           # credentials + region
+profile = load_profile(resolve_config_dir())                # ~/.greennode (+legacy) credentials + region
 config = MyProductConfig(..., profile)                      # adds region -> base URLs
 
 class MyClient(BaseClient):

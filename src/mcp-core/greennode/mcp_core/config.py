@@ -1,7 +1,7 @@
 """Profile/credential loading shared by all GreenNode MCP servers.
 
 Reads the ``credentials`` and ``config`` INI files under a config directory
-(``~/.greenode``, shared with greennode-cli) with ``GRN_*`` environment
+(``~/.greennode``, shared with greennode-cli) with ``GRN_*`` environment
 variable overrides. Product servers wrap :class:`ProfileSettings` in their own
 config dataclass and add product endpoints (region → base URLs).
 """
@@ -12,6 +12,32 @@ import configparser
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+
+#: Preferred config directory name — where ``grn configure`` writes.
+DEFAULT_CONFIG_DIR_NAME = ".greennode"
+#: Pre-rename config directory name, kept as a read-only fallback.
+LEGACY_CONFIG_DIR_NAME = ".greenode"
+
+
+def resolve_config_dir(home: Path | None = None) -> Path:
+    """Return the config directory to READ credentials/config from.
+
+    Prefers ``~/.greennode``; falls back to the pre-rename ``~/.greenode`` only
+    when the preferred directory is absent but the legacy one exists — so
+    installs made before the greennode-cli rename keep working until the user
+    re-runs ``grn configure``. When neither exists, returns the preferred
+    ``~/.greennode`` (its non-existence surfaces as a normal "no credentials"
+    error). Mirrors greennode-cli's ``effectiveConfigDir``.
+    """
+    base = home or Path.home()
+    preferred = base / DEFAULT_CONFIG_DIR_NAME
+    if preferred.exists():
+        return preferred
+    legacy = base / LEGACY_CONFIG_DIR_NAME
+    if legacy.exists():
+        return legacy
+    return preferred
 
 
 @dataclass

@@ -25,8 +25,8 @@ xác nhận trước khi thực thi. Bạn KHÔNG cần biết ID tài nguyên t
 1. MCP server `greennode-mcp` đã cấu hình trong client. Thao tác đọc chạy mặc định;
    tạo/sửa/xoá/scale cần chạy server với `--allow-write` (nếu write lỗi vì read-only,
    báo người dùng khởi động lại với `--allow-write`).
-2. Xác thực qua `~/.greenode/` (GreenNode IAM bearer token). Cấu hình bằng
-   `grn configure` (ghi `~/.greenode/credentials` + `config`). Thứ tự ưu tiên:
+2. Xác thực qua `~/.greennode/` (GreenNode IAM bearer token). Cấu hình bằng
+   `grn configure` (ghi `~/.greennode/credentials` + `config`). Thứ tự ưu tiên:
    env (`GRN_CLIENT_ID`, `GRN_CLIENT_SECRET`, `GRN_PROJECT_ID`, `GRN_DEFAULT_REGION`)
    → file profile (`GRN_PROFILE`, mặc định `default`). `project_id` cần cho discovery;
    `grn configure` tự dò. Kiểm tra xác thực bằng tool `get_access_token`.

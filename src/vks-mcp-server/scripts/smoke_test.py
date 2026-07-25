@@ -4,7 +4,7 @@
 Starts a LOCAL server in read-only mode (no --allow-write), drives the real MCP
 protocol over streamable-http (initialize -> initialized -> tools/list ->
 tools/call), exercises the read-only tools against the live VKS API using the
-credentials in ~/.greenode, and prints a PASS/FAIL summary.
+credentials in ~/.greennode, and prints a PASS/FAIL summary.
 
 Safe: never calls write tools, never prints access tokens or kubeconfig content.
 

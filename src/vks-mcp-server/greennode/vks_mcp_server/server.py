@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import sys
+from greennode.mcp_core.config import resolve_config_dir
 from greennode.mcp_core.http import user_token_var
 from greennode.vks_mcp_server.auth import TokenManager
 from greennode.vks_mcp_server.auth_debug import summarize_request
@@ -21,13 +22,14 @@ from greennode.vks_mcp_server.nodegroup_handler import NodeGroupHandler
 from greennode.vks_mcp_server.prompts_handler import PromptsHandler
 from greennode.vks_mcp_server.version_handler import VersionHandler
 from mcp.server.fastmcp import FastMCP
-from pathlib import Path
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 
-CONFIG_PATH = Path.home() / ".greenode"
+# Prefer ~/.greennode; fall back to the legacy ~/.greenode when only it exists
+# (mirrors greennode-cli after the rename).
+CONFIG_PATH = resolve_config_dir()
 
 SERVER_INSTRUCTIONS = """
 # GreenNode MCP Server
@@ -115,7 +117,7 @@ class UpstreamIdentityMiddleware(BaseHTTPMiddleware):
        CALLER (token scoped to this request via a contextvar; a rejected
        user token never falls back to the service account).
     2. No token, but service-account credentials configured -> the shared
-       service account (GRN_CLIENT_ID / GRN_CLIENT_SECRET or ~/.greenode).
+       service account (GRN_CLIENT_ID / GRN_CLIENT_SECRET or ~/.greennode).
     3. Neither -> 401.
     """
 
@@ -294,7 +296,7 @@ def main() -> None:
         # stdio has no headers, so it cannot run without credentials.
         if args.transport != "streamable-http":
             raise SystemExit(
-                "No credentials found (~/.greenode or GRN_CLIENT_ID/"
+                "No credentials found (~/.greennode or GRN_CLIENT_ID/"
                 "GRN_CLIENT_SECRET). stdio transport requires service-account "
                 "credentials; the HTTP transport can run token-passthrough-only."
             ) from None

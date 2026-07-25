@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 
 from greennode.mcp_core.auth import TokenManager
+from greennode.mcp_core.config import resolve_config_dir
 from greennode.{{product_snake}}_mcp_server.client import {{Product}}Client
 from greennode.{{product_snake}}_mcp_server.config import load_config
 from greennode.{{product_snake}}_mcp_server.example_handler import ExampleHandler
@@ -14,7 +14,8 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 
-CONFIG_PATH = Path.home() / ".greenode"
+# Prefer ~/.greennode; fall back to the legacy ~/.greenode when only it exists.
+CONFIG_PATH = resolve_config_dir()
 
 SERVER_INSTRUCTIONS = """\
 GreenNode {{PRODUCT}} MCP Server.
