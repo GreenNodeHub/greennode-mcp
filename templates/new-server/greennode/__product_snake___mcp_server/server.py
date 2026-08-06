@@ -1,4 +1,4 @@
-"""FastMCP entry point for the {{PRODUCT}} MCP server."""
+"""MCPServer entry point for the {{PRODUCT}} MCP server."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from greennode.mcp_core.config import resolve_config_dir
 from greennode.{{product_snake}}_mcp_server.client import {{Product}}Client
 from greennode.{{product_snake}}_mcp_server.config import load_config
 from greennode.{{product_snake}}_mcp_server.example_handler import ExampleHandler
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -25,9 +25,9 @@ flag to enable write operations.
 """
 
 
-def create_server() -> FastMCP:
-    """Create and return a FastMCP server instance (handlers wired in main)."""
-    server = FastMCP("{{product}}-mcp-server", instructions=SERVER_INSTRUCTIONS)
+def create_server() -> MCPServer:
+    """Create and return an MCPServer instance (handlers wired in main)."""
+    server = MCPServer("{{product}}-mcp-server", instructions=SERVER_INSTRUCTIONS)
 
     @server.custom_route("/health", methods=["GET"])
     async def health(request: Request) -> Response:

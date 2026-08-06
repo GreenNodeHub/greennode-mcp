@@ -7,7 +7,7 @@ from greennode.vks_mcp_server.auth import TokenManager
 from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.config import load_config
 from greennode.vks_mcp_server.k8s_handler import K8sHandler
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 class _FakeK8sApis:
@@ -23,7 +23,7 @@ def handler(sample_config):
     config = load_config(sample_config)
     client = VksClient(config, TokenManager(config))
     return K8sHandler(
-        FastMCP("t"), config, client, allow_write=False, allow_sensitive_data_access=True
+        MCPServer("t"), config, client, allow_write=False, allow_sensitive_data_access=True
     )
 
 
@@ -85,7 +85,7 @@ def write_handler(sample_config):
     config = load_config(sample_config)
     client = VksClient(config, TokenManager(config))
     return K8sHandler(
-        FastMCP("t-w"), config, client, allow_write=True, allow_sensitive_data_access=False
+        MCPServer("t-w"), config, client, allow_write=True, allow_sensitive_data_access=False
     )
 
 

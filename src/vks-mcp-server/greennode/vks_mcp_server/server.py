@@ -9,6 +9,7 @@ import os
 import sys
 from greennode.mcp_core.config import resolve_config_dir
 from greennode.mcp_core.http import user_token_var
+from greennode.vks_mcp_server import __version__
 from greennode.vks_mcp_server.auth import TokenManager
 from greennode.vks_mcp_server.auth_debug import summarize_request
 from greennode.vks_mcp_server.auth_handler import AuthHandler
@@ -21,7 +22,7 @@ from greennode.vks_mcp_server.k8s_handler import K8sHandler
 from greennode.vks_mcp_server.nodegroup_handler import NodeGroupHandler
 from greennode.vks_mcp_server.prompts_handler import PromptsHandler
 from greennode.vks_mcp_server.version_handler import VersionHandler
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -211,10 +212,10 @@ def create_server(
     auth_debug: bool = False,
     allow_write: bool = False,
     allow_sensitive_data_access: bool = False,
-) -> FastMCP:
-    """Create and return a FastMCP server instance."""
+) -> MCPServer:
+    """Create and return an MCPServer instance."""
     instructions = SERVER_INSTRUCTIONS + _mode_addendum(allow_write, allow_sensitive_data_access)
-    server = FastMCP("vks-mcp-server", instructions=instructions)
+    server = MCPServer("vks-mcp-server", instructions=instructions, version=__version__)
 
     @server.custom_route("/health", methods=["GET"])
     async def health(request: Request) -> Response:
@@ -352,18 +353,21 @@ def main() -> None:
         # streamable-http mode
         import uvicorn  # optional dep; only required for streamable-http mode
 
-        mcp.settings.host = args.host
-        mcp.settings.port = args.port
-
+        # host/port go straight to uvicorn below; the app only needs to know the
+        # host it is bound to for DNS-rebinding protection.
+        transport_security = None
         loopback = {"127.0.0.1", "localhost", "::1"}
         if args.host not in loopback:
-            from mcp.server.fastmcp.server import TransportSecuritySettings
+            from mcp.server.transport_security import TransportSecuritySettings
 
-            mcp.settings.transport_security = TransportSecuritySettings(
+            transport_security = TransportSecuritySettings(
                 enable_dns_rebinding_protection=False,
             )
 
-        starlette_app = mcp.streamable_http_app()
+        starlette_app = mcp.streamable_http_app(
+            transport_security=transport_security,
+            host=args.host,
+        )
         # Per-request upstream identity: caller's IAM token when present,
         # else the service account, else 401.
         starlette_app.add_middleware(

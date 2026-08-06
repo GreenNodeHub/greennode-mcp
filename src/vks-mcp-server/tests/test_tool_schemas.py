@@ -1,8 +1,8 @@
-"""Tests for registered tool input schemas via FastMCP introspection.
+"""Tests for registered tool input schemas via MCPServer introspection.
 
-The existing handler tests call internal functions directly and bypass FastMCP
+The existing handler tests call internal functions directly and bypass MCPServer
 validation, so Literal / Field(ge,le) constraints are only observable on the
-registered tool's inputSchema. These tests assert those constraints.
+registered tool's input_schema. These tests assert those constraints.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from greennode.vks_mcp_server.discovery_handler import DiscoveryHandler
 from greennode.vks_mcp_server.k8s_handler import K8sHandler
 from greennode.vks_mcp_server.nodegroup_handler import NodeGroupHandler
 from greennode.vks_mcp_server.version_handler import VersionHandler
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 @pytest.fixture
@@ -31,11 +31,11 @@ def client(config):
 
 
 async def _schema_for(register, tool_name):
-    """Register handler(s) on a fresh FastMCP and return a tool's inputSchema."""
-    mcp = FastMCP("test")
+    """Register handler(s) on a fresh MCPServer and return a tool's input_schema."""
+    mcp = MCPServer("test")
     register(mcp)
     tools = await mcp.list_tools()
-    return next(t for t in tools if t.name == tool_name).inputSchema
+    return next(t for t in tools if t.name == tool_name).input_schema
 
 
 def _minimum(prop):
@@ -178,8 +178,8 @@ async def test_cluster_auto_healing_config_constraints(config, client):
 
 
 async def _description_for(register, tool_name):
-    """Register handler(s) on a fresh FastMCP and return a tool's description (docstring)."""
-    mcp = FastMCP("test")
+    """Register handler(s) on a fresh MCPServer and return a tool's description (docstring)."""
+    mcp = MCPServer("test")
     register(mcp)
     tools = await mcp.list_tools()
     return next(t for t in tools if t.name == tool_name).description
@@ -212,7 +212,7 @@ async def test_generate_app_manifest_schema(config, client):
 
 @pytest.mark.asyncio
 async def test_discovery_tools_registered(config, client):
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     DiscoveryHandler(mcp, config, client, DiscoveryCache())
     names = {t.name for t in await mcp.list_tools()}
     assert {
@@ -226,7 +226,7 @@ async def test_discovery_tools_registered(config, client):
 
 @pytest.mark.asyncio
 async def test_structured_tools_have_output_schema(config, client):
-    mcp = FastMCP("test")
+    mcp = MCPServer("test")
     ClusterHandler(mcp, config, client, allow_write=True)
     NodeGroupHandler(mcp, config, client, allow_write=True)
     DiscoveryHandler(mcp, config, client, DiscoveryCache())
@@ -242,7 +242,7 @@ async def test_structured_tools_have_output_schema(config, client):
         "list_cluster_versions",
         "list_k8s_resources",
     ]:
-        assert by_name[name].outputSchema is not None, f"{name} missing outputSchema"
+        assert by_name[name].output_schema is not None, f"{name} missing output_schema"
 
 
 @pytest.mark.asyncio

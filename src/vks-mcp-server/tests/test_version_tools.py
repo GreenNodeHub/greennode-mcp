@@ -91,7 +91,7 @@ async def test_cluster_versions_list_bare_array(config_and_client):
 
 @pytest.fixture
 def mock_mcp():
-    """Minimal stub for the FastMCP server object used by VersionHandler."""
+    """Minimal stub for the MCPServer object used by VersionHandler."""
 
     class _FakeMcp:
         def tool(self, *, name, annotations=None):
