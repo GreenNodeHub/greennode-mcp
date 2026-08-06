@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0](https://github.com/GreenNodeHub/greennode-mcp/compare/vks-mcp-server-v0.13.2...vks-mcp-server-v0.14.0) (2026-08-06)
+
+
+### ⚠ BREAKING CHANGES
+
+* **vks:** create_cluster no longer accepts subnetId, and listSubnetIds is now required. Pass the same id as a one-element listSubnetIds.
+* create_nodegroup bodies must include subnetId and secondarySubnets; create_cluster bodies must not include secondarySubnets.
+* generate_kubeconfig callers must now pass expiration_days.
+* apply_yaml's yaml_path parameter is replaced by yaml_content; generate_app_manifest no longer accepts output_dir and requires no --allow-write.
+* --auth-mode/--api-key/--jwt-* CLI flags and the GRN_MCP_API_KEY/GRN_MCP_JWT_*/GRN_MCP_VKS_AUTH env vars are gone; deployments using api-key/jwt inbound auth must drop those settings.
+* list_flavors and list_volume_types now take cluster_id + subnet_id; the zone and region parameters are gone.
+* list_clusters and list_nodes no longer accept page/pageSize (they always return the full collection).
+* discovery output schemas slimmed (fields dropped); list_flavors and list_volume_types now require zone; list_volume_types lost type_name.
+* create_cluster no longer accepts nodeGroups; create node groups separately via create_nodegroup.
+
+### Features
+
+* --vks-auth passthrough — every VKS call runs as the caller ([#40](https://github.com/GreenNodeHub/greennode-mcp/issues/40)) ([7e700f1](https://github.com/GreenNodeHub/greennode-mcp/commit/7e700f1e50733d62763014f3614b4429300c149f))
+* **core:** extract shared greennode.mcp_core package ([#15](https://github.com/GreenNodeHub/greennode-mcp/issues/15)) ([5491ad0](https://github.com/GreenNodeHub/greennode-mcp/commit/5491ad0af867a6f2bc8c788ec433a3571696709f))
+* create_cluster creates the control plane only (drop deprecated nodeGroups) ([#21](https://github.com/GreenNodeHub/greennode-mcp/issues/21)) ([0e8f34b](https://github.com/GreenNodeHub/greennode-mcp/commit/0e8f34bf6c78969591efe10c4126eb25db87c66d))
+* create_cluster gets the pinned question order and one-setting rules ([#33](https://github.com/GreenNodeHub/greennode-mcp/issues/33)) ([d3a9d45](https://github.com/GreenNodeHub/greennode-mcp/commit/d3a9d45566472b1efe7856e13046338ad3cec7d1))
+* create_nodegroup asks the user about each optional config group ([#28](https://github.com/GreenNodeHub/greennode-mcp/issues/28)) ([4ee6226](https://github.com/GreenNodeHub/greennode-mcp/commit/4ee62266e151f7193b8da6e610de9eb2e20103d8))
+* discovery tools guide the zone-scoped create flows (AWS-pattern descriptions) ([#23](https://github.com/GreenNodeHub/greennode-mcp/issues/23)) ([f48f17f](https://github.com/GreenNodeHub/greennode-mcp/commit/f48f17f0208597800de2343d418753b4697e707b))
+* field-test fixes — vDNS flag, partial updates, kubeconfig envelope + generate tool, force delete ([#38](https://github.com/GreenNodeHub/greennode-mcp/issues/38)) ([7713736](https://github.com/GreenNodeHub/greennode-mcp/commit/7713736086c316349a6f2ab5ad2b26cf3099d933))
+* get_creation_guide serves the create choreography on demand ([#34](https://github.com/GreenNodeHub/greennode-mcp/issues/34)) ([1a1ecaf](https://github.com/GreenNodeHub/greennode-mcp/commit/1a1ecafe3a1d27c8609edae0ad43aa1921e2016c))
+* GreenNode MCP monorepo — VKS MCP server ([3c2f7a5](https://github.com/GreenNodeHub/greennode-mcp/commit/3c2f7a5c69f29b161547bd3e1d2e15eba1c65140))
+* id-first rendering hint on every list tool's docstring ([74d168a](https://github.com/GreenNodeHub/greennode-mcp/commit/74d168aa19ce1b2f817e322a88e30447777521f6))
+* list_flavors/list_volume_types derive region+zone from cluster_id+subnet_id ([#27](https://github.com/GreenNodeHub/greennode-mcp/issues/27)) ([92d411e](https://github.com/GreenNodeHub/greennode-mcp/commit/92d411ebc468503a4b3b2714b961ba736ad0bd4e))
+* main VKS tools join the guided flows (descriptions, fetch-all paging, region echo) ([#25](https://github.com/GreenNodeHub/greennode-mcp/issues/25)) ([dff73f2](https://github.com/GreenNodeHub/greennode-mcp/commit/dff73f23d0d72b3c8dfecf8d6c73c3e2c20d4f8e))
+* new-server scaffold, agent skills, and tiered CLAUDE.md ([#17](https://github.com/GreenNodeHub/greennode-mcp/issues/17)) ([95cf935](https://github.com/GreenNodeHub/greennode-mcp/commit/95cf93505ab7d17d820ac004c128e3f7741df627))
+* node-group questions follow a fixed order, one setting per question ([0385b9a](https://github.com/GreenNodeHub/greennode-mcp/commit/0385b9a5aad768af24a3ca3e7db3584a1d4926f9))
+* secondarySubnets belongs to the node group, mirrored from its subnet ([#54](https://github.com/GreenNodeHub/greennode-mcp/issues/54)) ([41e226d](https://github.com/GreenNodeHub/greennode-mcp/commit/41e226d927f5eb9f071155bba600f14438aa5e85))
+* send a vks-mcp-server User-Agent on every outbound API request ([#56](https://github.com/GreenNodeHub/greennode-mcp/issues/56)) ([c6a2773](https://github.com/GreenNodeHub/greennode-mcp/commit/c6a27735fa90b2a545bb52446b68c8a79e70c98e))
+* SERVER_INSTRUCTIONS carry the session's runtime mode (EKS pattern) ([#36](https://github.com/GreenNodeHub/greennode-mcp/issues/36)) ([1406137](https://github.com/GreenNodeHub/greennode-mcp/commit/140613701f5d54b14dbeb6492f26d9eb03cab32b))
+* SERVER_INSTRUCTIONS teach the creation chains, region model, and prompts ([#26](https://github.com/GreenNodeHub/greennode-mcp/issues/26)) ([58d26cf](https://github.com/GreenNodeHub/greennode-mcp/commit/58d26cfe6fe148611ceb19e071f3949b899fe069))
+* validate_nodegroup_create — check the body before creating ([#41](https://github.com/GreenNodeHub/greennode-mcp/issues/41)) ([ab78c03](https://github.com/GreenNodeHub/greennode-mcp/commit/ab78c032a71e8846feabdbd190b4eb6fac57033c))
+* **vks:** create_cluster takes listSubnetIds only, and enforces the spec's bounds ([f8e1e65](https://github.com/GreenNodeHub/greennode-mcp/commit/f8e1e655eaca62e1bf9de43b916bdd2c7ce66d21))
+* **vks:** update_nodegroup disable_auto_scale sends autoScaleConfig:null ([3be763d](https://github.com/GreenNodeHub/greennode-mcp/commit/3be763d2b4c93d70344809e2cd663dfe761f01e3))
+* **vks:** update_nodegroup disable_auto_scale sends autoScaleConfig:null ([d2f57f0](https://github.com/GreenNodeHub/greennode-mcp/commit/d2f57f0a7b1a9a4141f7b8a48cc085a7f8e0492b))
+
+
+### Bug Fixes
+
+* generate_kubeconfig expiration_days is 1-365, not 1-1825 ([#58](https://github.com/GreenNodeHub/greennode-mcp/issues/58)) ([7f1b3bb](https://github.com/GreenNodeHub/greennode-mcp/commit/7f1b3bb57a46929e39945040282cbc284b25891d))
+* generate_kubeconfig must ask the user for expiration_days ([#53](https://github.com/GreenNodeHub/greennode-mcp/issues/53)) ([1565b79](https://github.com/GreenNodeHub/greennode-mcp/commit/1565b79610c4e4b5ae3361e8eeff12071dfdd122))
+* list_flavors uses the VKS portal's flavor chain — HAN was empty ([#44](https://github.com/GreenNodeHub/greennode-mcp/issues/44)) ([3be43aa](https://github.com/GreenNodeHub/greennode-mcp/commit/3be43aaf0f829c8234f5fae51b238e2212cc38a3))
+* migrate config dir to ~/.greennode with legacy fallback ([#61](https://github.com/GreenNodeHub/greennode-mcp/issues/61)) ([040c479](https://github.com/GreenNodeHub/greennode-mcp/commit/040c479c32866f4dfb15e1d354f11c64c7d654b4))
+* only ask about ServiceEndpoint when the cluster is private ([#35](https://github.com/GreenNodeHub/greennode-mcp/issues/35)) ([77aac6a](https://github.com/GreenNodeHub/greennode-mcp/commit/77aac6ab2583f40b48fe56a887e6f55d12c201b9))
+* private-cluster k8s calls no longer freeze the server ([#55](https://github.com/GreenNodeHub/greennode-mcp/issues/55)) ([2d91210](https://github.com/GreenNodeHub/greennode-mcp/commit/2d91210b2c8652607f348e4e3850b871c181e393))
+* re-land 4 commits orphaned by the [#49](https://github.com/GreenNodeHub/greennode-mcp/issues/49) merge race ([#51](https://github.com/GreenNodeHub/greennode-mcp/issues/51)) ([e591f89](https://github.com/GreenNodeHub/greennode-mcp/commit/e591f898a51feb9a67557921955d80c04d380235))
+* re-land SSD volume types + id-first rule (orphaned by the [#41](https://github.com/GreenNodeHub/greennode-mcp/issues/41) merge race) ([#47](https://github.com/GreenNodeHub/greennode-mcp/issues/47)) ([87e22e4](https://github.com/GreenNodeHub/greennode-mcp/commit/87e22e495f82270bad74afa17ffd05cf76bde350))
+* secondarySubnets are CIDR strings, not sec-sub ids ([#49](https://github.com/GreenNodeHub/greennode-mcp/issues/49)) ([69be85b](https://github.com/GreenNodeHub/greennode-mcp/commit/69be85b3f441c965015a7b4424e905c9418caf00))
+* validate_cluster_create enforces the API's description charset (F-05) ([#43](https://github.com/GreenNodeHub/greennode-mcp/issues/43)) ([5ca14f4](https://github.com/GreenNodeHub/greennode-mcp/commit/5ca14f406c26420a24e7b9677ce105a00940c38b))
+* **vks:** keep disable_auto_scale off the wire by construction ([3e39976](https://github.com/GreenNodeHub/greennode-mcp/commit/3e3997696a05271f69f8bfc9715897e9948d400f))
+
+
+### Reverts
+
+* id-first hints in list-tool docstrings (74d168a) ([#46](https://github.com/GreenNodeHub/greennode-mcp/issues/46)) ([96cc6d1](https://github.com/GreenNodeHub/greennode-mcp/commit/96cc6d1b1c1ab6f817f430c14f73e22271d1be8d))
+
+
+### Documentation
+
+* catch READMEs and CLAUDE.md files up with the guidance/paging work ([#37](https://github.com/GreenNodeHub/greennode-mcp/issues/37)) ([9363c59](https://github.com/GreenNodeHub/greennode-mcp/commit/9363c593486832971b62a36aa795d80d24799764))
+* **vks:** document the tri-state autoscaling update ([48cdee7](https://github.com/GreenNodeHub/greennode-mcp/commit/48cdee709750a4e4a2180aa4e5726f5ba1f3f47d))
+
 ## [0.13.2](https://github.com/vngcloud/greennode-mcp/compare/vks-mcp-server-v0.13.1...vks-mcp-server-v0.13.2) (2026-07-25)
 
 
