@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1](https://github.com/GreenNodeHub/greennode-mcp/compare/vks-mcp-server-v0.14.0...vks-mcp-server-v0.14.1) (2026-08-06)
+
+
+### Bug Fixes
+
+* **deps:** migrate to the mcp 2.0 server API ([805d2fb](https://github.com/GreenNodeHub/greennode-mcp/commit/805d2fb7ebc96cfe91c7550b2ec38567f8b0472e))
+* **deps:** migrate to the mcp 2.0 server API ([1868441](https://github.com/GreenNodeHub/greennode-mcp/commit/1868441a46eafa3b3df3031d19f68914080b0068))
+
 ## [0.14.0](https://github.com/GreenNodeHub/greennode-mcp/compare/vks-mcp-server-v0.13.2...vks-mcp-server-v0.14.0) (2026-08-06)
 
 
