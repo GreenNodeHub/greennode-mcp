@@ -10,6 +10,7 @@ from greennode.vks_mcp_server.auth import TokenManager
 from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.config import load_config
 from greennode.vks_mcp_server.models import (
+    AutoScaleConfig,
     CreateNodeGroupDto,
     NodeGroupDetail,
     NodeGroupListData,
@@ -428,6 +429,89 @@ async def test_nodegroup_update_empty_body_guarded(handler_write, respx_mock):
     )
     assert not route.called
     assert "nothing to update" in result.lower()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_nodegroup_update_disable_autoscale_sends_null(handler_write, respx_mock):
+    """disable_auto_scale=True sends autoScaleConfig: null on the wire and strips the sentinel."""
+    _mock_iam(respx_mock)
+    cluster_id, nodegroup_id = "k8s-abc", "ng-001"
+    respx_mock.put(f"{VKS_BASE}/v1/clusters/{cluster_id}/node-groups/{nodegroup_id}").mock(
+        return_value=httpx.Response(200, json={"uid": nodegroup_id, "status": "ACTIVE"})
+    )
+
+    result = await handler_write.update_nodegroup(
+        cluster_id=cluster_id,
+        nodegroup_id=nodegroup_id,
+        body=UpdateNodeGroupDto(disable_auto_scale=True),
+        region=None,
+    )
+    sent = _json.loads(respx_mock.calls.last.request.content)
+    assert sent == {"autoScaleConfig": None}
+    assert "disable_auto_scale" not in sent
+    assert "updated successfully" in result.lower()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_nodegroup_update_disable_and_object_is_mutually_exclusive(
+    handler_write, respx_mock
+):
+    """disable_auto_scale with an autoScaleConfig object is rejected before any HTTP call."""
+    _mock_iam(respx_mock)
+    route = respx_mock.put(f"{VKS_BASE}/v1/clusters/k8s-abc/node-groups/ng-001").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    result = await handler_write.update_nodegroup(
+        cluster_id="k8s-abc",
+        nodegroup_id="ng-001",
+        body=UpdateNodeGroupDto(
+            disable_auto_scale=True,
+            autoScaleConfig=AutoScaleConfig(minSize=1, maxSize=3),
+        ),
+        region=None,
+    )
+    assert not route.called
+    assert "mutually exclusive" in result.lower()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_nodegroup_update_omits_autoscale_when_unset(handler_write, respx_mock):
+    """autoScaleConfig omitted → wire body has no autoScaleConfig key (keep current). Pin."""
+    _mock_iam(respx_mock)
+    respx_mock.put(f"{VKS_BASE}/v1/clusters/k8s-abc/node-groups/ng-001").mock(
+        return_value=httpx.Response(200, json={"uid": "ng-001"})
+    )
+    await handler_write.update_nodegroup(
+        cluster_id="k8s-abc",
+        nodegroup_id="ng-001",
+        body=UpdateNodeGroupDto(numNodes=5),
+        region=None,
+    )
+    sent = _json.loads(respx_mock.calls.last.request.content)
+    assert "autoScaleConfig" not in sent
+    assert "disable_auto_scale" not in sent
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_nodegroup_update_sends_autoscale_object(handler_write, respx_mock):
+    """autoScaleConfig object set → wire body carries the object. Pin."""
+    _mock_iam(respx_mock)
+    respx_mock.put(f"{VKS_BASE}/v1/clusters/k8s-abc/node-groups/ng-001").mock(
+        return_value=httpx.Response(200, json={"uid": "ng-001"})
+    )
+    await handler_write.update_nodegroup(
+        cluster_id="k8s-abc",
+        nodegroup_id="ng-001",
+        body=UpdateNodeGroupDto(autoScaleConfig=AutoScaleConfig(minSize=1, maxSize=3)),
+        region=None,
+    )
+    sent = _json.loads(respx_mock.calls.last.request.content)
+    assert sent["autoScaleConfig"] == {"minSize": 1, "maxSize": 3}
 
 
 @respx.mock

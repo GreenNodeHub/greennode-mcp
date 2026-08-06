@@ -1040,6 +1040,13 @@ class UpdateNodeGroupDto(BaseModel):
     numNodes: Optional[int] = Field(None, ge=0, le=10, description="Number of nodes (0-10)")
     securityGroups: Optional[list[str]] = Field(None, description="Security group IDs")
     autoScaleConfig: Optional[AutoScaleConfig] = Field(None, description="Autoscaling bounds")
+    disable_auto_scale: bool = Field(
+        False,
+        description=(
+            "Disable autoscaling — sends autoScaleConfig: null, deleting the current "
+            "config. Mutually exclusive with autoScaleConfig."
+        ),
+    )
     upgradeConfig: Optional[UpgradeConfig] = Field(None, description="Upgrade config")
 
 
