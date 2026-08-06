@@ -246,6 +246,8 @@ def test_create_cluster_dto_defaults_and_enums():
         version="v1.29.0",
         networkType="CILIUM_NATIVE_ROUTING",
         vpcId="net-1",
+        listSubnetIds=["sub-1"],
+        nodeNetmaskSize=25,
         enablePrivateCluster=False,
     )
     assert dto.releaseChannel == "STABLE"
@@ -558,6 +560,7 @@ def test_create_cluster_combo_allows_control_plane_only():
         version="v1.29.0",
         networkType="CILIUM_OVERLAY",
         vpcId="net-1",
+        listSubnetIds=["sub-1"],
         cidr="10.0.0.0/16",
     )
     dumped = dto.model_dump(exclude_none=True)
@@ -583,7 +586,6 @@ def test_create_cluster_combo_new_fields():
         enabledServiceEndpoint=True,
         azStrategy="MULTI",
         description="prod cluster",
-        subnetId="sub-1",
         listSubnetIds=["sub-a", "sub-b"],
         nodeNetmaskSize=25,
         autoUpgradeConfig=AutoUpgradeConfig(weekdays="Mon", time="03:00"),
@@ -591,7 +593,7 @@ def test_create_cluster_combo_new_fields():
     )
     dumped = dto.model_dump(exclude_none=True)
     assert dumped["description"] == "prod cluster"
-    assert dumped["subnetId"] == "sub-1"
+    assert "subnetId" not in dumped
     assert dumped["listSubnetIds"] == ["sub-a", "sub-b"]
     assert dumped["nodeNetmaskSize"] == 25
     assert dumped["autoUpgradeConfig"] == {"weekdays": "Mon", "time": "03:00"}
@@ -662,7 +664,12 @@ def test_create_cluster_dto_service_endpoint_omitted_by_default():
     from greennode.vks_mcp_server.models import CreateClusterComboDto
 
     dto = CreateClusterComboDto(
-        name="mycluster01", version="1.28", networkType="CILIUM_OVERLAY", vpcId="vpc-1"
+        name="mycluster01",
+        version="1.28",
+        networkType="CILIUM_OVERLAY",
+        vpcId="vpc-1",
+        listSubnetIds=["sub-1"],
+        cidr="10.96.0.0/16",
     )
     assert "enabledServiceEndpoint" not in dto.model_dump(exclude_none=True)
     private = CreateClusterComboDto(
@@ -670,7 +677,121 @@ def test_create_cluster_dto_service_endpoint_omitted_by_default():
         version="1.28",
         networkType="CILIUM_OVERLAY",
         vpcId="vpc-1",
+        listSubnetIds=["sub-1"],
+        cidr="10.96.0.0/16",
         enablePrivateCluster=True,
         enabledServiceEndpoint=True,
     )
     assert private.model_dump(exclude_none=True)["enabledServiceEndpoint"] is True
+
+
+# ---------------------------------------------------------------------------
+# create_cluster subnet / network rules (parity with greennode-cli create-cluster)
+# ---------------------------------------------------------------------------
+
+
+def _cluster_kwargs(**overrides):
+    base = {
+        "name": "mycluster01",
+        "version": "v1.29.0",
+        "networkType": "CILIUM_OVERLAY",
+        "vpcId": "net-1",
+        "cidr": "10.96.0.0/16",
+        "listSubnetIds": ["sub-a"],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_create_cluster_requires_subnets():
+    """listSubnetIds carries one or many subnets and is required — the API needs it
+    for both azStrategy values."""
+    kwargs = _cluster_kwargs()
+    del kwargs["listSubnetIds"]
+    with pytest.raises(ValidationError):
+        CreateClusterComboDto(**kwargs)
+    with pytest.raises(ValidationError):
+        CreateClusterComboDto(**_cluster_kwargs(listSubnetIds=[]))
+
+
+def test_create_cluster_rejects_deprecated_subnet_id():
+    """subnetId is deprecated on the API and no longer accepted by the CLI or here."""
+    with pytest.raises(ValidationError, match="extra"):
+        CreateClusterComboDto(**_cluster_kwargs(subnetId="sub-a"))
+
+
+def test_create_cluster_single_az_takes_one_subnet():
+    """azStrategy SINGLE (the default) takes a single-element list; MULTI takes several."""
+    assert CreateClusterComboDto(**_cluster_kwargs()).azStrategy == "SINGLE"
+    with pytest.raises(ValidationError, match="exactly one listSubnetIds value"):
+        CreateClusterComboDto(**_cluster_kwargs(listSubnetIds=["sub-a", "sub-b"]))
+    multi = CreateClusterComboDto(
+        **_cluster_kwargs(azStrategy="MULTI", listSubnetIds=["sub-a", "sub-b"])
+    )
+    assert multi.listSubnetIds == ["sub-a", "sub-b"]
+
+
+def test_create_cluster_network_type_requirements():
+    """CILIUM_OVERLAY/TIGERA need cidr; CILIUM_NATIVE_ROUTING needs nodeNetmaskSize.
+    Enforced on the model so create_cluster fails before the request, not only in
+    validate_cluster_create."""
+    kwargs = _cluster_kwargs()
+    del kwargs["cidr"]
+    with pytest.raises(ValidationError, match="requires cidr"):
+        CreateClusterComboDto(**kwargs)
+    with pytest.raises(ValidationError, match="requires cidr"):
+        CreateClusterComboDto(**_cluster_kwargs(networkType="TIGERA", cidr=None))
+    with pytest.raises(ValidationError, match="requires nodeNetmaskSize"):
+        CreateClusterComboDto(**_cluster_kwargs(networkType="CILIUM_NATIVE_ROUTING", cidr=None))
+    ok = CreateClusterComboDto(
+        **_cluster_kwargs(networkType="CILIUM_NATIVE_ROUTING", cidr=None, nodeNetmaskSize=25)
+    )
+    assert ok.nodeNetmaskSize == 25
+
+
+def test_create_cluster_node_netmask_size_bounds():
+    """nodeNetmaskSize is 24-26 per the API schema."""
+    for size in (24, 25, 26):
+        assert (
+            CreateClusterComboDto(
+                **_cluster_kwargs(
+                    networkType="CILIUM_NATIVE_ROUTING", cidr=None, nodeNetmaskSize=size
+                )
+            ).nodeNetmaskSize
+            == size
+        )
+    for bad in (23, 27):
+        with pytest.raises(ValidationError):
+            CreateClusterComboDto(
+                **_cluster_kwargs(
+                    networkType="CILIUM_NATIVE_ROUTING", cidr=None, nodeNetmaskSize=bad
+                )
+            )
+
+
+def test_update_cluster_whitelist_cidrs_max_items():
+    """whitelistNodeCIDRs is capped at 30 entries by the API."""
+    assert len(UpdateClusterDto(whitelistNodeCIDRs=["10.0.0.0/24"] * 30).whitelistNodeCIDRs) == 30
+    with pytest.raises(ValidationError):
+        UpdateClusterDto(whitelistNodeCIDRs=["10.0.0.0/24"] * 31)
+
+
+def test_nodegroup_list_field_caps():
+    """securityGroups (50), secondarySubnets (10), taints (50), labels/tags (50)."""
+    base = {
+        "name": "ng-demo",
+        "flavorId": "flav-1",
+        "diskType": "vtype-1",
+        "sshKeyId": "key-1",
+        "diskSize": 100,
+        "numNodes": 1,
+        "subnetId": "sub-1",
+    }
+    with pytest.raises(ValidationError):
+        NodeGroupSpec(**base, securityGroups=[f"secg-{i}" for i in range(51)])
+    with pytest.raises(ValidationError):
+        NodeGroupSpec(**base, secondarySubnets=[f"10.5.{i}.0/24" for i in range(11)])
+    with pytest.raises(ValidationError):
+        NodeGroupSpec(**base, labels={f"k{i}": "v" for i in range(51)})
+    with pytest.raises(ValidationError):
+        UpdateNodeGroupMetadataDto(tags={f"k{i}": "v" for i in range(51)})

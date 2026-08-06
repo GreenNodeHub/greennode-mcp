@@ -101,8 +101,9 @@ def _create_cluster_guidance() -> str:
    f. `list_vpcs` → user chọn → `vpcId`. Nếu azStrategy=`MULTI`: CHỈ trình các VPC
       có `enabled_dns=true` (MULTI bắt buộc VPC đã bật vDNS); không có VPC nào đạt
       → dừng, hướng dẫn bật vDNS cho VPC ở console trước.
-   g. `list_subnets vpc_id=<vpcId>` → SINGLE: chọn 1 → `subnetId`;
-      MULTI: chọn nhiều → `listSubnetIds`.
+   g. `list_subnets vpc_id=<vpcId>` → luôn dùng `listSubnetIds`: SINGLE chọn 1
+      (list 1 phần tử), MULTI chọn nhiều. Không dùng `subnetId` cho cluster —
+      field đó đã deprecated ở API và cluster body không nhận nữa.
    h. networkType: `CILIUM_OVERLAY` + `cidr: 10.96.0.0/16` (mặc định — đổi cidr
       nếu trùng dải mạng hiện có); `TIGERA` cũng cần `cidr`;
       `CILIUM_NATIVE_ROUTING` → hỏi `nodeNetmaskSize` (KHÔNG hỏi

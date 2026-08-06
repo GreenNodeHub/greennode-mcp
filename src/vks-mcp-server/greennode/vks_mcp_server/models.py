@@ -492,7 +492,11 @@ class SubnetItem(BaseModel):
     """An ACTIVE subnet of a VPC — minimal projection for the user to choose from."""
 
     id: str = Field(
-        ..., description="Subnet ID — use as `subnetId` in create_cluster / create_nodegroup"
+        ...,
+        description=(
+            "Subnet ID — use in `listSubnetIds` for create_cluster and as `subnetId` "
+            "for create_nodegroup"
+        ),
     )
     name: str = Field("", description="Subnet name — show this to the user")
     zone: Optional[ZoneRef] = Field(
@@ -881,11 +885,17 @@ class NodeGroupSpec(BaseModel):
             "letter/digit at both ends"
         ),
     )
-    flavorId: str = Field(..., description="Flavor ID (from list_flavors)")
+    flavorId: str = Field(
+        ..., min_length=1, max_length=50, description="Flavor ID (from list_flavors)"
+    )
     diskSize: int = Field(..., ge=20, le=5000, description="Disk size in GB (20-5000)")
-    diskType: str = Field(..., description="Volume type ID (from list_volume_types)")
+    diskType: str = Field(
+        ..., min_length=1, max_length=50, description="Volume type ID (from list_volume_types)"
+    )
     numNodes: int = Field(..., ge=0, le=10, description="Number of nodes (0-10)")
-    sshKeyId: str = Field(..., description="SSH key ID (from list_ssh_keys)")
+    sshKeyId: str = Field(
+        ..., min_length=1, max_length=50, description="SSH key ID (from list_ssh_keys)"
+    )
     os: Literal["ubuntu", "linux", "rocky"] = Field("ubuntu", description="Node OS image type")
     enablePrivateNodes: bool = Field(
         False, description="false (default) = nodes get PUBLIC IPs; true = private-only nodes"
@@ -894,27 +904,37 @@ class NodeGroupSpec(BaseModel):
         False, description="false (default) = node disks are NOT encrypted; true = encrypt them"
     )
     securityGroups: list[str] = Field(
-        default_factory=list, description="Security group IDs (from list_security_groups)"
+        default_factory=list,
+        max_length=50,
+        description="Security group IDs, max 50 (from list_security_groups)",
     )
     upgradeConfig: UpgradeConfig = Field(
         default_factory=UpgradeConfig, description="Upgrade config (SURGE 1/0 by default)"
     )
     subnetId: str = Field(
-        ..., description="Subnet ID the nodes join (from list_subnets; the user's choice)"
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Subnet ID the nodes join (from list_subnets; the user's choice)",
     )
     secondarySubnets: Optional[list[str]] = Field(
         None,
+        max_length=10,
         description=(
-            "CILIUM_NATIVE_ROUTING clusters ONLY — there it is required: the "
+            "CILIUM_NATIVE_ROUTING clusters ONLY — there it is required (max 10): the "
             "`secondary_subnets` CIDRs of the chosen subnetId, copied verbatim from "
             "that subnet's list_subnets entry (e.g. ['10.5.60.0/22'], non-empty — "
             "the subnet must HAVE secondary subnets; CIDR strings, NOT sec-sub "
             "ids). Omit for any other networkType"
         ),
     )
-    labels: Optional[dict[str, str]] = Field(None, description="Node labels")
-    taints: Optional[list[NodeGroupTaint]] = Field(None, description="Node taints")
-    tags: Optional[dict[str, str]] = Field(None, description="Node tags")
+    labels: Optional[dict[str, str]] = Field(
+        None, max_length=50, description="Node labels, max 50"
+    )
+    taints: Optional[list[NodeGroupTaint]] = Field(
+        None, max_length=50, description="Node taints, max 50"
+    )
+    tags: Optional[dict[str, str]] = Field(None, max_length=50, description="Node tags, max 50")
     autoScaleConfig: Optional[AutoScaleConfig] = Field(None, description="Autoscaling bounds")
     placementGroupConfigDto: Optional[PlacementGroupConfig] = Field(
         None, description="Placement-group configuration"
@@ -990,18 +1010,48 @@ class CreateClusterComboDto(BaseModel):
             "'-_.@' (NO accented/Unicode characters), max 255 chars"
         ),
     )
-    subnetId: Optional[str] = Field(None, description="Subnet ID (from list_subnets)")
     cidr: Optional[str] = Field(
         None, description="Required when networkType is CILIUM_OVERLAY or TIGERA"
     )
-    listSubnetIds: Optional[list[str]] = Field(None, description="Subnet IDs for the cluster")
-    nodeNetmaskSize: Optional[int] = Field(None, description="Node netmask size")
+    listSubnetIds: list[str] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Subnet IDs for the cluster (from list_subnets). One ID with "
+            "azStrategy=SINGLE, several with azStrategy=MULTI. The deprecated "
+            "single-subnet `subnetId` field is not sent."
+        ),
+    )
+    nodeNetmaskSize: Optional[int] = Field(
+        None,
+        ge=24,
+        le=26,
+        description="Node netmask size: 24, 25 or 26 (required for CILIUM_NATIVE_ROUTING)",
+    )
     autoUpgradeConfig: Optional[AutoUpgradeConfig] = Field(
         None, description="Auto-upgrade schedule"
     )
     autoHealingConfig: Optional[AutoHealingConfig] = Field(
         None, description="Auto-healing configuration"
     )
+
+    @model_validator(mode="after")
+    def _check_network_and_subnets(self) -> CreateClusterComboDto:
+        # The API documents listSubnetIds as "a single-element list for SINGLE",
+        # and SINGLE is the default — several subnets there is a guaranteed reject.
+        if self.azStrategy == "SINGLE" and len(self.listSubnetIds) > 1:
+            raise ValueError(
+                f"azStrategy=SINGLE takes exactly one listSubnetIds value, got "
+                f"{len(self.listSubnetIds)}; use azStrategy=MULTI for a multi-subnet cluster"
+            )
+        # Same network-type rules the CLI enforces before sending the request.
+        if self.networkType in ("CILIUM_OVERLAY", "TIGERA") and not self.cidr:
+            raise ValueError(f"networkType={self.networkType} requires cidr")
+        if self.networkType == "CILIUM_NATIVE_ROUTING" and self.nodeNetmaskSize is None:
+            raise ValueError(
+                "networkType=CILIUM_NATIVE_ROUTING requires nodeNetmaskSize (24, 25 or 26)"
+            )
+        return self
 
 
 class UpdateClusterDto(BaseModel):
@@ -1020,7 +1070,7 @@ class UpdateClusterDto(BaseModel):
         None, description="Target Kubernetes version (from list_cluster_versions); omit to keep"
     )
     whitelistNodeCIDRs: Optional[list[str]] = Field(
-        None, description="Whitelist node CIDRs; omit to leave unchanged"
+        None, max_length=30, description="Whitelist node CIDRs (max 30); omit to leave unchanged"
     )
     enabledLoadBalancerPlugin: Optional[bool] = Field(
         None, description="Toggle the load-balancer plugin; omit to leave unchanged"
@@ -1083,6 +1133,12 @@ class UpdateNodeGroupMetadataDto(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    labels: Optional[dict[str, str]] = Field(None, description="Node labels (key=value)")
-    tags: Optional[dict[str, str]] = Field(None, description="Node tags (key=value)")
-    taints: Optional[list[NodeGroupTaint]] = Field(None, description="Node taints")
+    labels: Optional[dict[str, str]] = Field(
+        None, max_length=50, description="Node labels (key=value), max 50"
+    )
+    tags: Optional[dict[str, str]] = Field(
+        None, max_length=50, description="Node tags (key=value), max 50"
+    )
+    taints: Optional[list[NodeGroupTaint]] = Field(
+        None, max_length=50, description="Node taints, max 50"
+    )
