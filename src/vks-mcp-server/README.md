@@ -138,7 +138,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `delete_nodegroup_dryrun` | read | Preview a node-group deletion |
 | `validate_nodegroup_create` | read | Validate a create body before creating (name rules + subnet-in-VPC + secondarySubnets-by-networkType + flavor/diskType-in-zone + key/secgroup existence) |
 | `create_nodegroup` | **write** | Create a node group (full CLI parity: os, labels/taints/tags, autoscale, placement, encryption, private subnet) |
-| `update_nodegroup` | **write** | Update numNodes / securityGroups / autoScaleConfig / upgradeConfig |
+| `update_nodegroup` | **write** | Update numNodes / securityGroups / autoScaleConfig (or `disable_auto_scale` to delete it) / upgradeConfig |
 | `update_nodegroup_metadata` | **write** | Update labels, tags, taints (`PATCH .../metadata`) |
 | `delete_nodegroup` | **write** | Delete a node group (IRREVERSIBLE; dry-run first; `force_delete` required — true = skip draining the nodes, a user decision) |
 | `upgrade_nodegroup_version` | **write** | Upgrade a node group's Kubernetes version |
