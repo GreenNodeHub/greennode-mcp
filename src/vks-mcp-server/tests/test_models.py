@@ -442,6 +442,24 @@ def test_auto_scale_config_bounds():
         AutoScaleConfig(minSize=0, maxSize=0)
 
 
+def test_auto_scale_config_rejects_inverted_range():
+    """minSize above maxSize is a guaranteed server error; reject it locally."""
+    assert AutoScaleConfig(minSize=3, maxSize=3).minSize == 3
+    with pytest.raises(ValidationError, match="must not exceed maxSize"):
+        AutoScaleConfig(minSize=5, maxSize=2)
+
+
+def test_update_nodegroup_dto_never_serializes_the_disable_sentinel():
+    """disable_auto_scale is a local flag: it must not appear in any dump."""
+    dto = UpdateNodeGroupDto(numNodes=3, disable_auto_scale=True)
+    assert dto.disable_auto_scale is True
+    assert "disable_auto_scale" not in dto.model_dump()
+    assert "disable_auto_scale" not in dto.model_dump(exclude_none=True)
+    assert "disable_auto_scale" not in dto.model_dump_json()
+    # Still advertised to MCP clients so the tool schema can offer it.
+    assert "disable_auto_scale" in UpdateNodeGroupDto.model_json_schema()["properties"]
+
+
 def test_placement_group_config_type_enum():
     """PlacementGroupConfig type must be NEW or EXISTING."""
     with pytest.raises(ValidationError):

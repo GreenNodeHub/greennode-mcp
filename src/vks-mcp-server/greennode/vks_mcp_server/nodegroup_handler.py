@@ -404,6 +404,9 @@ class NodeGroupHandler:
 
         ## Workflow
         - Labels, tags, and taints are updated separately via update_nodegroup_metadata.
+        - Autoscaling has three states: omit autoScaleConfig to keep the current config,
+          pass an object to set it, or disable_auto_scale=true to delete it. The two are
+          mutually exclusive.
         """
         validate_id(cluster_id, "cluster_id")
         validate_id(nodegroup_id, "nodegroup_id")
@@ -412,8 +415,8 @@ class NodeGroupHandler:
                 "autoScaleConfig and disable_auto_scale are mutually exclusive: pass an "
                 "object to set autoscaling, or disable_auto_scale=true to disable it."
             )
+        # disable_auto_scale is declared exclude=True, so it is never in the dump.
         payload = body.model_dump(exclude_none=True)
-        payload.pop("disable_auto_scale", None)  # internal flag, never sent on the wire
         if body.disable_auto_scale:
             payload["autoScaleConfig"] = None  # explicit null → backend deletes the config
         if not payload:
