@@ -148,7 +148,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | Tool | Feeds | Cache TTL |
 |------|-------|-----------|
 | `list_vpcs` | `vpcId` + `enabled_dns` (azStrategy=MULTI needs a vDNS-enabled VPC; ACTIVE only) | 2 min |
-| `list_subnets` | `subnetId` / `listSubnetIds` + each subnet's availability zone and `secondary_subnets` CIDRs (→ the node group's `secondarySubnets` in CILIUM_NATIVE_ROUTING clusters, copied verbatim; ACTIVE only) | 2 min |
+| `list_subnets` | `listSubnetIds` (create_cluster) / `subnetId` (create_nodegroup) + each subnet's availability zone and `secondary_subnets` CIDRs (→ the node group's `secondarySubnets` in CILIUM_NATIVE_ROUTING clusters, copied verbatim; ACTIVE only) | 2 min |
 | `list_flavors` | `flavorId` (tagged by deployment-need group; sold-out excluded) | 30 min |
 | `list_ssh_keys` | `sshKeyId` | 30 s |
 | `list_security_groups` | `securityGroups` (ACTIVE only) | 2 min |

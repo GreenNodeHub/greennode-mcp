@@ -353,6 +353,8 @@ async def test_cluster_create_accepts_dto(handler_write, respx_mock):
         version="v1.29.0",
         networkType="CILIUM_NATIVE_ROUTING",
         vpcId="net-1",
+        listSubnetIds=["sub-1"],
+        nodeNetmaskSize=25,
         enablePrivateCluster=False,
     )
     result = await handler_write.create_cluster(body=dto, region=None)
@@ -395,6 +397,7 @@ async def test_cluster_create_validate_accepts_dto(handler_write):
         version="1.28",
         networkType="CILIUM_OVERLAY",
         vpcId="vpc-001",
+        listSubnetIds=["sub-1"],
         enablePrivateCluster=False,
         cidr="10.96.0.0/16",
     )
