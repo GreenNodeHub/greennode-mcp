@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Any, Dict, List, Literal, Optional
 
 
@@ -835,12 +835,22 @@ class NodeGroupTaint(BaseModel):
 
 
 class AutoScaleConfig(BaseModel):
-    """Node-group autoscaling bounds."""
+    """Node-group autoscaling bounds.
+
+    Both fields are required by the API whenever autoscaling is supplied, and an
+    inverted range is rejected here rather than round-tripping to a server error.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     minSize: int = Field(..., ge=0, description="Minimum number of nodes")
     maxSize: int = Field(..., ge=1, description="Maximum number of nodes")
+
+    @model_validator(mode="after")
+    def _check_range(self) -> AutoScaleConfig:
+        if self.minSize > self.maxSize:
+            raise ValueError(f"minSize ({self.minSize}) must not exceed maxSize ({self.maxSize})")
+        return self
 
 
 class PlacementGroupConfig(BaseModel):
@@ -1033,13 +1043,33 @@ class UpdateNodeGroupDto(BaseModel):
     Scoped to what the greennode-cli ``update-nodegroup`` command sends. Labels,
     tags, and taints are updated separately via ``update_nodegroup_metadata``
     (see UpdateNodeGroupMetadataDto). Unknown fields are rejected (``extra="forbid"``).
+
+    Every camelCase field maps 1:1 to the API body. ``disable_auto_scale`` is
+    snake_case on purpose: it is a local sentinel, not an API field, and carries
+    ``exclude=True`` so it can never reach the wire through ``model_dump()``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    numNodes: Optional[int] = Field(None, ge=0, le=10, description="Number of nodes (0-10)")
+    numNodes: Optional[int] = Field(
+        None,
+        ge=0,
+        le=10,
+        description=(
+            "Number of nodes (0-10). The API's own ceiling is the workspace quota; "
+            "10 mirrors the greennode-cli/portal limit."
+        ),
+    )
     securityGroups: Optional[list[str]] = Field(None, description="Security group IDs")
     autoScaleConfig: Optional[AutoScaleConfig] = Field(None, description="Autoscaling bounds")
+    disable_auto_scale: bool = Field(
+        False,
+        exclude=True,  # local sentinel: never serialized into the request body
+        description=(
+            "Disable autoscaling — sends autoScaleConfig: null, deleting the current "
+            "config. Mutually exclusive with autoScaleConfig."
+        ),
+    )
     upgradeConfig: Optional[UpgradeConfig] = Field(None, description="Upgrade config")
 
 

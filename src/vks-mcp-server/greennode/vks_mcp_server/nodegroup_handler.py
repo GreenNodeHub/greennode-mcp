@@ -390,7 +390,8 @@ class NodeGroupHandler:
             ...,
             description=(
                 "Update body. No fields required. Optional: numNodes (0-10), securityGroups, "
-                "autoScaleConfig, upgradeConfig. To change labels/tags/taints use "
+                "autoScaleConfig (object to set, or disable_auto_scale=true to delete it), "
+                "disable_auto_scale, upgradeConfig. To change labels/tags/taints use "
                 "update_nodegroup_metadata."
             ),
         ),
@@ -403,15 +404,26 @@ class NodeGroupHandler:
 
         ## Workflow
         - Labels, tags, and taints are updated separately via update_nodegroup_metadata.
+        - Autoscaling has three states: omit autoScaleConfig to keep the current config,
+          pass an object to set it, or disable_auto_scale=true to delete it. The two are
+          mutually exclusive.
         """
         validate_id(cluster_id, "cluster_id")
         validate_id(nodegroup_id, "nodegroup_id")
+        if body.disable_auto_scale and body.autoScaleConfig is not None:
+            return (
+                "autoScaleConfig and disable_auto_scale are mutually exclusive: pass an "
+                "object to set autoscaling, or disable_auto_scale=true to disable it."
+            )
+        # disable_auto_scale is declared exclude=True, so it is never in the dump.
         payload = body.model_dump(exclude_none=True)
+        if body.disable_auto_scale:
+            payload["autoScaleConfig"] = None  # explicit null → backend deletes the config
         if not payload:
             return (
                 "Nothing to update: provide at least one of numNodes, securityGroups, "
-                "autoScaleConfig, or upgradeConfig (use update_nodegroup_metadata for "
-                "labels/tags/taints)."
+                "autoScaleConfig, disable_auto_scale, or upgradeConfig (use "
+                "update_nodegroup_metadata for labels/tags/taints)."
             )
         result = await self.client.put(
             f"/v1/clusters/{cluster_id}/node-groups/{nodegroup_id}",
