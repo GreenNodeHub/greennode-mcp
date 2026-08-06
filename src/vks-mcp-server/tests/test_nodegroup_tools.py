@@ -24,7 +24,7 @@ from greennode.vks_mcp_server.nodegroup_handler import (
     _nodegroup_delete_dryrun,
     _nodegroup_list,
 )
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 VKS_BASE = "https://vks.api.vngcloud.vn"
@@ -227,7 +227,7 @@ async def test_nodegroup_delete_dryrun_includes_node_count(config, client):
 async def test_nodegroup_upgrade_version(config, client):
     """upgrade_nodegroup_version POSTs the target version and reports success."""
     _mock_iam(respx.mock)
-    handler = NodeGroupHandler(FastMCP("test"), config, client, allow_write=True)
+    handler = NodeGroupHandler(MCPServer("test"), config, client, allow_write=True)
     cluster_id = "cid-1"
     nodegroup_id = "ng-1"
     route = respx.post(
@@ -248,7 +248,7 @@ async def test_nodegroup_upgrade_version(config, client):
 @pytest.fixture
 def handler(config, client):
     """Return a NodeGroupHandler wired to test config and client."""
-    return NodeGroupHandler(FastMCP("test"), config, client)
+    return NodeGroupHandler(MCPServer("test"), config, client)
 
 
 @respx.mock
@@ -351,7 +351,7 @@ async def test_nodegroup_get_structured(handler):
 @pytest.fixture
 def handler_write(config, client):
     """Return a NodeGroupHandler with allow_write=True."""
-    return NodeGroupHandler(FastMCP("test-write"), config, client, allow_write=True)
+    return NodeGroupHandler(MCPServer("test-write"), config, client, allow_write=True)
 
 
 @respx.mock
@@ -831,7 +831,7 @@ def _mock_validation_chain(respx_mock):
 def validate_handler(config, client):
     from greennode.vks_mcp_server.discovery_cache import DiscoveryCache
 
-    return NodeGroupHandler(FastMCP("t-val"), config, client, cache=DiscoveryCache())
+    return NodeGroupHandler(MCPServer("t-val"), config, client, cache=DiscoveryCache())
 
 
 @respx.mock

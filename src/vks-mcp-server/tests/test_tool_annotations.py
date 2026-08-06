@@ -21,7 +21,7 @@ from greennode.vks_mcp_server.k8s_handler import K8sHandler
 from greennode.vks_mcp_server.nodegroup_handler import NodeGroupHandler
 from greennode.vks_mcp_server.prompts_handler import PromptsHandler
 from greennode.vks_mcp_server.version_handler import VersionHandler
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 READ_ONLY_PREFIXES = ("list_", "get_", "validate_", "generate_")
@@ -52,11 +52,11 @@ def _is_destructive(name: str) -> bool:
 
 @pytest.fixture
 def all_tools_mcp(sample_config):
-    """One FastMCP with every handler registered, write tools included."""
+    """One MCPServer with every handler registered, write tools included."""
     config = load_config(sample_config)
     client = VksClient(config, TokenManager(config))
     cache = DiscoveryCache()
-    mcp = FastMCP("test-annotations")
+    mcp = MCPServer("test-annotations")
     AuthHandler(mcp, config, client._token_manager)
     ClusterHandler(mcp, config, client, allow_write=True)
     NodeGroupHandler(mcp, config, client, allow_write=True)
@@ -72,7 +72,7 @@ async def test_every_tool_declares_annotations(all_tools_mcp):
     missing = [
         t.name
         for t in await all_tools_mcp.list_tools()
-        if t.annotations is None or t.annotations.readOnlyHint is None
+        if t.annotations is None or t.annotations.read_only_hint is None
     ]
     assert not missing, f"tools without annotations/readOnlyHint: {missing}"
 
@@ -83,7 +83,7 @@ async def test_read_tools_marked_read_only(all_tools_mcp):
         t.name
         for t in await all_tools_mcp.list_tools()
         if _is_read_only(t.name)
-        and (t.annotations is None or t.annotations.readOnlyHint is not True)
+        and (t.annotations is None or t.annotations.read_only_hint is not True)
     ]
     assert not wrong, f"read tools not marked readOnlyHint=True: {wrong}"
 
@@ -95,10 +95,10 @@ async def test_write_tools_marked_writable_with_destructive_hint(all_tools_mcp):
         if _is_read_only(t.name):
             continue
         a = t.annotations
-        if a is None or a.readOnlyHint is not False or a.destructiveHint is None:
+        if a is None or a.read_only_hint is not False or a.destructive_hint is None:
             wrong.append(t.name)
             continue
-        if a.destructiveHint is not _is_destructive(t.name):
+        if a.destructive_hint is not _is_destructive(t.name):
             wrong.append(t.name)
     assert not wrong, f"write tools with wrong readOnly/destructive hints: {wrong}"
 
@@ -117,7 +117,7 @@ async def test_cluster_read_tools_teach_the_creation_chains(all_tools_mcp):
     list_desc = tools["list_clusters"].description
     # list_clusters resolves a cluster name to its id; no paging params exposed
     assert "get_cluster" in list_desc
-    props = tools["list_clusters"].inputSchema["properties"]
+    props = tools["list_clusters"].input_schema["properties"]
     assert "page" not in props and "pageSize" not in props
 
 
@@ -189,7 +189,7 @@ async def test_zone_scoped_tools_take_cluster_and_subnet(all_tools_mcp):
     the agent already holds — no zone/region juggling across calls."""
     tools = {t.name: t for t in await all_tools_mcp.list_tools()}
     for name in ("list_flavors", "list_volume_types"):
-        schema = tools[name].inputSchema
+        schema = tools[name].input_schema
         props = schema["properties"]
         required = schema.get("required", [])
         assert "cluster_id" in props and "subnet_id" in props, name
@@ -222,19 +222,20 @@ async def test_get_creation_guide_serves_the_choreography(all_tools_mcp):
     (Cloudflare-style guidance-as-a-tool), reusing the prompt text verbatim."""
     tools = {t.name: t for t in await all_tools_mcp.list_tools()}
     guide = tools["get_creation_guide"]
-    assert guide.annotations.readOnlyHint is True
+    assert guide.annotations.read_only_hint is True
     # description teaches WHEN to call it: first, before any create flow
     assert "FIRST" in guide.description or "first" in guide.description
 
     ng = await all_tools_mcp.call_tool("get_creation_guide", {"resource": "nodegroup"})
-    text = ng[0][0].text
+    # mcp 2.x returns a CallToolResult instead of a (content, meta) tuple
+    text = ng.content[0].text
     for anchor in ("numNodes", "enablePrivateNodes", "list_subnets", "list_flavors", "HARD GATE"):
         assert anchor in text, f"{anchor} missing from nodegroup guide"
     assert "MỘT cấu hình" in text  # one-setting-per-question rule travels with the guide
     assert "cùng tin nhắn" in text  # full plan in the same message as the confirm question
 
     cl = await all_tools_mcp.call_tool("get_creation_guide", {"resource": "cluster"})
-    ctext = cl[0][0].text
+    ctext = cl.content[0].text
     for anchor in ("azStrategy", "listSubnetIds", "nodeNetmaskSize", "validate_cluster_create"):
         assert anchor in ctext, f"{anchor} missing from cluster guide"
 

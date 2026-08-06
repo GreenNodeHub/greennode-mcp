@@ -22,7 +22,7 @@ from greennode.vks_mcp_server.models import (
     CreateClusterComboDto,
     UpdateClusterDto,
 )
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import ValidationError
 
 
@@ -52,7 +52,7 @@ def client(config):
 
 @pytest.fixture
 def handler(config, client):
-    return ClusterHandler(FastMCP("test"), config, client)
+    return ClusterHandler(MCPServer("test"), config, client)
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ def test_cluster_create_validate_tigera_needs_cidr():
 async def test_cluster_auto_healing_config(config, client):
     """configure_auto_healing PATCHes only provided fields and reports success."""
     _mock_iam(respx.mock)
-    handler = ClusterHandler(FastMCP("test"), config, client, allow_write=True)
+    handler = ClusterHandler(MCPServer("test"), config, client, allow_write=True)
     cluster_id = "cid-1"
     route = respx.patch(f"{VKS_BASE}/v1/clusters/{cluster_id}/auto-healing-config").mock(
         return_value=httpx.Response(200, json={"enableAutoHealing": True})
@@ -328,7 +328,7 @@ async def test_cluster_get_structured(client):
 @pytest.fixture
 def handler_write(config, client):
     """Return a ClusterHandler with allow_write=True."""
-    return ClusterHandler(FastMCP("test-write"), config, client, allow_write=True)
+    return ClusterHandler(MCPServer("test-write"), config, client, allow_write=True)
 
 
 @respx.mock
@@ -460,10 +460,10 @@ def test_update_cluster_dto_all_fields_optional():
 async def test_update_cluster_rejects_empty_body(config, client, respx_mock):
     """An empty partial-update body is a no-op — reject it without calling the API."""
     from greennode.vks_mcp_server.models import UpdateClusterDto
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.mcpserver import MCPServer
 
     _mock_iam(respx_mock)
-    handler = ClusterHandler(FastMCP("t"), config, client, allow_write=True)
+    handler = ClusterHandler(MCPServer("t"), config, client, allow_write=True)
     route = respx_mock.put(f"{VKS_BASE}/v1/clusters/k8s-abc").mock(
         return_value=httpx.Response(202, json={})
     )
@@ -480,7 +480,7 @@ async def test_configure_auto_upgrade_handles_empty_202(config, client, respx_mo
     """The auto-upgrade endpoint answers 202 with an empty body — the tool must
     succeed with a clean message (no crash, no trailing 'None')."""
     _mock_iam(respx_mock)
-    handler = ClusterHandler(FastMCP("t"), config, client, allow_write=True)
+    handler = ClusterHandler(MCPServer("t"), config, client, allow_write=True)
     respx_mock.put(f"{VKS_BASE}/v1/clusters/k8s-abc/auto-upgrade-config").mock(
         return_value=httpx.Response(202)
     )
@@ -528,7 +528,7 @@ def test_extract_kubeconfig_cluster_not_ready():
 async def test_get_cluster_kubeconfig_returns_yaml_not_envelope(config, client, respx_mock):
     """The tool must hand back kubectl-ready YAML, not the JSON envelope."""
     _mock_iam(respx_mock)
-    handler = ClusterHandler(FastMCP("t"), config, client, allow_sensitive_data_access=True)
+    handler = ClusterHandler(MCPServer("t"), config, client, allow_sensitive_data_access=True)
     respx_mock.get(f"{VKS_BASE}/v1/clusters/k8s-abc/kubeconfig").mock(
         return_value=httpx.Response(200, json={"kubeConfig": _KC_YAML, "status": "ACTIVE"})
     )
@@ -542,7 +542,7 @@ async def test_get_cluster_kubeconfig_returns_yaml_not_envelope(config, client, 
 async def test_generate_kubeconfig_posts_expiration(config, client, respx_mock):
     """generate_kubeconfig requests async generation (POST {expirationDays})."""
     _mock_iam(respx_mock)
-    handler = ClusterHandler(FastMCP("t"), config, client, allow_write=True)
+    handler = ClusterHandler(MCPServer("t"), config, client, allow_write=True)
     route = respx_mock.post(f"{VKS_BASE}/v1/clusters/k8s-abc/kubeconfig").mock(
         return_value=httpx.Response(202)
     )
@@ -558,7 +558,7 @@ async def test_generate_kubeconfig_posts_expiration(config, client, respx_mock):
 @pytest.mark.asyncio
 async def test_generate_kubeconfig_is_write_gated(config, client):
     """A read-only handler must not register the tool (it mints credentials)."""
-    handler = ClusterHandler(FastMCP("t-ro"), config, client, allow_write=False)
+    handler = ClusterHandler(MCPServer("t-ro"), config, client, allow_write=False)
     names = {t.name for t in await handler.mcp.list_tools()}
     assert "generate_kubeconfig" not in names
 
@@ -585,9 +585,9 @@ def test_extract_kubeconfig_not_generated_teaches_generate():
 async def test_generate_kubeconfig_expiration_is_required(config, client):
     """expiration_days has NO schema default: a credential lifetime is a user
     decision, and a default is an escape hatch agents will silently take."""
-    handler = ClusterHandler(FastMCP("t-schema"), config, client, allow_write=True)
+    handler = ClusterHandler(MCPServer("t-schema"), config, client, allow_write=True)
     tool = next(t for t in await handler.mcp.list_tools() if t.name == "generate_kubeconfig")
-    schema = tool.inputSchema
+    schema = tool.input_schema
     prop = schema["properties"]["expiration_days"]
     assert "expiration_days" in schema.get("required", [])
     assert "default" not in prop
@@ -631,7 +631,7 @@ async def test_cluster_delete_dryrun_lists_all_node_groups(client):
 async def test_get_cluster_kubeconfig_denied_without_sensitive_flag(config, client):
     """The kubeconfig carries a cluster-admin cert + private key — same gate as
     Secrets/logs: no --allow-sensitive-data-access, no kubeconfig."""
-    handler = ClusterHandler(FastMCP("t"), config, client)  # default: no sensitive access
+    handler = ClusterHandler(MCPServer("t"), config, client)  # default: no sensitive access
     with pytest.raises(RuntimeError, match="allow-sensitive-data-access"):
         await handler.get_cluster_kubeconfig(cluster_id="k8s-abc", region=None)
 
@@ -640,7 +640,7 @@ async def test_get_cluster_kubeconfig_denied_without_sensitive_flag(config, clie
 @pytest.mark.asyncio
 async def test_get_cluster_kubeconfig_allowed_with_sensitive_flag(config, client, respx_mock):
     _mock_iam(respx_mock)
-    handler = ClusterHandler(FastMCP("t"), config, client, allow_sensitive_data_access=True)
+    handler = ClusterHandler(MCPServer("t"), config, client, allow_sensitive_data_access=True)
     respx_mock.get(f"{VKS_BASE}/v1/clusters/k8s-abc/kubeconfig").mock(
         return_value=httpx.Response(200, json={"kubeConfig": _KC_YAML, "status": "ACTIVE"})
     )
@@ -654,7 +654,7 @@ async def test_delete_auto_upgrade_handles_empty_202(config, client, respx_mock)
     """DELETE .../auto-upgrade-config also answers 202 with an empty body
     (bug report F-02) — the tool must report success, not a JSON parse error."""
     _mock_iam(respx_mock)
-    handler = ClusterHandler(FastMCP("t"), config, client, allow_write=True)
+    handler = ClusterHandler(MCPServer("t"), config, client, allow_write=True)
     respx_mock.delete(f"{VKS_BASE}/v1/clusters/k8s-abc/auto-upgrade-config").mock(
         return_value=httpx.Response(202)
     )

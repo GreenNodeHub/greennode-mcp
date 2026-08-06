@@ -10,7 +10,7 @@ from greennode.{{product_snake}}_mcp_server.client import {{Product}}Client
 from greennode.{{product_snake}}_mcp_server.config import load_config
 from greennode.{{product_snake}}_mcp_server.example_handler import ExampleHandler, ExampleListData
 from greennode.{{product_snake}}_mcp_server.server import create_server
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 IAM_URL = "https://iamapis.vngcloud.vn/accounts-api/v1/auth/token"
@@ -35,7 +35,7 @@ def client(config):
 
 @pytest.fixture
 def handler(config, client):
-    return ExampleHandler(FastMCP("test"), config, client)
+    return ExampleHandler(MCPServer("test"), config, client)
 
 
 def test_create_server():

@@ -8,7 +8,7 @@ from greennode.vks_mcp_server.auth import TokenManager
 from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.config import load_config
 from greennode.vks_mcp_server.k8s_handler import K8sHandler
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def handler_factory(sample_config):
     client = VksClient(config, TokenManager(config))
 
     def make(allow_write: bool) -> K8sHandler:
-        return K8sHandler(FastMCP("test"), config, client, allow_write=allow_write)
+        return K8sHandler(MCPServer("test"), config, client, allow_write=allow_write)
 
     return make
 
