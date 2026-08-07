@@ -731,6 +731,25 @@ def test_create_cluster_single_az_takes_one_subnet():
     assert multi.listSubnetIds == ["sub-a", "sub-b"]
 
 
+def test_create_cluster_multi_az_needs_two_subnets():
+    """MULTI spreads the control plane across zones, so one subnet is a single-zone
+    cluster wearing a MULTI label — reject it instead of letting the API decide."""
+    with pytest.raises(ValidationError, match="at least two listSubnetIds values"):
+        CreateClusterComboDto(**_cluster_kwargs(azStrategy="MULTI", listSubnetIds=["sub-a"]))
+
+
+def test_create_cluster_rejects_duplicate_subnets():
+    """A repeated id passes a count check while still being one zone."""
+    with pytest.raises(ValidationError, match="must not repeat a subnet"):
+        CreateClusterComboDto(
+            **_cluster_kwargs(azStrategy="MULTI", listSubnetIds=["sub-a", "sub-a"])
+        )
+    with pytest.raises(ValidationError, match="must not repeat a subnet"):
+        CreateClusterComboDto(
+            **_cluster_kwargs(azStrategy="MULTI", listSubnetIds=["sub-a", "sub-b", "sub-a"])
+        )
+
+
 def test_create_cluster_network_type_requirements():
     """CILIUM_OVERLAY/TIGERA need cidr; CILIUM_NATIVE_ROUTING needs nodeNetmaskSize.
     Enforced on the model so create_cluster fails before the request, not only in

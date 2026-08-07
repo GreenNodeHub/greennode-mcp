@@ -1017,9 +1017,10 @@ class CreateClusterComboDto(BaseModel):
         ...,
         min_length=1,
         description=(
-            "Subnet IDs for the cluster (from list_subnets). One ID with "
-            "azStrategy=SINGLE, several with azStrategy=MULTI. The deprecated "
-            "single-subnet `subnetId` field is not sent."
+            "Subnet IDs for the cluster (from list_subnets), no duplicates. Exactly "
+            "one ID with azStrategy=SINGLE; at least two — one per availability zone "
+            "— with azStrategy=MULTI. The deprecated single-subnet `subnetId` field "
+            "is not sent."
         ),
     )
     nodeNetmaskSize: Optional[int] = Field(
@@ -1044,6 +1045,18 @@ class CreateClusterComboDto(BaseModel):
                 f"azStrategy=SINGLE takes exactly one listSubnetIds value, got "
                 f"{len(self.listSubnetIds)}; use azStrategy=MULTI for a multi-subnet cluster"
             )
+        # MULTI spreads the control plane across availability zones, which needs a
+        # subnet per zone: one subnet is a single-zone cluster wearing a MULTI label.
+        if self.azStrategy == "MULTI" and len(self.listSubnetIds) < 2:
+            raise ValueError(
+                "azStrategy=MULTI needs at least two listSubnetIds values, one per "
+                "availability zone (list_subnets shows each subnet's zone); use "
+                "azStrategy=SINGLE for a single-subnet cluster"
+            )
+        # A repeated id passes the count check while still being one zone.
+        duplicates = {sid for sid in self.listSubnetIds if self.listSubnetIds.count(sid) > 1}
+        if duplicates:
+            raise ValueError(f"listSubnetIds must not repeat a subnet: {sorted(duplicates)}")
         # Same network-type rules the CLI enforces before sending the request.
         if self.networkType in ("CILIUM_OVERLAY", "TIGERA") and not self.cidr:
             raise ValueError(f"networkType={self.networkType} requires cidr")

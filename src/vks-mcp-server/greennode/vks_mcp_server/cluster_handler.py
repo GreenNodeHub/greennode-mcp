@@ -390,8 +390,9 @@ class ClusterHandler:
             ...,
             description=(
                 "CreateClusterComboDto body. Required: name, version, networkType, vpcId, "
-                "listSubnetIds (one ID with azStrategy=SINGLE, several with MULTI — the "
-                "deprecated single-subnet subnetId field is not accepted). "
+                "listSubnetIds (exactly one ID with azStrategy=SINGLE, at least two — one per "
+                "availability zone — with MULTI; no duplicates. The deprecated "
+                "single-subnet subnetId field is not accepted). "
                 "Creates the control plane only — add workers afterwards via create_nodegroup "
                 "(the deprecated nodeGroups array is not accepted). Optional: enablePrivateCluster, "
                 "releaseChannel, enabledLoadBalancerPlugin, enabledBlockStoreCsiPlugin, "
@@ -419,7 +420,8 @@ class ClusterHandler:
            question, confirm gate).
         2. Resolve ids via discovery, all in the target region: get_quota
            first -> list_vpcs (vpcId) -> list_cluster_versions (version) ->
-           list_subnets (listSubnetIds: one id for SINGLE, several for MULTI).
+           list_subnets (listSubnetIds: one id for SINGLE, >=2 ids in
+           different zones for MULTI).
         3. validate_cluster_create -> fix every reported error -> present the
            FULL body in the same message as the confirmation question ->
            create_cluster, then poll get_cluster until ACTIVE (~15-20 min)
