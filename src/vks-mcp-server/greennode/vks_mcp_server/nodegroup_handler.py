@@ -377,9 +377,21 @@ class NodeGroupHandler:
                 f"{exc}\nTip: call get_creation_guide(resource='nodegroup') for the "
                 "required flow and field rules, then rebuild the body."
             ) from exc
-        text = "Node group created successfully."
-        if result:
-            text += f"\n```json\n{json.dumps(result, indent=2, ensure_ascii=False)}\n```"
+        # The response can be an empty 202, so the name comes from the request body.
+        created = result if isinstance(result, dict) else {}
+        name = created.get("name") or body.name
+        nodegroup_id = created.get("id") or created.get("uid") or ""
+        text = f"Node group **{name}** created successfully."
+        if nodegroup_id:
+            text += f" ID: `{nodegroup_id}`"
+        if created:
+            text += f"\n```json\n{json.dumps(created, indent=2, ensure_ascii=False)}\n```"
+        else:
+            text += (
+                f"\nThe API accepted the request without returning the node group body. "
+                f'Use list_nodegroups(cluster_id="{cluster_id}") to follow **{name}** '
+                "until it is ACTIVE."
+            )
         return text
 
     async def update_nodegroup(

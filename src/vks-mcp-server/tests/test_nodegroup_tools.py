@@ -1017,3 +1017,49 @@ async def test_validate_nodegroup_accepts_ssd_disktype(validate_handler, respx_m
         cluster_id="k8s-abc", body=_valid_ng_body(diskType="vt-ssd-1")
     )
     assert result == "valid"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_create_nodegroup_names_the_node_group_on_an_empty_response(
+    handler_write, respx_mock
+):
+    """ "Node group created successfully." with no name and no id left the caller
+    with nothing to follow. The name is in the request body."""
+    _mock_iam(respx_mock)
+    respx_mock.post(f"{VKS_BASE}/v1/clusters/k8s-abc/node-groups").mock(
+        return_value=httpx.Response(202, json={})
+    )
+    body = CreateNodeGroupDto(
+        name="ng-default",
+        flavorId="flav-1",
+        diskType="vtype-1",
+        sshKeyId="key-1",
+        diskSize=100,
+        numNodes=1,
+        subnetId="sub-1",
+    )
+    result = await handler_write.create_nodegroup(cluster_id="k8s-abc", body=body, region=None)
+    assert "**ng-default**" in result
+    assert 'list_nodegroups(cluster_id="k8s-abc")' in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_create_nodegroup_reports_the_id_when_returned(handler_write, respx_mock):
+    _mock_iam(respx_mock)
+    respx_mock.post(f"{VKS_BASE}/v1/clusters/k8s-abc/node-groups").mock(
+        return_value=httpx.Response(202, json={"id": "ng-001", "name": "ng-default"})
+    )
+    body = CreateNodeGroupDto(
+        name="ng-default",
+        flavorId="flav-1",
+        diskType="vtype-1",
+        sshKeyId="key-1",
+        diskSize=100,
+        numNodes=1,
+        subnetId="sub-1",
+    )
+    result = await handler_write.create_nodegroup(cluster_id="k8s-abc", body=body, region=None)
+    assert "**ng-default**" in result
+    assert "ng-001" in result

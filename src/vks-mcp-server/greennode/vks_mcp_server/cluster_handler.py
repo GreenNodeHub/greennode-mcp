@@ -79,9 +79,25 @@ async def _cluster_create(
     region = arguments.get("region")
     params = {"poc": str(poc).lower(), "autoRenewal": str(auto_renewal).lower()}
     data = await client.post("/v1/clusters", region=region, params=params, json=body)
-    name = data.get("name", data.get("uid", ""))
-    text = f"Cluster **{name}** created successfully.\n" + format_cluster_detail(data)
-    return [types.TextContent(type="text", text=text)]
+    # The create response can come back empty (202 Accepted with no body), so the
+    # name is taken from the request we just sent rather than left blank, and the
+    # detail table is only rendered when there is something to render.
+    data = data if isinstance(data, dict) else {}
+    name = data.get("name") or body.get("name", "")
+    cluster_id = data.get("id") or data.get("uid") or ""
+    header = f"Cluster **{name}** created successfully."
+    if cluster_id:
+        header += f" ID: `{cluster_id}`"
+    detail = (
+        format_cluster_detail(data)
+        if data
+        else (
+            "The API accepted the request without returning the cluster body. "
+            f"Use list_clusters (or get_cluster once you have the id) to follow **{name}** "
+            "until it is ACTIVE."
+        )
+    )
+    return [types.TextContent(type="text", text=f"{header}\n{detail}")]
 
 
 async def _cluster_update(

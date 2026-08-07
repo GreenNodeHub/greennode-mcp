@@ -113,6 +113,12 @@ class ClusterDetail(BaseModel):
     poc: str = Field("", description="Whether this is a PoC cluster")
     auto_renewal: str = Field("", description="Auto renewal enabled")
     auto_upgrade_config: Optional[dict] = Field(None, description="Auto-upgrade configuration")
+    auto_healing_config: Optional[dict] = Field(None, description="Auto-healing configuration")
+    node_netmask_size: int | str = Field(
+        "", description="Node CIDR mask size (CILIUM_NATIVE_ROUTING)"
+    )
+    num_ready_nodes: int | str = Field("", description="Number of ready nodes")
+    num_not_ready_nodes: int | str = Field("", description="Number of not-ready nodes")
     fleet: str = Field("", description="Fleet info")
     location: str = Field("", description="Location")
     created_at: str = Field("", description="Creation timestamp")
@@ -148,6 +154,10 @@ class ClusterDetail(BaseModel):
             poc=str(c.get("poc", "")),
             auto_renewal=str(c.get("autoRenewal", "")),
             auto_upgrade_config=c.get("autoUpgradeConfig", None),
+            auto_healing_config=c.get("autoHealingConfig", None),
+            node_netmask_size=c.get("nodeNetmaskSize", ""),
+            num_ready_nodes=c.get("numReadyNodes", ""),
+            num_not_ready_nodes=c.get("numNotReadyNodes", ""),
             fleet=str(c.get("fleet", "")),
             location=str(c.get("location", "")),
             created_at=c.get("createdAt", ""),
@@ -163,6 +173,18 @@ class ClusterDetail(BaseModel):
             )
         else:
             auto_upgrade = "(not configured)"
+
+        if self.auto_healing_config:
+            ahc = self.auto_healing_config
+            bound = ahc.get("maxUnhealthy") or ahc.get("unhealthyRange") or ""
+            timeout = ahc.get("timeoutUnhealthy")
+            auto_healing = (
+                f"enabled={ahc.get('enableAutoHealing')}"
+                + (f", threshold={bound}" if bound else "")
+                + (f", timeout={timeout}m" if timeout is not None else "")
+            )
+        else:
+            auto_healing = "(not configured)"
 
         if self.fleet:
             fleet = f"{self.fleet.get('name', '')} ({self.fleet.get('id', '')})"
@@ -188,6 +210,8 @@ class ClusterDetail(BaseModel):
             ("List Subnet IDs", list_subnets),
             ("Secondary Subnets", secondary),
             ("Node count", str(self.num_nodes)),
+            ("Nodes ready / not ready", f"{self.num_ready_nodes} / {self.num_not_ready_nodes}"),
+            ("Node netmask size", str(self.node_netmask_size)),
             ("Private Cluster", self.enable_private_cluster),
             ("LB Plugin", self.enabled_lb_plugin),
             ("CSI Plugin", self.enabled_csi_plugin),
@@ -196,6 +220,7 @@ class ClusterDetail(BaseModel):
             ("PoC", self.poc),
             ("Auto Renewal", self.auto_renewal),
             ("Auto-Upgrade", auto_upgrade),
+            ("Auto-Healing", auto_healing),
             ("Fleet", fleet),
             ("Location", self.location),
             ("Created", _date(self.created_at)),
@@ -284,7 +309,10 @@ class NodeGroupDetail(BaseModel):
     upgrade_config: Optional[dict] = Field(None, description="Upgrade configuration")
     auto_scale_config: Optional[dict] = Field(None, description="Auto-scale configuration")
     labels: dict[str, str] = Field(default_factory=dict, description="Node labels")
+    tags: dict[str, str] = Field(default_factory=dict, description="Node tags")
     taints: list[dict] = Field(default_factory=list, description="Node taints")
+    image_os: str = Field("", description="Node OS image, e.g. ubuntu")
+    kubernetes_version: str = Field("", description="Kubernetes version of the node group")
     created_at: str = Field("", description="Creation timestamp")
     updated_at: str = Field("", description="Last update timestamp")
 
@@ -313,7 +341,10 @@ class NodeGroupDetail(BaseModel):
             upgrade_config=ng.get("upgradeConfig", None),
             auto_scale_config=ng.get("autoScaleConfig", ng.get("autoscale", None)),
             labels=ng.get("labels", {}),
+            tags=ng.get("tags", {}),
             taints=ng.get("taints", []),
+            image_os=str(ng.get("imageOS", "")),
+            kubernetes_version=str(ng.get("kubernetesVersion", "")),
             created_at=ng.get("createdAt", ""),
             updated_at=ng.get("updatedAt", ""),
         )
@@ -337,6 +368,7 @@ class NodeGroupDetail(BaseModel):
             autoscale = "not configured"
 
         labels = ", ".join(f"{k}={v}" for k, v in self.labels.items()) if self.labels else ""
+        tags = ", ".join(f"{k}={v}" for k, v in self.tags.items()) if self.tags else ""
         taints = (
             ", ".join(
                 f"{t.get('key', '')}={t.get('value', '')}:{t.get('effect', '')}"
@@ -353,6 +385,8 @@ class NodeGroupDetail(BaseModel):
             ("Name", self.name),
             ("Status", self.status),
             ("Node count", str(self.num_nodes)),
+            ("Kubernetes version", self.kubernetes_version),
+            ("OS", self.image_os),
             ("Image ID", self.image_id),
             ("Flavor ID", self.flavor_id),
             ("Disk", disk),
@@ -366,6 +400,7 @@ class NodeGroupDetail(BaseModel):
             ("Upgrade Config", upgrade),
             ("Auto-scale", autoscale),
             ("Labels", labels),
+            ("Tags", tags),
             ("Taints", taints),
             ("Created", _date(self.created_at)),
             ("Updated", _date(self.updated_at)),
