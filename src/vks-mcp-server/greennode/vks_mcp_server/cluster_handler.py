@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from greennode.vks_mcp_server.client import VksClient
 from greennode.vks_mcp_server.config import Region, VksConfig
+from greennode.vks_mcp_server.discovery_cache import DiscoveryCache
 from greennode.vks_mcp_server.kubeconfig import extract_kubeconfig
 from greennode.vks_mcp_server.models import (
     ClusterDetail,
@@ -306,12 +307,16 @@ class ClusterHandler:
         client: VksClient,
         allow_write: bool = False,
         allow_sensitive_data_access: bool = False,
+        cache: DiscoveryCache | None = None,
     ):
         self.mcp = mcp
         self.config = config
         self.client = client
         self.allow_write = allow_write
         self.allow_sensitive_data_access = allow_sensitive_data_access
+        # Shared with the discovery tools when the server wires it; a private
+        # instance otherwise (tests, standalone use).
+        self.cache = cache or DiscoveryCache()
 
         # Read-only tools (always registered)
         self.mcp.tool(name="list_clusters", annotations=READ)(self.list_clusters)
@@ -390,8 +395,9 @@ class ClusterHandler:
             ...,
             description=(
                 "CreateClusterComboDto body. Required: name, version, networkType, vpcId, "
-                "listSubnetIds (one ID with azStrategy=SINGLE, several with MULTI — the "
-                "deprecated single-subnet subnetId field is not accepted). "
+                "listSubnetIds (exactly one ID with azStrategy=SINGLE, at least two — one per "
+                "availability zone — with MULTI; no duplicates. The deprecated "
+                "single-subnet subnetId field is not accepted). "
                 "Creates the control plane only — add workers afterwards via create_nodegroup "
                 "(the deprecated nodeGroups array is not accepted). Optional: enablePrivateCluster, "
                 "releaseChannel, enabledLoadBalancerPlugin, enabledBlockStoreCsiPlugin, "
@@ -419,7 +425,8 @@ class ClusterHandler:
            question, confirm gate).
         2. Resolve ids via discovery, all in the target region: get_quota
            first -> list_vpcs (vpcId) -> list_cluster_versions (version) ->
-           list_subnets (listSubnetIds: one id for SINGLE, several for MULTI).
+           list_subnets (listSubnetIds: one id for SINGLE, >=2 ids in
+           different zones for MULTI).
         3. validate_cluster_create -> fix every reported error -> present the
            FULL body in the same message as the confirmation question ->
            create_cluster, then poll get_cluster until ACTIVE (~15-20 min)
@@ -428,6 +435,10 @@ class ClusterHandler:
         IMPORTANT: call get_creation_guide FIRST, and never invent an id —
         `vpcId` and every subnet id come from the discovery tools.
         """
+        placement_errors = await self._subnet_placement_errors(body, region)
+        if placement_errors:
+            return "Cannot create the cluster:\n" + "\n".join(placement_errors)
+
         args = {"body": body.model_dump(exclude_none=True), "poc": poc, "autoRenewal": autoRenewal}
         if region is not None:
             args["region"] = region
@@ -690,13 +701,66 @@ class ClusterHandler:
         )
         return result[0].text
 
-    def validate_cluster_create(
+    async def _subnet_placement_errors(
+        self, body: CreateClusterComboDto, region: str | None
+    ) -> list[str]:
+        """Cross-check listSubnetIds against live discovery.
+
+        Two rules the body alone cannot express, because zones and VPC membership
+        only exist in list_subnets: every id must belong to the chosen VPC, and
+        azStrategy=MULTI must span at least two availability zones (two subnets in
+        the same zone is a single-zone cluster wearing a MULTI label).
+
+        A discovery failure yields no errors: the API stays the authority, and a
+        flaky lookup must not block an otherwise valid create.
+        """
+        import httpx
+        from greennode.vks_mcp_server.discovery_handler import _subnet_list
+
+        try:
+            listing = await _subnet_list(self.config, self.client, self.cache, body.vpcId, region)
+        except (RuntimeError, ValueError, httpx.HTTPError):
+            # API/network failure only — a bug in this code still raises.
+            return []
+
+        by_id = {s.id: s for s in listing.subnets}
+        missing = [sid for sid in body.listSubnetIds if sid not in by_id]
+        if missing:
+            return [
+                f"listSubnetIds: {missing} not found in VPC {body.vpcId} — pick ids from "
+                "list_subnets (add refresh=true if the subnet was just created)"
+            ]
+
+        if body.azStrategy != "MULTI":
+            return []
+
+        chosen = [by_id[sid] for sid in body.listSubnetIds]
+        zones = {(s.zone.uuid or s.zone.name) if s.zone else "" for s in chosen}
+        if len(zones) > 1:
+            return []
+        names = sorted({s.zone.name for s in chosen if s.zone and s.zone.name}) or ["unknown"]
+        return [
+            f"azStrategy=MULTI needs subnets in at least two availability zones, but all "
+            f"{len(chosen)} chosen subnets are in {names[0]} — pick one subnet per zone "
+            "(list_subnets shows each subnet's zone), or use azStrategy=SINGLE"
+        ]
+
+    async def validate_cluster_create(
         self,
         body: CreateClusterComboDto = Field(
             ...,
-            description="CreateClusterComboDto body to validate. Checks name regex, required fields, disk size, node count, network type logic.",
+            description="CreateClusterComboDto body to validate. Checks name regex, required fields, network type logic, and — against live discovery — that every listSubnetIds id is in the VPC and that azStrategy=MULTI spans at least two availability zones.",
         ),
+        region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
-        """Validates a CreateClusterComboDto body without actually creating a cluster. Returns 'valid' or a list of validation errors."""
+        """Validates a CreateClusterComboDto body without actually creating a cluster.
+
+        Local rules plus cross-checks against live discovery (cached): the subnets
+        belong to the chosen VPC, and azStrategy=MULTI really spans two or more
+        availability zones. Returns 'valid' or a list of validation errors.
+        """
         result = _cluster_create_validate({"body": body.model_dump(exclude_none=True)})
-        return result[0].text
+        text = result[0].text
+        errors = [] if text == "valid" else text.split("\n")
+        errors += await self._subnet_placement_errors(body, region)
+        return "\n".join(errors) if errors else "valid"

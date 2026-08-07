@@ -28,6 +28,8 @@ from pydantic import ValidationError
 
 IAM_URL = "https://iamapis.vngcloud.vn/accounts-api/v1/auth/token"
 VKS_BASE = "https://vks.api.vngcloud.vn"
+VSERVER_BASE = "https://hcm-3.api.vngcloud.vn/vserver/vserver-gateway"
+PID = "pro-test-0001"
 
 
 def _mock_iam(mock: respx.MockRouter) -> None:
@@ -348,6 +350,13 @@ async def test_cluster_create_accepts_dto(handler_write, respx_mock):
     respx_mock.post(f"{VKS_BASE}/v1/clusters").mock(
         return_value=httpx.Response(200, json=cluster_response)
     )
+    # create_cluster cross-checks the subnets against the VPC before posting
+    respx_mock.get(f"{VSERVER_BASE}/v2/{PID}/networks/net-1/subnets").mock(
+        return_value=httpx.Response(
+            200,
+            json=[{"uuid": "sub-1", "name": "a", "status": "ACTIVE", "zone": ZONE_A}],
+        )
+    )
     dto = CreateClusterComboDto(
         name="demo",
         version="v1.29.0",
@@ -401,8 +410,120 @@ async def test_cluster_create_validate_accepts_dto(handler_write):
         enablePrivateCluster=False,
         cidr="10.96.0.0/16",
     )
-    result = handler_write.validate_cluster_create(body=dto)
+    _mock_iam(respx.mock)
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/networks/vpc-001/subnets").mock(
+        return_value=httpx.Response(
+            200,
+            json=[{"uuid": "sub-1", "name": "a", "status": "ACTIVE", "zone": ZONE_A}],
+        )
+    )
+    result = await handler_write.validate_cluster_create(body=dto, region=None)
     assert result == "valid"
+
+
+ZONE_A = {"uuid": "zone-a", "name": "HCM03-1A"}
+ZONE_B = {"uuid": "zone-b", "name": "HCM03-1B"}
+
+
+def _multi_dto(subnet_ids: list[str]) -> CreateClusterComboDto:
+    return CreateClusterComboDto(
+        name="mycluster01",
+        version="1.28",
+        networkType="CILIUM_OVERLAY",
+        vpcId="vpc-001",
+        cidr="10.96.0.0/16",
+        azStrategy="MULTI",
+        listSubnetIds=subnet_ids,
+    )
+
+
+def _mock_subnets(subnets: list[dict]) -> None:
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/networks/vpc-001/subnets").mock(
+        return_value=httpx.Response(200, json=subnets)
+    )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_rejects_multi_az_subnets_in_one_zone(handler_write):
+    """Two distinct subnet ids still mean one zone if both live in it — the count
+    check cannot see that, only list_subnets can."""
+    _mock_iam(respx.mock)
+    _mock_subnets(
+        [
+            {"uuid": "sub-59564e13", "name": "sub-1B", "status": "ACTIVE", "zone": ZONE_B},
+            {"uuid": "sub-290d6638", "name": "subnet-1B", "status": "ACTIVE", "zone": ZONE_B},
+        ]
+    )
+    result = await handler_write.validate_cluster_create(
+        body=_multi_dto(["sub-59564e13", "sub-290d6638"]), region=None
+    )
+    assert "at least two availability zones" in result
+    assert "HCM03-1B" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_accepts_multi_az_across_two_zones(handler_write):
+    """One subnet per zone is what MULTI means."""
+    _mock_iam(respx.mock)
+    _mock_subnets(
+        [
+            {"uuid": "sub-a", "name": "a", "status": "ACTIVE", "zone": ZONE_A},
+            {"uuid": "sub-b", "name": "b", "status": "ACTIVE", "zone": ZONE_B},
+        ]
+    )
+    result = await handler_write.validate_cluster_create(
+        body=_multi_dto(["sub-a", "sub-b"]), region=None
+    )
+    assert result == "valid"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_validate_rejects_subnet_outside_the_vpc(handler_write):
+    """A subnet id that is not in the chosen VPC is caught before the API sees it."""
+    _mock_iam(respx.mock)
+    _mock_subnets([{"uuid": "sub-a", "name": "a", "status": "ACTIVE", "zone": ZONE_A}])
+    result = await handler_write.validate_cluster_create(
+        body=_multi_dto(["sub-a", "sub-ghost"]), region=None
+    )
+    assert "not found in VPC vpc-001" in result
+    assert "sub-ghost" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_create_cluster_blocks_single_zone_multi_az(handler_write):
+    """The same rule guards create_cluster, so skipping validate_cluster_create
+    cannot smuggle a single-zone MULTI cluster through."""
+    _mock_iam(respx.mock)
+    _mock_subnets(
+        [
+            {"uuid": "sub-x", "name": "x", "status": "ACTIVE", "zone": ZONE_B},
+            {"uuid": "sub-y", "name": "y", "status": "ACTIVE", "zone": ZONE_B},
+        ]
+    )
+    route = respx.post(f"{VKS_BASE}/v1/clusters").mock(return_value=httpx.Response(200, json={}))
+    result = await handler_write.create_cluster(body=_multi_dto(["sub-x", "sub-y"]), region=None)
+    assert not route.called
+    assert "at least two availability zones" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_create_cluster_proceeds_when_discovery_is_unavailable(handler_write):
+    """A flaky lookup must not block a create: the API stays the authority."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/networks/vpc-001/subnets").mock(
+        return_value=httpx.Response(500, json={"message": "boom"})
+    )
+    route = respx.post(f"{VKS_BASE}/v1/clusters").mock(
+        return_value=httpx.Response(200, json={"uid": "k8s-1", "name": "mycluster01"})
+    )
+    result = await handler_write.create_cluster(body=_multi_dto(["sub-x", "sub-y"]), region=None)
+    assert route.called
+    assert "created successfully" in result
 
 
 def test_create_cluster_dto_rejects_nodegroups():

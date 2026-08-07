@@ -323,14 +323,15 @@ def main() -> None:
     )
 
     AuthHandler(mcp, config, token_manager)
+    discovery_cache = DiscoveryCache()
     ClusterHandler(
         mcp,
         config,
         client,
         allow_write=args.allow_write,
         allow_sensitive_data_access=args.allow_sensitive_data_access,
+        cache=discovery_cache,
     )
-    discovery_cache = DiscoveryCache()
     NodeGroupHandler(mcp, config, client, allow_write=args.allow_write, cache=discovery_cache)
     DiscoveryHandler(mcp, config, client, discovery_cache)
     VersionHandler(mcp, config, client, discovery_cache)

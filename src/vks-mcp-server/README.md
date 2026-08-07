@@ -119,7 +119,7 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `get_cluster_kubeconfig` | read (**sensitive**) | Kubeconfig YAML — cluster-admin credentials, needs `--allow-sensitive-data-access` (new clusters: run `generate_kubeconfig` first) |
 | `get_cluster_events` | read | Cluster events table |
 | `list_cluster_versions` | read | Available Kubernetes versions (cached 30 min) |
-| `validate_cluster_create` | read | Validate a create body without creating |
+| `validate_cluster_create` | read | Validate a create body without creating (local rules + subnet-in-VPC and MULTI-spans-two-zones cross-checks) |
 | `delete_cluster_dryrun` | read | Preview a cluster deletion (incl. node groups) |
 | `create_cluster` | **write** | Create a cluster (control plane only); add workers via `create_nodegroup` |
 | `update_cluster` | **write** | Partial update: version / whitelistNodeCIDRs / LB-CSI plugin toggles — send only what changes |
