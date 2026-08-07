@@ -739,7 +739,7 @@ async def test_cluster_delete_dryrun_lists_all_node_groups(client):
     respx.get(f"{VKS_BASE}/v1/clusters/cid-1/node-groups").mock(side_effect=responder)
     result = await _cluster_delete_dryrun(client, {"cluster_id": "cid-1"})
     text = result[0].text
-    assert "Node groups to be deleted (12)" in text
+    assert "12 node group(s) still exist" in text
     assert "ng-11" in text  # the tail beyond one page is present
 
 
@@ -857,3 +857,121 @@ async def test_create_cluster_reports_the_id_when_the_api_returns_one(handler_wr
     result = await handler_write.create_cluster(body=dto, region=None)
     assert "**mycluster01**" in result
     assert "k8s-new" in result
+
+
+# ---------------------------------------------------------------------------
+# delete_cluster node-group precondition (the API cascades nothing)
+# ---------------------------------------------------------------------------
+
+
+def _ng(uid: str, status: str = "ACTIVE") -> dict:
+    return {"uid": uid, "name": uid, "nodeCount": 2, "status": status}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_delete_dryrun_states_node_groups_are_a_precondition(client):
+    """The preview must not promise a cascade: the API rejects delete_cluster while
+    node groups exist, and a preview that says "to be deleted" is consent obtained
+    for something that never happens."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1").mock(
+        return_value=httpx.Response(200, json={"uid": "cid-1", "name": "prod"})
+    )
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1/node-groups").mock(
+        return_value=httpx.Response(200, json={"items": [_ng("ng-1"), _ng("ng-2")], "total": 2})
+    )
+    text = (await _cluster_delete_dryrun(client, {"cluster_id": "cid-1"}))[0].text
+
+    assert "will be REJECTED right now" in text
+    assert "2 node group(s) still exist" in text
+    assert "Required order:" in text
+    assert 'delete_nodegroup(cluster_id="cid-1", nodegroup_id="ng-1"' in text
+    assert 'delete_cluster(cluster_id="cid-1")' in text
+    assert "NOT covered by approving the cluster delete" in text
+    # the old, false wording must not come back
+    assert "Node groups to be deleted" not in text
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_delete_dryrun_without_node_groups_confirms_directly(client):
+    """No node groups: the cluster really can go in one call."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1").mock(
+        return_value=httpx.Response(200, json={"uid": "cid-1", "name": "prod"})
+    )
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1/node-groups").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0})
+    )
+    text = (await _cluster_delete_dryrun(client, {"cluster_id": "cid-1"}))[0].text
+    assert "No node groups" in text
+    assert "Confirm by calling `delete_cluster`" in text
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_delete_dryrun_waits_for_node_groups_already_deleting(client):
+    """A node group mid-deletion is not something to call delete_nodegroup on again."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1").mock(
+        return_value=httpx.Response(200, json={"uid": "cid-1", "name": "prod"})
+    )
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1/node-groups").mock(
+        return_value=httpx.Response(
+            200, json={"items": [_ng("ng-gone", status="DELETING")], "total": 1}
+        )
+    )
+    text = (await _cluster_delete_dryrun(client, {"cluster_id": "cid-1"}))[0].text
+    assert "Wait for the node group(s) already deleting to finish: ng-gone" in text
+    assert "delete_nodegroup(cluster_id=" not in text
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_delete_cluster_refuses_while_node_groups_exist(handler_write):
+    """Guarded before the request, so the agent gets the order instead of a 400 —
+    and never improvises by deleting the node groups itself."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1/node-groups").mock(
+        return_value=httpx.Response(200, json={"items": [_ng("ng-1")], "total": 1})
+    )
+    route = respx.delete(f"{VKS_BASE}/v1/clusters/cid-1").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    result = await handler_write.delete_cluster(cluster_id="cid-1", region=None)
+    assert not route.called
+    assert "was NOT deleted" in result
+    assert 'delete_nodegroup(cluster_id="cid-1", nodegroup_id="ng-1"' in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_delete_cluster_proceeds_without_node_groups(handler_write):
+    _mock_iam(respx.mock)
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1/node-groups").mock(
+        return_value=httpx.Response(200, json={"items": [], "total": 0})
+    )
+    route = respx.delete(f"{VKS_BASE}/v1/clusters/cid-1").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    result = await handler_write.delete_cluster(cluster_id="cid-1", region=None)
+    assert route.called
+    assert "deleted successfully" in result
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_delete_cluster_still_calls_api_when_the_check_fails(handler_write):
+    """A failed lookup must not become a second way to block a delete: the API
+    rejects it the same way, and nothing destructive rides on the check."""
+    _mock_iam(respx.mock)
+    respx.get(f"{VKS_BASE}/v1/clusters/cid-1/node-groups").mock(
+        return_value=httpx.Response(500, json={"message": "boom"})
+    )
+    route = respx.delete(f"{VKS_BASE}/v1/clusters/cid-1").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    result = await handler_write.delete_cluster(cluster_id="cid-1", region=None)
+    assert route.called
+    assert "deleted successfully" in result

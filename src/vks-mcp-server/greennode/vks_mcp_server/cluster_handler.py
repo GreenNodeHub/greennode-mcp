@@ -209,6 +209,71 @@ async def _cluster_auto_upgrade_delete(
     return [types.TextContent(type="text", text=text)]
 
 
+def _split_node_groups(node_groups: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split node groups into (still there, already being deleted)."""
+    deleting = [ng for ng in node_groups if "DELET" in str(ng.get("status", "")).upper()]
+    remaining = [ng for ng in node_groups if ng not in deleting]
+    return remaining, deleting
+
+
+def _nodegroup_precondition_lines(cluster_id: str, node_groups: list[dict]) -> list[str]:
+    """Describe the node-group precondition of a cluster delete.
+
+    DELETE /v1/clusters/{id} takes no cascade or force parameter: the API rejects
+    the call while any node group exists ("Cannot delete cluster as it still has
+    existing node groups"). Saying node groups are "to be deleted" alongside the
+    cluster would be consent obtained for something the API never does — and it is
+    what makes an agent delete them on its own after the rejection.
+    """
+    if not node_groups:
+        return [
+            "No node groups — the cluster can be deleted directly.",
+            "",
+            "**This action is irreversible. Confirm by calling `delete_cluster`.**",
+        ]
+
+    remaining, deleting = _split_node_groups(node_groups)
+
+    def _row(i: int, ng: dict) -> str:
+        return (
+            f"| {i} | {ng.get('name', '')} | {ng.get('uid', ng.get('id', ''))} | "
+            f"{ng.get('nodeCount', ng.get('numNodes', ''))} | {ng.get('status', '')} |"
+        )
+
+    lines = [
+        f"**`delete_cluster` will be REJECTED right now: {len(node_groups)} node group(s) "
+        "still exist.** The API deletes no node group for you — they are a precondition, "
+        "not a cascade.",
+        "",
+        "| # | Name | ID | Node count | Status |",
+        "|---|---|---|---|---|",
+    ]
+    lines += [_row(i, ng) for i, ng in enumerate(node_groups, start=1)]
+    lines += ["", "**Required order:**", ""]
+
+    step = 1
+    for ng in remaining:
+        ng_id = ng.get("uid", ng.get("id", ""))
+        lines.append(
+            f'{step}. `delete_nodegroup(cluster_id="{cluster_id}", '
+            f'nodegroup_id="{ng_id}", force_delete=<ask the user>)`'
+        )
+        step += 1
+    if deleting:
+        names = ", ".join(ng.get("uid", ng.get("id", "")) for ng in deleting)
+        lines.append(f"{step}. Wait for the node group(s) already deleting to finish: {names}")
+        step += 1
+    lines.append(f'{step}. `delete_cluster(cluster_id="{cluster_id}")`')
+
+    lines += [
+        "",
+        "Every node-group delete is its own irreversible action and needs its own "
+        "confirmation — deleting them is NOT covered by approving the cluster delete. "
+        "`force_delete=true` skips draining the nodes, which is the user's call.",
+    ]
+    return lines
+
+
 async def _cluster_delete_dryrun(
     client: VksClient,
     arguments: dict,
@@ -239,19 +304,8 @@ async def _cluster_delete_dryrun(
         f"| Version | {cluster_version} |",
         f"| Node count | {node_count} |",
         "",
-        f"**Node groups to be deleted ({len(node_groups)}):**",
-        "",
-        "| # | Name | ID | Node count |",
-        "|---|---|---|---|",
     ]
-
-    for i, ng in enumerate(node_groups, start=1):
-        ng_name = ng.get("name", "")
-        ng_id = ng.get("uid", ng.get("id", ""))
-        ng_nodes = ng.get("nodeCount", ng.get("numNodes", ""))
-        lines.append(f"| {i} | {ng_name} | {ng_id} | {ng_nodes} |")
-
-    lines += ["", "**This action is irreversible. Confirm by calling `delete_cluster`.**"]
+    lines += _nodegroup_precondition_lines(cluster_id, node_groups)
 
     text = "\n".join(lines)
     return [types.TextContent(type="text", text=text)]
@@ -512,7 +566,11 @@ class ClusterHandler:
     async def delete_cluster(
         self,
         cluster_id: str = Field(
-            ..., description="Cluster ID to delete. IRREVERSIBLE. Use delete_cluster_dryrun first."
+            ...,
+            description=(
+                "Cluster ID to delete. IRREVERSIBLE. Every node group must be deleted "
+                "first — the API rejects the call otherwise. Use delete_cluster_dryrun."
+            ),
         ),
         region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
@@ -520,15 +578,47 @@ class ClusterHandler:
 
         ## Requirements
         - Server must run with --allow-write
+        - The cluster must have NO node groups: the API deletes none of them for
+          you and rejects this call while any exists.
 
         ## Workflow
-        - Call delete_cluster_dryrun first to preview what will be removed.
+        - Call delete_cluster_dryrun first: it lists the node groups that must go
+          first and the order to do it in.
+        - Deleting those node groups is a separate decision per node group — ask
+          the user for each one (delete_nodegroup needs force_delete), never as a
+          side effect of approving the cluster delete.
         """
+        blocked = await self._nodegroup_precondition_error(cluster_id, region)
+        if blocked:
+            return blocked
         result = await _cluster_delete(
             self.client,
             {"cluster_id": cluster_id, "region": region},
         )
         return result[0].text
+
+    async def _nodegroup_precondition_error(self, cluster_id: str, region: str | None) -> str:
+        """Return an actionable message when node groups still block the delete.
+
+        Turns the API's "Cannot delete cluster as it still has existing node groups"
+        into the list and the order. A lookup failure returns "" — the delete then
+        goes to the API, which rejects it the same way; nothing destructive happens
+        on a failed check.
+        """
+        import httpx
+
+        try:
+            node_groups = await fetch_all_vks_items(
+                self.client, f"/v1/clusters/{cluster_id}/node-groups", region=region
+            )
+        except (RuntimeError, ValueError, httpx.HTTPError):
+            return ""
+        if not node_groups:
+            return ""
+        return "\n".join(
+            [f"Cluster `{cluster_id}` was NOT deleted.", ""]
+            + _nodegroup_precondition_lines(cluster_id, node_groups)
+        )
 
     async def get_cluster_kubeconfig(
         self,
@@ -710,7 +800,12 @@ class ClusterHandler:
         cluster_id: str = Field(..., description="Cluster ID to preview deletion for"),
         region: Region = Field("HCM-3", description="Region override"),
     ) -> str:
-        """Preview what will be deleted when deleting a cluster. Shows cluster info and all node groups that will be removed."""
+        """Preview a cluster deletion, including what must happen first.
+
+        Shows the cluster details plus every node group that has to be deleted
+        BEFORE the cluster — the API cascades nothing and rejects delete_cluster
+        while any node group exists — and the order to do it in.
+        """
         result = await _cluster_delete_dryrun(
             self.client,
             {"cluster_id": cluster_id, "region": region},

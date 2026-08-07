@@ -86,7 +86,7 @@ For full step-by-step flows (safe defaults, plan review, confirm gate) load the 
 - get_quota: Check per-region limits before creating anything
 
 ### Write (requires --allow-write):
-- create_cluster, update_cluster, delete_cluster: Create, update, delete cluster
+- create_cluster, update_cluster, delete_cluster: Create, update, delete cluster (delete requires deleting every node group FIRST — the API cascades nothing; delete_cluster_dryrun lists them and the order)
 - configure_auto_upgrade, delete_auto_upgrade: Configure auto-upgrade
 - configure_auto_healing: Configure cluster auto-healing
 - generate_kubeconfig: Mint a kubeconfig for a cluster (async; required once for a new cluster)

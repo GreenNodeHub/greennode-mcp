@@ -120,10 +120,10 @@ greennode-cli command names (`list-clusters` ↔ `list_clusters`).
 | `get_cluster_events` | read | Cluster events table |
 | `list_cluster_versions` | read | Available Kubernetes versions (cached 30 min) |
 | `validate_cluster_create` | read | Validate a create body without creating (local rules + subnet-in-VPC and MULTI-spans-two-zones cross-checks) |
-| `delete_cluster_dryrun` | read | Preview a cluster deletion (incl. node groups) |
+| `delete_cluster_dryrun` | read | Preview a cluster deletion: the node groups that must be deleted FIRST (the API cascades nothing) and the order |
 | `create_cluster` | **write** | Create a cluster (control plane only); add workers via `create_nodegroup` |
 | `update_cluster` | **write** | Partial update: version / whitelistNodeCIDRs / LB-CSI plugin toggles — send only what changes |
-| `delete_cluster` | **write** | Delete a cluster (IRREVERSIBLE; dry-run first) |
+| `delete_cluster` | **write** | Delete a cluster (IRREVERSIBLE; dry-run first; refuses while any node group exists instead of returning the API's 400) |
 | `configure_auto_upgrade` / `delete_auto_upgrade` | **write** | Manage the auto-upgrade schedule |
 | `configure_auto_healing` | **write** | Configure node auto-healing |
 | `generate_kubeconfig` | **write** | Mint a kubeconfig (async; required once for a new cluster; `expiration_days` 1-365 is required — the agent must ask the user, no silent default) |
