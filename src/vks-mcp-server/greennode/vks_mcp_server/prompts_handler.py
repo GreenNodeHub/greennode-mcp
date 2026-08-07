@@ -102,10 +102,11 @@ def _create_cluster_guidance() -> str:
       có `enabled_dns=true` (MULTI bắt buộc VPC đã bật vDNS); không có VPC nào đạt
       → dừng, hướng dẫn bật vDNS cho VPC ở console trước.
    g. `list_subnets vpc_id=<vpcId>` → luôn dùng `listSubnetIds`: SINGLE chọn
-      ĐÚNG 1 (list 1 phần tử); MULTI chọn TỐI THIỂU 2 subnet ở 2 zone KHÁC nhau
-      (`zone` hiện trong `list_subnets`) — MULTI mà 1 subnet là cụm 1 zone đội lốt
-      HA, bị chặn. Không trùng id. Không dùng `subnetId` cho cluster — field đó đã
-      deprecated ở API và cluster body không nhận nữa.
+      ĐÚNG 1 (list 1 phần tử); MULTI chọn TỐI THIỂU 2 subnet ở 2 zone KHÁC nhau —
+      đọc `zone` của từng subnet trong `list_subnets`, 2 subnet cùng zone là cụm
+      1 zone đội lốt HA và bị chặn ở cả bước validate lẫn lúc tạo.
+      Không trùng id. Không dùng `subnetId` cho cluster — field đó đã deprecated ở
+      API và cluster body không nhận nữa.
    h. networkType: `CILIUM_OVERLAY` + `cidr: 10.96.0.0/16` (mặc định — đổi cidr
       nếu trùng dải mạng hiện có); `TIGERA` cũng cần `cidr`;
       `CILIUM_NATIVE_ROUTING` → hỏi `nodeNetmaskSize` (KHÔNG hỏi
