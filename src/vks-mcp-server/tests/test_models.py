@@ -7,6 +7,7 @@ from greennode.vks_mcp_server.models import (
     AutoHealingConfig,
     AutoScaleConfig,
     AutoUpgradeConfig,
+    ClusterDetail,
     ClusterSummary,
     CreateClusterComboDto,
     CreateNodeGroupDto,
@@ -814,3 +815,92 @@ def test_nodegroup_list_field_caps():
         NodeGroupSpec(**base, labels={f"k{i}": "v" for i in range(51)})
     with pytest.raises(ValidationError):
         UpdateNodeGroupMetadataDto(tags={f"k{i}": "v" for i in range(51)})
+
+
+# ---------------------------------------------------------------------------
+# Read models must not drop what the API returns
+# ---------------------------------------------------------------------------
+
+
+def test_cluster_detail_keeps_auto_healing_and_netmask():
+    """ClusterDetailDto carries autoHealingConfig, nodeNetmaskSize and the ready
+    counts; dropping them in the read model hides them from every caller."""
+    detail = ClusterDetail.from_api(
+        {
+            "uid": "k8s-abc",
+            "name": "prod",
+            "nodeNetmaskSize": 25,
+            "numReadyNodes": 3,
+            "numNotReadyNodes": 1,
+            "autoHealingConfig": {
+                "enableAutoHealing": True,
+                "maxUnhealthy": "20%",
+                "timeoutUnhealthy": 10,
+            },
+        }
+    )
+    assert detail.node_netmask_size == 25
+    assert detail.auto_healing_config["enableAutoHealing"] is True
+    md = detail.to_markdown()
+    assert "Node netmask size" in md and "25" in md
+    assert "enabled=True" in md and "20%" in md and "10m" in md
+    assert "3 / 1" in md
+
+
+def test_cluster_detail_auto_healing_absent_reads_as_not_configured():
+    md = ClusterDetail.from_api({"uid": "k8s-abc", "name": "prod"}).to_markdown()
+    assert "| Auto-Healing | (not configured) |" in md
+
+
+def test_nodegroup_detail_keeps_tags_os_and_version():
+    detail = NodeGroupDetail.from_api(
+        {
+            "uid": "ng-1",
+            "name": "default",
+            "tags": {"env": "prod"},
+            "imageOS": "ubuntu",
+            "kubernetesVersion": "v1.29.13",
+        }
+    )
+    assert detail.tags == {"env": "prod"}
+    md = detail.to_markdown()
+    assert "env=prod" in md
+    assert "ubuntu" in md
+    assert "v1.29.13" in md
+
+
+# ---------------------------------------------------------------------------
+# cidr: format is enforceable, the exact ranges are prose in the spec
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "cidr", ["172.16.0.0/16", "10.0.0.0/16", "192.168.0.0/16", "10.96.0.0/16"]
+)
+def test_create_cluster_accepts_documented_private_cidrs(cidr):
+    """Every option the API documents parses, including 10.96.0.0/16 — the spec puts
+    it inside 10.0.0.0-10.255.0.0, so the client does not get to reject it."""
+    assert CreateClusterComboDto(**_cluster_kwargs(cidr=cidr)).cidr == cidr
+
+
+@pytest.mark.parametrize(
+    "cidr,reason",
+    [
+        ("not-a-cidr", "missing its prefix length"),
+        ("10.0.x.0/16", "not a valid IPv4 network"),
+        ("10.0.0.0", "missing its prefix length"),
+        ("10.96.1.5/16", "not a valid IPv4 network"),  # host bits set
+        ("fd00::/8", "must be IPv4"),
+        ("8.8.8.0/24", "must be a private range"),
+        ("172.32.0.0/16", "must be a private range"),
+    ],
+)
+def test_create_cluster_rejects_unusable_cidrs(cidr, reason):
+    with pytest.raises(ValidationError, match=reason):
+        CreateClusterComboDto(**_cluster_kwargs(cidr=cidr))
+
+
+def test_create_cluster_cidr_error_names_the_allowed_ranges():
+    """The allowed ranges are not machine-checkable, so the message must carry them."""
+    with pytest.raises(ValidationError, match="172.16.0.0-172.24.0.0"):
+        CreateClusterComboDto(**_cluster_kwargs(cidr="8.8.8.0/24"))

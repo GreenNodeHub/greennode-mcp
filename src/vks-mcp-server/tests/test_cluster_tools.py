@@ -804,3 +804,56 @@ def test_cluster_create_validate_rejects_overlong_description():
     body = {**_VALID_BODY, "description": "x" * 256}
     result = _cluster_create_validate({"body": body})
     assert "description" in result[0].text
+
+
+# ---------------------------------------------------------------------------
+# create response must name the cluster even when the API returns nothing
+# ---------------------------------------------------------------------------
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_create_cluster_names_the_cluster_when_the_api_returns_no_body(handler_write):
+    """A 202 with an empty body used to render "Cluster **** created successfully" —
+    the name is in the request we just sent, so there is no reason to lose it."""
+    _mock_iam(respx.mock)
+    # create_cluster cross-checks the subnets against the VPC before posting
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/networks/net-1/subnets").mock(
+        return_value=httpx.Response(200, json=[{"uuid": "sub-1", "name": "a", "status": "ACTIVE"}])
+    )
+    respx.post(f"{VKS_BASE}/v1/clusters").mock(return_value=httpx.Response(202, json={}))
+    dto = CreateClusterComboDto(
+        name="mycluster01",
+        version="v1.29.0",
+        networkType="CILIUM_OVERLAY",
+        vpcId="net-1",
+        listSubnetIds=["sub-1"],
+        cidr="10.96.0.0/16",
+    )
+    result = await handler_write.create_cluster(body=dto, region=None)
+    assert "**mycluster01**" in result
+    assert "****" not in result
+    assert "list_clusters" in result  # tells the caller how to follow it
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_create_cluster_reports_the_id_when_the_api_returns_one(handler_write):
+    _mock_iam(respx.mock)
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/networks/net-1/subnets").mock(
+        return_value=httpx.Response(200, json=[{"uuid": "sub-1", "name": "a", "status": "ACTIVE"}])
+    )
+    respx.post(f"{VKS_BASE}/v1/clusters").mock(
+        return_value=httpx.Response(202, json={"id": "k8s-new", "name": "mycluster01"})
+    )
+    dto = CreateClusterComboDto(
+        name="mycluster01",
+        version="v1.29.0",
+        networkType="CILIUM_OVERLAY",
+        vpcId="net-1",
+        listSubnetIds=["sub-1"],
+        cidr="10.96.0.0/16",
+    )
+    result = await handler_write.create_cluster(body=dto, region=None)
+    assert "**mycluster01**" in result
+    assert "k8s-new" in result
