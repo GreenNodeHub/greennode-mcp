@@ -817,6 +817,10 @@ async def test_create_cluster_names_the_cluster_when_the_api_returns_no_body(han
     """A 202 with an empty body used to render "Cluster **** created successfully" —
     the name is in the request we just sent, so there is no reason to lose it."""
     _mock_iam(respx.mock)
+    # create_cluster cross-checks the subnets against the VPC before posting
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/networks/net-1/subnets").mock(
+        return_value=httpx.Response(200, json=[{"uuid": "sub-1", "name": "a", "status": "ACTIVE"}])
+    )
     respx.post(f"{VKS_BASE}/v1/clusters").mock(return_value=httpx.Response(202, json={}))
     dto = CreateClusterComboDto(
         name="mycluster01",
@@ -836,6 +840,9 @@ async def test_create_cluster_names_the_cluster_when_the_api_returns_no_body(han
 @pytest.mark.asyncio
 async def test_create_cluster_reports_the_id_when_the_api_returns_one(handler_write):
     _mock_iam(respx.mock)
+    respx.get(f"{VSERVER_BASE}/v2/{PID}/networks/net-1/subnets").mock(
+        return_value=httpx.Response(200, json=[{"uuid": "sub-1", "name": "a", "status": "ACTIVE"}])
+    )
     respx.post(f"{VKS_BASE}/v1/clusters").mock(
         return_value=httpx.Response(202, json={"id": "k8s-new", "name": "mycluster01"})
     )

@@ -37,7 +37,10 @@ xác nhận trước khi thực thi. Bạn KHÔNG cần biết ID tài nguyên t
 ## Quy tắc tên & mạng
 - Tên cluster: 5–20 ký tự (thường + số + gạch nối, đầu/cuối là chữ-số).
 - Tên node group: 5–15 ký tự, cùng quy tắc.
-- Network type (3 loại): `CILIUM_OVERLAY` và `TIGERA` cần `cidr` (vd `10.96.0.0/16`).
+- Network type (3 loại): `CILIUM_OVERLAY` và `TIGERA` cần `cidr` — dải pod, phải là
+  private IPv4 và là network address: API nhận `10.0.0.0`–`10.255.0.0`,
+  `172.16.0.0`–`172.24.0.0`, hoặc `192.168.0.0`; **default của API là
+  `172.16.0.0/16`**. Chọn dải KHÔNG trùng VPC/subnet của cluster.
   Default an toàn cho người mới: `CILIUM_OVERLAY` + cidr.
 - `secondarySubnets` KHÔNG set ở cluster — chỉ dùng cho node group của cụm
   `CILIUM_NATIVE_ROUTING`, tự set khi tạo: copy nguyên field `secondary_subnets`
@@ -107,8 +110,11 @@ def _create_cluster_guidance() -> str:
       1 zone đội lốt HA và bị chặn ở cả bước validate lẫn lúc tạo.
       Không trùng id. Không dùng `subnetId` cho cluster — field đó đã deprecated ở
       API và cluster body không nhận nữa.
-   h. networkType: `CILIUM_OVERLAY` + `cidr: 10.96.0.0/16` (mặc định — đổi cidr
-      nếu trùng dải mạng hiện có); `TIGERA` cũng cần `cidr`;
+   h. networkType: `CILIUM_OVERLAY` + `cidr` (default của API: `172.16.0.0/16`).
+      cidr là dải pod: private IPv4, dạng network address, nằm trong
+      `10.0.0.0`–`10.255.0.0` / `172.16.0.0`–`172.24.0.0` / `192.168.0.0`. Đề xuất
+      default rồi HỎI user xác nhận — dải này phải không đè lên VPC/subnet đang
+      dùng, chỉ user mới biết mạng của họ. `TIGERA` cũng cần `cidr`;
       `CILIUM_NATIVE_ROUTING` → hỏi `nodeNetmaskSize` (KHÔNG hỏi
       `secondarySubnets` — cluster không nhận field này; node group tự set khi tạo).
    i. Tuỳ chọn: plugins — `enabledLoadBalancerPlugin`,

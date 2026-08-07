@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 from enum import Enum
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Any, Dict, List, Literal, Optional
 
 
@@ -1046,7 +1047,14 @@ class CreateClusterComboDto(BaseModel):
         ),
     )
     cidr: Optional[str] = Field(
-        None, description="Required when networkType is CILIUM_OVERLAY or TIGERA"
+        None,
+        description=(
+            "Pod CIDR — required when networkType is CILIUM_OVERLAY or TIGERA. The API "
+            "takes a private IPv4 CIDR from 10.0.0.0-10.255.0.0, 172.16.0.0-172.24.0.0 "
+            'or 192.168.0.0, and its own default is "172.16.0.0/16". Give a network '
+            "address (10.0.0.0/16, not 10.0.1.5/16), and keep it clear of the ranges "
+            "the VPC and its subnets already use."
+        ),
     )
     listSubnetIds: list[str] = Field(
         ...,
@@ -1070,6 +1078,40 @@ class CreateClusterComboDto(BaseModel):
     autoHealingConfig: Optional[AutoHealingConfig] = Field(
         None, description="Auto-healing configuration"
     )
+
+    @field_validator("cidr")
+    @classmethod
+    def _check_cidr(cls, v: Optional[str]) -> Optional[str]:
+        """Reject a cidr the API cannot use.
+
+        Unparseable, not a network address, or outside private space. The allowed ranges are prose in the API spec (10.0.0.0-10.255.0.0,
+        172.16.0.0-172.24.0.0, 192.168.0.0), not a machine-readable constraint, so only
+        what is unambiguous is enforced and the rest is spelled out in the message.
+        Whether a cidr is required at all depends on networkType, checked below.
+        """
+        if v is None or not v.strip():
+            return v
+        value = v.strip()
+        if "/" not in value:
+            # ip_network("10.0.0.0") silently becomes a /32 — a pod range of one address.
+            raise ValueError(f'cidr {value!r} is missing its prefix length, e.g. "{value}/16"')
+        try:
+            network = ipaddress.ip_network(value, strict=True)
+        except ValueError as exc:
+            raise ValueError(
+                f"cidr {value!r} is not a valid IPv4 network ({exc}). Pass a network "
+                'address with a prefix, e.g. "172.16.0.0/16"'
+            ) from exc
+        if network.version != 4:
+            raise ValueError(f"cidr {value!r} must be IPv4")
+        private = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+        if not any(network.subnet_of(ipaddress.ip_network(r)) for r in private):
+            raise ValueError(
+                f"cidr {value!r} must be a private range — the API takes "
+                "10.0.0.0-10.255.0.0, 172.16.0.0-172.24.0.0 or 192.168.0.0 "
+                '(its own default is "172.16.0.0/16")'
+            )
+        return value
 
     @model_validator(mode="after")
     def _check_network_and_subnets(self) -> CreateClusterComboDto:
