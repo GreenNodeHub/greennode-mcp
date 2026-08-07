@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.2](https://github.com/GreenNodeHub/greennode-mcp/compare/vks-mcp-server-v0.14.1...vks-mcp-server-v0.14.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* **vks:** reject azStrategy=MULTI that is not really multi-AZ ([79e689b](https://github.com/GreenNodeHub/greennode-mcp/commit/79e689b9249ba7445813bc2d914bd848fd8cf958))
+* **vks:** reject azStrategy=MULTI whose subnets share one availability zone ([677d81a](https://github.com/GreenNodeHub/greennode-mcp/commit/677d81ac9f80c5261a8d53cf5bfd1122b0ddf0f4))
+* **vks:** reject azStrategy=MULTI with fewer than two subnets ([2fe9963](https://github.com/GreenNodeHub/greennode-mcp/commit/2fe996310b125530eb7f3fc8e0a3643fc0ee9fb8))
+* **vks:** stop dropping API fields on read and stop losing the name on create ([5cd95dd](https://github.com/GreenNodeHub/greennode-mcp/commit/5cd95dd3ac0df6775feeb8a326e4cee8064d7e10))
+* **vks:** stop dropping API fields on read, losing names on create, and inventing a cidr default ([2d740fa](https://github.com/GreenNodeHub/greennode-mcp/commit/2d740facbe75e392e95ea337c1319c9eb297616b))
+* **vks:** stop promising a cascade in the cluster-delete preview ([5512e4b](https://github.com/GreenNodeHub/greennode-mcp/commit/5512e4bf47c9edce947e59e9bbd088b47bc3cb73))
+* **vks:** stop promising a cascade in the cluster-delete preview ([08e88c0](https://github.com/GreenNodeHub/greennode-mcp/commit/08e88c01f10bf5e751fb63bc88b775e0d7632e65))
+* **vks:** validate the cluster cidr and stop the guide inventing a default ([b515477](https://github.com/GreenNodeHub/greennode-mcp/commit/b51547757529798739c1cd3f9ea3903070059964))
+
 ## [0.14.1](https://github.com/GreenNodeHub/greennode-mcp/compare/vks-mcp-server-v0.14.0...vks-mcp-server-v0.14.1) (2026-08-06)
 
 
