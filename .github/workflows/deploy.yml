@@ -73,14 +73,33 @@ jobs:
             exit 1
           fi
 
+      # Derive the component (src/<component>) and image name from the tag.
+      # Tag format is <component>-vX.Y.Z (e.g. vserver-mcp-server-v0.1.0).
+      # The push→develop path is vks-only (see on.push.paths above), so it
+      # defaults to vks-mcp-server when no tag input is present.
+      - name: Resolve component & image
+        id: comp
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            COMPONENT="${{ inputs.tag }}"
+            COMPONENT="${COMPONENT%-v*}"
+          else
+            COMPONENT="vks-mcp-server"
+          fi
+          PRODUCT="${COMPONENT%-mcp-server}"
+          echo "component=${COMPONENT}" >> "$GITHUB_OUTPUT"
+          echo "image=greennode-${PRODUCT}-mcp" >> "$GITHUB_OUTPUT"
+          echo "Component: ${COMPONENT}"
+          echo "Image:      greennode-${PRODUCT}-mcp"
+
       - name: Compute image tag
         id: meta
         run: |
           if [ -n "${{ inputs.tag }}" ]; then
             REF_TAG="${{ inputs.tag }}"
-            echo "tag=${REF_TAG#vks-mcp-server-}" >> "$GITHUB_OUTPUT"
+            echo "tag=${REF_TAG#${{ steps.comp.outputs.component }}-}" >> "$GITHUB_OUTPUT"
           elif [ "${{ startsWith(github.ref, 'refs/tags/') }}" = "true" ]; then
-            echo "tag=${GITHUB_REF_NAME#vks-mcp-server-}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME#${{ steps.comp.outputs.component }}-}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
           fi
@@ -89,7 +108,7 @@ jobs:
         run: echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "${{ vars.IMAGE_REGISTRY }}" -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
 
       - name: Build image
-        run: docker build -f src/vks-mcp-server/Dockerfile -t "${{ vars.IMAGE_REGISTRY }}/greennode-vks-mcp:${{ steps.meta.outputs.tag }}" .
+        run: docker build -f src/${{ steps.comp.outputs.component }}/Dockerfile -t "${{ vars.IMAGE_REGISTRY }}/${{ steps.comp.outputs.image }}:${{ steps.meta.outputs.tag }}" .
 
       - name: Push image
-        run: docker push "${{ vars.IMAGE_REGISTRY }}/greennode-vks-mcp:${{ steps.meta.outputs.tag }}"
+        run: docker push "${{ vars.IMAGE_REGISTRY }}/${{ steps.comp.outputs.image }}:${{ steps.meta.outputs.tag }}"

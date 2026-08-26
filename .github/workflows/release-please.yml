@@ -49,7 +49,7 @@ jobs:
             tag=$(jq -r --arg p "$path" '.[$p + "--tag_name"] // empty' outputs.json)
             [ -z "$tag" ] && continue
             case "$tag" in
-              vks-mcp-server-v*)
+              vks-mcp-server-v*|vserver-mcp-server-v*|vmonitor-mcp-server-v*|vbackup-mcp-server-v*)
                 echo "Dispatching deploy for $tag"
                 gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main -f "tag=$tag"
                 ;;
