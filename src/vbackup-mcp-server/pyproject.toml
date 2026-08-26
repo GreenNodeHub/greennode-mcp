@@ -1,6 +1,6 @@
 [project]
 name = "greennode.vbackup-mcp-server"
-version = "0.0.0"
+version = "0.1.0"
 description = "GreenNode MCP Server for vBackup (scheduled backups for vServer and vDB)"
 readme = "README.md"
 requires-python = ">=3.11"

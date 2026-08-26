@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/GreenNodeHub/greennode-mcp/compare/mcp-core-v0.5.0...mcp-core-v0.5.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* trigger release for all components ([1485342](https://github.com/GreenNodeHub/greennode-mcp/commit/1485342597312db00a098ae4d91505103ee34859))
+* trigger release for all components ([989bbd4](https://github.com/GreenNodeHub/greennode-mcp/commit/989bbd456b9047ac8326c0f87cd484a95b29ff03))
+
 ## [0.5.0](https://github.com/GreenNodeHub/greennode-mcp/compare/mcp-core-v0.4.1...mcp-core-v0.5.0) (2026-08-06)
 
 
