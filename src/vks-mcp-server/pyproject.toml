@@ -136,3 +136,5 @@ exclude_also = [
 
 [tool.coverage.run]
 source = ["greennode"]
+
+# release trigger vks-mcp-server
