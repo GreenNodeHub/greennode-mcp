@@ -1,6 +1,6 @@
 [project]
 name = "greennode.vserver-mcp-server"
-version = "0.0.0"
+version = "0.1.0"
 description = "GreenNode MCP Server for vServer (compute)"
 readme = "README.md"
 requires-python = ">=3.11"
