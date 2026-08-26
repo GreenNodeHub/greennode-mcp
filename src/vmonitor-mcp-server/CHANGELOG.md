@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.1](https://github.com/GreenNodeHub/greennode-mcp/compare/vmonitor-mcp-server-v0.1.0...vmonitor-mcp-server-v0.1.1) (2026-08-26)
+
+
+### Bug Fixes
+
+* trigger release for vserver, vmonitor, vbackup ([4f39399](https://github.com/GreenNodeHub/greennode-mcp/commit/4f39399efd87b2cd683bda3b6f7b9b1b609c7853))
+* trigger release for vserver, vmonitor, vbackup ([1eb84b4](https://github.com/GreenNodeHub/greennode-mcp/commit/1eb84b4cf0cd3bab190cb8dd329faa4be2ea42e9))
+
 ## 0.1.0 (2026-08-26)
 
 

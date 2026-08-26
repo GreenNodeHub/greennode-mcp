@@ -1,7 +1,7 @@
 {
   "src/vks-mcp-server": "0.14.3",
   "src/mcp-core": "0.5.1",
-  "src/vmonitor-mcp-server": "0.1.0",
-  "src/vserver-mcp-server": "0.1.0",
-  "src/vbackup-mcp-server": "0.1.0"
+  "src/vmonitor-mcp-server": "0.1.1",
+  "src/vserver-mcp-server": "0.1.1",
+  "src/vbackup-mcp-server": "0.1.1"
 }
