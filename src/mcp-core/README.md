@@ -15,11 +15,16 @@ Shared core for GreenNode MCP servers. Product servers
 
 ```python
 from greennode.mcp_core import (
-    BaseClient, DiscoveryCache, TokenManager, load_profile, resolve_config_dir,
+    BaseClient,
+    DiscoveryCache,
+    TokenManager,
+    load_profile,
+    resolve_config_dir,
 )
 
-profile = load_profile(resolve_config_dir())                # ~/.greennode (+legacy) credentials + region
-config = MyProductConfig(..., profile)                      # adds region -> base URLs
+profile = load_profile(resolve_config_dir())  # ~/.greennode (+legacy) credentials + region
+config = MyProductConfig(..., profile)  # adds region -> base URLs
+
 
 class MyClient(BaseClient):
     def __init__(self, config, token_manager):
