@@ -24,6 +24,45 @@
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false,
       "changelog-path": "CHANGELOG.md"
+    },
+    "src/vmonitor-mcp-server": {
+      "release-type": "python",
+      "package-name": "vmonitor-mcp-server",
+      "component": "vmonitor-mcp-server",
+      "include-component-in-tag": true,
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "changelog-path": "CHANGELOG.md"
+    },
+    "src/vserver-mcp-server": {
+      "release-type": "python",
+      "package-name": "vserver-mcp-server",
+      "component": "vserver-mcp-server",
+      "include-component-in-tag": true,
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "greennode/vserver_mcp_server/__init__.py"
+        }
+      ]
+    },
+    "src/vbackup-mcp-server": {
+      "release-type": "python",
+      "package-name": "vbackup-mcp-server",
+      "component": "vbackup-mcp-server",
+      "include-component-in-tag": true,
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "greennode/vbackup_mcp_server/__init__.py"
+        }
+      ]
     }
   }
 }

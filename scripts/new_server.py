@@ -31,6 +31,20 @@ PRODUCT_RE = re.compile(r"^[a-z][a-z0-9-]*[a-z0-9]$")
 # Path-segment placeholder (double-underscore style keeps template paths importable-ish)
 PATH_PLACEHOLDER = "__product_snake__"
 
+# Local artifacts that can appear inside the template tree (a ruff/pytest run in
+# that directory drops them there). They hold binary files, so copying them
+# blindly fails the render with a UnicodeDecodeError.
+SKIP_DIRS = {
+    "__pycache__",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".venv",
+    ".mypy_cache",
+    "dist",
+    "build",
+    ".egg-info",
+}
+
 
 def _substitutions(product: str) -> dict[str, str]:
     snake = product.replace("-", "_")
@@ -56,6 +70,8 @@ def render(product: str, force: bool) -> Path:
 
     for src in sorted(TEMPLATE_DIR.rglob("*")):
         rel = src.relative_to(TEMPLATE_DIR)
+        if SKIP_DIRS.intersection(rel.parts):
+            continue
         rel_str = str(rel).replace(PATH_PLACEHOLDER, subs["{{product_snake}}"])
         dst = target / rel_str
         if src.is_dir():
@@ -135,10 +151,12 @@ Next steps:
   2. cd src/{product}-mcp-server && uv run pytest tests/ -v   # scaffold tests pass out of the box
   3. Fill in the real API base URLs in config.py (REGIONS)
   4. Replace ExampleHandler with real handlers (TDD; see repo-root CLAUDE.md)
-  5. Add a deploy job/tag mapping for this package in .github/workflows/deploy.yml
-  6. Add '/src/{product}-mcp-server/ @<team>' to .github/CODEOWNERS
+  5. Add '/src/{product}-mcp-server/ @<team>' to .github/CODEOWNERS
+  6. Add '{product}-mcp-server' to the "Which server" dropdown in
+     .github/ISSUE_TEMPLATE/bug_report.yml
   7. Record product API quirks in src/{product}-mcp-server/CLAUDE.md
-CI (lint/test/build) and release-please pick the package up automatically."""
+CI (lint/test/build), deploy and release-please pick the package up
+automatically — the Dockerfile in the scaffold is what makes it deployable."""
     )
 
 

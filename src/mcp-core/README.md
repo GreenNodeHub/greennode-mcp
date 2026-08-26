@@ -8,7 +8,7 @@ Shared core for GreenNode MCP servers. Product servers
 | `config` | `load_profile()` — `~/.greennode` credentials/config INI + `GRN_*` env overrides; `resolve_config_dir()` picks `~/.greennode` (legacy `~/.greenode` fallback) |
 | `auth` | `TokenManager` — GreenNode IAM client-credentials token, auto-refresh (camelCase API) |
 | `http` | `BaseClient` — retry on 5xx/timeout (1s→2s→4s), auto-refresh on 401, 30s timeout; `user_token_var`/`current_identity` for per-request token passthrough + cache isolation |
-| `validators` | `validate_id()` — safe resource-ID check before URL construction |
+| `validators` | `validate_id()` — safe resource-ID check before URL construction; `validate_path_segment()` for values that legitimately contain dots (platform tag keys), still refusing separators and `..` |
 | `cache` | `DiscoveryCache` — per-tool TTL cache with `refresh` bypass |
 
 ## Usage in a product server
@@ -37,3 +37,7 @@ dependencies = ["greennode.mcp-core", ...]
 [tool.uv.sources]
 "greennode.mcp-core" = { workspace = true }
 ```
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

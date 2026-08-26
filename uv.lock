@@ -12,7 +12,10 @@ resolution-markers = [
 members = [
     "greennode-mcp",
     "greennode-mcp-core",
+    "greennode-vbackup-mcp-server",
     "greennode-vks-mcp-server",
+    "greennode-vmonitor-mcp-server",
+    "greennode-vserver-mcp-server",
 ]
 
 [[package]]
@@ -784,8 +787,60 @@ dev = [
 ]
 
 [[package]]
+name = "greennode-vbackup-mcp-server"
+version = "0.0.0"
+source = { editable = "src/vbackup-mcp-server" }
+dependencies = [
+    { name = "cachetools" },
+    { name = "greennode-mcp-core" },
+    { name = "httpx" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "pydantic" },
+    { name = "starlette" },
+]
+
+[package.optional-dependencies]
+http = [
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cachetools", specifier = ">=7.1.7" },
+    { name = "greennode-mcp-core", editable = "src/mcp-core" },
+    { name = "httpx", specifier = ">=0.27.0,<1.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=2.0.0" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'http'", specifier = ">=2.13.0" },
+    { name = "starlette", specifier = ">=0.27.0" },
+    { name = "uvicorn", marker = "extra == 'http'", specifier = ">=0.30.0" },
+]
+provides-extras = ["http"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.398" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=0.26.0" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "respx", specifier = ">=0.21.0" },
+    { name = "ruff", specifier = ">=0.9.7" },
+]
+
+[[package]]
 name = "greennode-vks-mcp-server"
-version = "0.14.1"
+version = "0.14.2"
 source = { editable = "src/vks-mcp-server" }
 dependencies = [
     { name = "cachetools" },
@@ -835,6 +890,108 @@ provides-extras = ["http"]
 dev = [
     { name = "commitizen", specifier = ">=4.2.2" },
     { name = "pre-commit", specifier = ">=4.1.0" },
+    { name = "pyright", specifier = ">=1.1.398" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=0.26.0" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "respx", specifier = ">=0.21.0" },
+    { name = "ruff", specifier = ">=0.9.7" },
+]
+
+[[package]]
+name = "greennode-vmonitor-mcp-server"
+version = "0.0.0"
+source = { editable = "src/vmonitor-mcp-server" }
+dependencies = [
+    { name = "greennode-mcp-core" },
+    { name = "httpx" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "starlette" },
+]
+
+[package.optional-dependencies]
+http = [
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "greennode-mcp-core", editable = "src/mcp-core" },
+    { name = "httpx", specifier = ">=0.27.0,<1.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=2.0.0" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.13.0" },
+    { name = "starlette", specifier = ">=0.27.0" },
+    { name = "uvicorn", marker = "extra == 'http'", specifier = ">=0.30.0" },
+]
+provides-extras = ["http"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pyright", specifier = ">=1.1.398" },
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", specifier = ">=0.26.0" },
+    { name = "pytest-cov", specifier = ">=4.1.0" },
+    { name = "respx", specifier = ">=0.21.0" },
+    { name = "ruff", specifier = ">=0.9.7" },
+]
+
+[[package]]
+name = "greennode-vserver-mcp-server"
+version = "0.0.0"
+source = { editable = "src/vserver-mcp-server" }
+dependencies = [
+    { name = "cachetools" },
+    { name = "greennode-mcp-core" },
+    { name = "httpx" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "pydantic" },
+    { name = "starlette" },
+]
+
+[package.optional-dependencies]
+http = [
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "uvicorn" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "respx" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cachetools", specifier = ">=7.1.7" },
+    { name = "greennode-mcp-core", editable = "src/mcp-core" },
+    { name = "httpx", specifier = ">=0.27.0,<1.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=2.0.0" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'http'", specifier = ">=2.13.0" },
+    { name = "starlette", specifier = ">=0.27.0" },
+    { name = "uvicorn", marker = "extra == 'http'", specifier = ">=0.30.0" },
+]
+provides-extras = ["http"]
+
+[package.metadata.requires-dev]
+dev = [
     { name = "pyright", specifier = ">=1.1.398" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=0.26.0" },

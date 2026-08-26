@@ -1,9 +1,11 @@
 """Async HTTP client base shared by all GreenNode MCP servers.
 
 Retries on 5xx/timeouts with exponential backoff and auto-refreshes the IAM
-token once on 401. Product servers subclass :class:`BaseClient` and provide a
-config object exposing ``get_base_url(region, service)`` plus their default
-service name.
+token once when a response signals an invalid/expired token (a 401, or any
+error carrying an ``IAM_VALIDATION_ERROR`` body code — some gateways answer a
+stale token with 500 rather than 401). Product servers subclass
+:class:`BaseClient` and provide a config object exposing
+``get_base_url(region, service)`` plus their default service name.
 """
 
 from __future__ import annotations
@@ -24,6 +26,49 @@ MAX_RETRIES = 3
 RETRY_BASE_DELAY = 1  # seconds
 RETRYABLE_STATUS_CODES = {500, 502, 503, 504}
 DEFAULT_TIMEOUT = 30  # seconds
+IAM_TOKEN_INVALID_CODES = {"IAM_VALIDATION_ERROR"}
+
+
+def _has_iam_token_error(body: Any) -> bool:
+    """True when a parsed error body carries an invalid-token IAM code.
+
+    Tolerates the shapes the gateway uses: a bare list of error objects
+    (``[{"code": ...}]``), a single ``{"code": ...}`` object, or an
+    ``{"errors": [{"code": ...}]}`` envelope.
+    """
+    if isinstance(body, list):
+        items = body
+    elif isinstance(body, dict):
+        if "code" in body:
+            items = [body]
+        elif isinstance(body.get("errors"), list):
+            items = body["errors"]
+        else:
+            items = []
+    else:
+        items = []
+    return any(isinstance(it, dict) and it.get("code") in IAM_TOKEN_INVALID_CODES for it in items)
+
+
+def _is_token_invalid(resp: httpx.Response) -> bool:
+    """True when a response signals a bad/expired IAM bearer token.
+
+    A 401 always qualifies. So does any 4xx/5xx whose body carries an
+    ``IAM_VALIDATION_ERROR`` code — the gateway returns that as HTTP 500 on some
+    paths, and retrying it as a plain server error just burns the retry budget
+    against the same stale token, surfacing to users as an endpoint that
+    "sometimes works, sometimes fails".
+    """
+    if resp.status_code == 401:
+        return True
+    if resp.status_code < 400:
+        return False
+    try:
+        body = resp.json()
+    except Exception:
+        return False
+    return _has_iam_token_error(body)
+
 
 # Per-request user token (HTTP passthrough mode): when set, every API call
 # carries the CALLER's IAM token instead of the shared service account's.
@@ -74,6 +119,7 @@ class BaseClient:
         params: dict[str, Any] | None = None,
         json: Any = None,
         raw_response: bool = False,
+        binary_response: bool = False,
         service: str | None = None,
         _retried_auth: bool = False,
     ) -> Any:
@@ -81,7 +127,9 @@ class BaseClient:
 
         Retries up to ``MAX_RETRIES`` times on 5xx errors and network
         timeouts with exponential backoff (1s, 2s, 4s). Automatically
-        retries once on 401 by refreshing the access token.
+        refreshes the access token and retries once when the response
+        signals an invalid/expired token (401, or an ``IAM_VALIDATION_ERROR``
+        body code returned as 500 by some gateways).
 
         Args:
             method: HTTP method (GET, POST, PUT, PATCH, DELETE).
@@ -91,9 +139,13 @@ class BaseClient:
             json: Optional JSON body.
             raw_response: If ``True``, return the raw response text
                 instead of parsed JSON.
+            binary_response: If ``True``, return the raw response bytes
+                (``resp.content``) without any text/JSON decoding — for
+                binary payloads such as downloaded certificate files.
             service: Target service name resolved by the config's
                 ``get_base_url``; ``None`` uses the client's default service.
-            _retried_auth: Internal flag to prevent infinite 401 retry loops.
+            _retried_auth: Internal flag to prevent infinite token-refresh
+                retry loops.
         """
         resolved_service = service or self._default_service
         base = self._config.get_base_url(region, resolved_service)
@@ -132,13 +184,12 @@ class BaseClient:
                     f"Request failed after {MAX_RETRIES + 1} attempts: {exc}"
                 ) from exc
 
-            # 401 — refresh token and retry once
-            if resp.status_code == 401:
+            if _is_token_invalid(resp):
                 if user_token:
                     # A rejected USER token must never fall back to the shared
                     # service account — that would be privilege confusion.
                     raise RuntimeError(
-                        "The caller's user token was rejected by the API (401). "
+                        "The caller's user token was rejected by the API. "
                         "The token may be expired — re-authenticate and retry."
                     )
                 if _retried_auth:
@@ -151,6 +202,7 @@ class BaseClient:
                     params=params,
                     json=json,
                     raw_response=raw_response,
+                    binary_response=binary_response,
                     service=resolved_service,
                     _retried_auth=True,
                 )
@@ -171,6 +223,9 @@ class BaseClient:
 
             if not resp.is_success:
                 self._raise_error(resp)
+
+            if binary_response:
+                return resp.content
 
             if raw_response:
                 return resp.text
@@ -210,6 +265,8 @@ class BaseClient:
         if status == 404:
             raise RuntimeError(f"Resource not found: {msg}")
         if status == 409:
+            if msg and msg != "unknown error":
+                raise RuntimeError(f"Conflict: {msg}")
             raise RuntimeError("Resource is being processed. Please wait and try again.")
 
         raise RuntimeError(f"API error ({status}): {msg}")
@@ -270,3 +327,12 @@ class BaseClient:
     ) -> str:
         """Send a GET request and return the raw response text."""
         return await self._request("GET", path, region=region, params=params, raw_response=True)
+
+    async def get_bytes(
+        self,
+        path: str,
+        region: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> bytes:
+        """Send a GET request and return the raw response bytes (no decoding)."""
+        return await self._request("GET", path, region=region, params=params, binary_response=True)

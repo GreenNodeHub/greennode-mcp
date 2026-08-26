@@ -1,0 +1,4 @@
+# Pinned uv version used to build/sync this project (mirrors the AWS Labs layout).
+# Regenerate with:
+#   uv pip compile --generate-hashes --output-file=uv-requirements.txt uv-requirements.in
+uv>=0.5.0

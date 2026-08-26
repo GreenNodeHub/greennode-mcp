@@ -1,0 +1,261 @@
+"""Pydantic response models and write DTOs for the vBackup MCP server.
+
+Everything is re-exported here, so handlers import from
+``greennode.vbackup_mcp_server.models`` regardless of which submodule a name
+lives in — files can be reorganised without touching a handler. The repo-wide
+conventions test resolves the package the same way it resolves a flat
+``models.py``, so the DTO rules keep applying.
+
+| Module | Holds |
+|---|---|
+| ``_common`` | Coercion helpers: float numbers, byte sizes, JSON-string fields, id spellings |
+| ``catalogue`` | Backends, destinations, platform configuration, protected servers |
+| ``instance`` | The vServer instance behind a backup server, and account backup statistics |
+| ``metrics`` | vMonitor time series for the product and for one backup location |
+| ``destination`` | Destination sub-resources: products, backup regions, tags, change history |
+| ``database`` | Protected vDB databases, their restore points, and the vDB instances behind them |
+| ``policy`` | Backup policies and their schedules |
+| ``backup_server`` | Protected servers, their volumes, and the write-result envelope |
+| ``points`` | Restore points, per-volume slices, volume usage |
+| ``history`` | Backup-run and restore audit trails |
+| ``requests`` | Every ``*Dto`` write body (``extra="forbid"``) |
+"""
+
+from greennode.vbackup_mcp_server.models._common import (
+    BYTES_PER_GIB,
+    as_dict,
+    as_gib,
+    as_int,
+    as_text,
+    resource_id,
+)
+from greennode.vbackup_mcp_server.models.backup_server import (
+    BackupDestinationRef,
+    BackupServerItem,
+    BackupServerListData,
+    BackupServerVolumeItem,
+    BackupServerVolumeListData,
+    WriteResult,
+)
+from greennode.vbackup_mcp_server.models.catalogue import (
+    BackendItem,
+    BackendListData,
+    BackupDestinationItem,
+    BackupDestinationListData,
+    ConfigurationData,
+    ProtectedServerListData,
+    RetentionLimits,
+    SoftDeleteInfo,
+    VaultInfo,
+    VaultLockInfo,
+)
+from greennode.vbackup_mcp_server.models.database import (
+    BackupDatabaseItem,
+    BackupDatabaseListData,
+    BackupDatabasePointItem,
+    BackupDatabasePointListData,
+    DatabaseInstanceItem,
+    DatabaseInstanceListData,
+    DatabaseType,
+    ProtectedDatabaseListData,
+    is_memory_type,
+)
+from greennode.vbackup_mcp_server.models.destination import (
+    BackupRegionItem,
+    BackupRegionListData,
+    DestinationHistoryItem,
+    DestinationHistoryListData,
+    DestinationTagItem,
+    DestinationTagListData,
+    ProductItem,
+    ProductListData,
+)
+from greennode.vbackup_mcp_server.models.metrics import (
+    BackupMetricsData,
+    DestinationMetricsData,
+    MetricPoint,
+    MetricSeries,
+    MetricsWindow,
+    MultiDestinationMetricsData,
+)
+from greennode.vbackup_mcp_server.models.instance import (
+    BackupStatisticData,
+    InstanceAddress,
+    InstanceFlavor,
+    InstanceImage,
+    VserverInstanceDetail,
+)
+from greennode.vbackup_mcp_server.models.history import (
+    BackupHistoryItem,
+    BackupHistoryListData,
+    DatabaseBackupHistoryItem,
+    DatabaseBackupHistoryListData,
+    DatabaseRestoreHistoryItem,
+    DatabaseRestoreHistoryListData,
+    RestoreHistoryItem,
+    RestoreHistoryListData,
+    ServerMigrationHistoryItem,
+    ServerMigrationHistoryListData,
+    count_failures,
+    newest_first,
+)
+from greennode.vbackup_mcp_server.models.points import (
+    BackupServerPointDownloadData,
+    BackupServerPointItem,
+    BackupServerPointListData,
+    BackupVolumePointItem,
+    BackupVolumePointListData,
+    VolumePointDownloadUrls,
+    VolumeUsageItem,
+    VolumeUsageListData,
+    missing_ids,
+)
+from greennode.vbackup_mcp_server.models.policy import (
+    BackupPolicyItem,
+    BackupPolicyListData,
+    BackupPolicyRef,
+    BackupPolicySchedule,
+    CadenceConfig,
+)
+from greennode.vbackup_mcp_server.models.vserver import (
+    VserverBackupServerItem,
+    VserverBackupServerListData,
+    VserverBackupServerPointItem,
+    VserverBackupServerPointListData,
+    VserverServerInfo,
+)
+from greennode.vbackup_mcp_server.models.requests import (
+    BackupNowDto,
+    BackupPolicyConfigDto,
+    CreateBackupDatabaseDto,
+    CreateBackupDestinationDto,
+    CreateBackupPolicyDto,
+    CreateBackupServerDto,
+    CreateVserverBackupServersDto,
+    DailyConfigDto,
+    HourlyConfigDto,
+    MaxQuotaDto,
+    MonthlyConfigDto,
+    ServerSelectionDto,
+    SoftDeleteDto,
+    UpdateBackupDatabasePolicyDto,
+    UpdateBackupDestinationNameDto,
+    UpdateBackupPolicyDto,
+    UpdateBackupServerDestinationDto,
+    UpdateBackupServerPolicyDto,
+    UpdateBackupServerVolumesDto,
+    UpdateMaxQuotaDto,
+    VaultLockDto,
+    VolumeSelectionDto,
+    VolumeUsageQueryDto,
+    WeeklyConfigDto,
+)
+
+
+__all__ = [
+    "BYTES_PER_GIB",
+    "BackendItem",
+    "BackendListData",
+    "BackupDatabaseItem",
+    "BackupDatabaseListData",
+    "BackupDatabasePointItem",
+    "BackupDatabasePointListData",
+    "BackupDestinationItem",
+    "BackupDestinationListData",
+    "BackupDestinationRef",
+    "BackupHistoryItem",
+    "BackupHistoryListData",
+    "BackupMetricsData",
+    "BackupNowDto",
+    "BackupPolicyConfigDto",
+    "BackupPolicyItem",
+    "BackupPolicyListData",
+    "BackupPolicyRef",
+    "BackupPolicySchedule",
+    "BackupRegionItem",
+    "BackupRegionListData",
+    "BackupServerItem",
+    "BackupServerListData",
+    "BackupServerPointDownloadData",
+    "BackupServerPointItem",
+    "BackupServerPointListData",
+    "BackupServerVolumeItem",
+    "BackupServerVolumeListData",
+    "BackupStatisticData",
+    "BackupVolumePointItem",
+    "BackupVolumePointListData",
+    "CadenceConfig",
+    "ConfigurationData",
+    "CreateBackupDatabaseDto",
+    "CreateBackupDestinationDto",
+    "CreateBackupPolicyDto",
+    "CreateBackupServerDto",
+    "CreateVserverBackupServersDto",
+    "DailyConfigDto",
+    "DatabaseBackupHistoryItem",
+    "DatabaseBackupHistoryListData",
+    "DatabaseInstanceItem",
+    "DatabaseInstanceListData",
+    "DatabaseRestoreHistoryItem",
+    "DatabaseRestoreHistoryListData",
+    "DatabaseType",
+    "DestinationHistoryItem",
+    "DestinationHistoryListData",
+    "DestinationMetricsData",
+    "DestinationTagItem",
+    "DestinationTagListData",
+    "HourlyConfigDto",
+    "InstanceAddress",
+    "InstanceFlavor",
+    "InstanceImage",
+    "MaxQuotaDto",
+    "MetricPoint",
+    "MetricSeries",
+    "MetricsWindow",
+    "MonthlyConfigDto",
+    "MultiDestinationMetricsData",
+    "ProductItem",
+    "ProductListData",
+    "ProtectedDatabaseListData",
+    "ProtectedServerListData",
+    "RestoreHistoryItem",
+    "RestoreHistoryListData",
+    "RetentionLimits",
+    "ServerMigrationHistoryItem",
+    "ServerMigrationHistoryListData",
+    "ServerSelectionDto",
+    "SoftDeleteDto",
+    "SoftDeleteInfo",
+    "UpdateBackupDatabasePolicyDto",
+    "UpdateBackupDestinationNameDto",
+    "UpdateBackupPolicyDto",
+    "UpdateBackupServerDestinationDto",
+    "UpdateBackupServerPolicyDto",
+    "UpdateBackupServerVolumesDto",
+    "UpdateMaxQuotaDto",
+    "VaultInfo",
+    "VaultLockDto",
+    "VaultLockInfo",
+    "VolumePointDownloadUrls",
+    "VolumeSelectionDto",
+    "VolumeUsageItem",
+    "VolumeUsageListData",
+    "VolumeUsageQueryDto",
+    "VserverBackupServerItem",
+    "VserverBackupServerListData",
+    "VserverBackupServerPointItem",
+    "VserverBackupServerPointListData",
+    "VserverInstanceDetail",
+    "VserverServerInfo",
+    "WeeklyConfigDto",
+    "WriteResult",
+    "as_dict",
+    "as_gib",
+    "as_int",
+    "as_text",
+    "count_failures",
+    "is_memory_type",
+    "missing_ids",
+    "newest_first",
+    "resource_id",
+]

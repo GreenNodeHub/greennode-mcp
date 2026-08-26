@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv
+env/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+
+# Ruff
+.ruff_cache/
+
+# Environments
+.env
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+
+# Credentials — never commit. Tokens and keys live in ~/.greennode or GRN_* env vars.
+access-key*
+*credential*
+*secret*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local development inputs — API captures, exported documentation and scratch
+# notes. They are not part of the published server and may carry
+# account-specific data, so they are never committed.
+*-api-docs.json
+*-openapi.json
+*-swagger.json
+*-api.csv
+*-docs.txt
+scratch/
+notes/

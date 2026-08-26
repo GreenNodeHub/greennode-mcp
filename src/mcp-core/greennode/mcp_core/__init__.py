@@ -6,7 +6,7 @@ copying config/auth/HTTP plumbing:
 - config:     load_profile() — ~/.greennode credentials/config + GRN_* env overrides
 - auth:       TokenManager — GreenNode IAM client-credentials token with auto-refresh
 - http:       BaseClient — retry on 5xx/timeout, auto-refresh on 401
-- validators: validate_id — safe resource-ID validation for URL construction
+- validators: validate_id / validate_path_segment — safe URL-path construction
 - cache:      DiscoveryCache — short-lived per-tool TTL cache with refresh bypass
 """
 
@@ -14,7 +14,7 @@ from greennode.mcp_core.auth import IAM_TOKEN_URL, TokenManager
 from greennode.mcp_core.cache import DEFAULT_MAXSIZE, DiscoveryCache
 from greennode.mcp_core.config import ProfileSettings, load_profile, resolve_config_dir
 from greennode.mcp_core.http import BaseClient
-from greennode.mcp_core.validators import validate_id
+from greennode.mcp_core.validators import validate_id, validate_path_segment
 
 
 __version__ = "0.1.0"
@@ -29,5 +29,6 @@ __all__ = [
     "resolve_config_dir",
     "BaseClient",
     "validate_id",
+    "validate_path_segment",
     "__version__",
 ]
