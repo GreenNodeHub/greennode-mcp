@@ -14,6 +14,7 @@ from greennode.mcp_core import (
     load_profile,
     resolve_config_dir,
     validate_id,
+    validate_path_segment,
 )
 
 
@@ -145,6 +146,139 @@ async def test_base_client_refreshes_token_on_401():
     assert route.call_count == 2
 
 
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_refreshes_token_on_iam_validation_500():
+    """The GreenNode gateway answers an expired/invalid bearer token with
+    **HTTP 500 + IAM_VALIDATION_ERROR** on some paths (vMonitor metric/log APIs)
+    instead of 401. That must trigger a token refresh + single retry — NOT the
+    generic 5xx retry storm against the same stale token (which surfaces as an
+    endpoint that 'sometimes works, sometimes fails')."""
+    _mock_iam(respx.mock)
+    route = respx.get("https://api.example.test/v1/secure").mock(
+        side_effect=[
+            httpx.Response(500, json=[{"code": "IAM_VALIDATION_ERROR", "message": "x"}]),
+            httpx.Response(200, json={"ok": True}),
+        ]
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    assert await client.get("/v1/secure") == {"ok": True}
+    assert route.call_count == 2  # refreshed + retried once, no 5xx storm
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_iam_validation_500_gives_up_after_one_refresh():
+    """A persistently-invalid token must refresh exactly once, then raise — it
+    must never loop, and must not burn the 3x 5xx retry budget."""
+    _mock_iam(respx.mock)
+    route = respx.get("https://api.example.test/v1/secure").mock(
+        return_value=httpx.Response(500, json=[{"code": "IAM_VALIDATION_ERROR"}])
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    with pytest.raises(RuntimeError):
+        await client.get("/v1/secure")
+    assert route.call_count == 2  # initial + one post-refresh attempt only
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_permission_denied_403_is_not_a_token_refresh():
+    """IAM_PERMISSION_DENIED (403) is a real authorization denial a refresh
+    cannot fix — it must be raised immediately, not retried with a new token."""
+    _mock_iam(respx.mock)
+    route = respx.get("https://api.example.test/v1/secure").mock(
+        return_value=httpx.Response(403, json=[{"code": "IAM_PERMISSION_DENIED"}])
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    with pytest.raises(RuntimeError):
+        await client.get("/v1/secure")
+    assert route.call_count == 1  # no refresh, no retry
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_generic_500_still_retries_without_refresh():
+    """A non-IAM 500 keeps the normal 5xx retry behaviour (3 retries) and does
+    not trigger a token refresh."""
+    _mock_iam(respx.mock)
+    route = respx.get("https://api.example.test/v1/secure").mock(
+        side_effect=[
+            httpx.Response(500, json={"message": "boom"}),
+            httpx.Response(500, json={"message": "boom"}),
+            httpx.Response(200, json={"ok": True}),
+        ]
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    assert await client.get("/v1/secure") == {"ok": True}
+    assert route.call_count == 3
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_409_keeps_the_upstream_message():
+    """A 409 usually carries the actual business rule that was violated (quota
+    limits, duplicate names). Replacing it with a generic 'try again later'
+    tells the caller to retry something that will never succeed."""
+    _mock_iam(respx.mock)
+    respx.post("https://api.example.test/v1/quotas").mock(
+        return_value=httpx.Response(
+            409, json={"message": "You can only create 1 log free project"}
+        )
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    with pytest.raises(RuntimeError, match="only create 1 log free project"):
+        await client.post("/v1/quotas", json={})
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_409_without_a_body_falls_back_to_the_processing_hint():
+    """An empty 409 really is the 'resource busy' case, so keep that hint."""
+    _mock_iam(respx.mock)
+    respx.post("https://api.example.test/v1/quotas").mock(return_value=httpx.Response(409))
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    with pytest.raises(RuntimeError, match="being processed"):
+        await client.post("/v1/quotas", json={})
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_user_token_iam_validation_500_never_falls_back_to_service_account():
+    """A passthrough user token rejected via the 500/IAM_VALIDATION_ERROR shape
+    must raise immediately — never silently refresh the service account."""
+    from greennode.mcp_core.http import user_token_var
+
+    _mock_iam(respx.mock)
+    route = respx.get("https://api.example.test/v1/things").mock(
+        return_value=httpx.Response(500, json=[{"code": "IAM_VALIDATION_ERROR"}])
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+    token = user_token_var.set("expired-user-token")
+    try:
+        with pytest.raises(RuntimeError, match="user token"):
+            await client.get("/v1/things")
+    finally:
+        user_token_var.reset(token)
+    assert route.call_count == 1
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_token_manager_singleflights_concurrent_refresh():
+    """Concurrent callers on a cold token must trigger only ONE IAM fetch —
+    a burst of tool calls should not fan out into a burst of token requests."""
+    import asyncio
+
+    iam = respx.post(IAM_TOKEN_URL).mock(
+        return_value=httpx.Response(200, json={"accessToken": "tok", "expiresIn": 1800})
+    )
+    tm = TokenManager(_FakeConfig())
+    tokens = await asyncio.gather(*[tm.get_token() for _ in range(8)])
+    assert tokens == ["tok"] * 8
+    assert iam.call_count == 1
+
+
 # ---------------------------------------------------------------------------
 # validators
 # ---------------------------------------------------------------------------
@@ -158,6 +292,17 @@ def test_validate_id_accepts_safe_ids():
 def test_validate_id_rejects_unsafe(bad):
     with pytest.raises(ValueError):
         validate_id(bad, "cluster_id")
+
+
+@pytest.mark.parametrize("good", ["vng.vpc.id", "vks-cluster-ids", "app_name", "a1"])
+def test_validate_path_segment_accepts_dotted_platform_names(good):
+    validate_path_segment(good, "key")
+
+
+@pytest.mark.parametrize("bad", ["", ".hidden", "a/b", "a\\b", "../etc", "a b", "a%2Fb"])
+def test_validate_path_segment_rejects_traversal_and_separators(bad):
+    with pytest.raises(ValueError):
+        validate_path_segment(bad, "key")
 
 
 # ---------------------------------------------------------------------------

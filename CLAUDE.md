@@ -26,8 +26,9 @@ uv run python scripts/new_server.py <product>    # e.g. vdb
 
 Scaffolds `src/<product>-mcp-server/` from `templates/new-server` — working
 example tool, tests, Dockerfile, per-package CLAUDE.md — registers it with
-release-please, and prints the remaining manual steps (deploy job, CODEOWNERS
-line, real API endpoints). CI discovers the package automatically. See also the
+release-please, and prints the remaining manual steps (CODEOWNERS line,
+bug-report dropdown, real API endpoints). CI, deploy and release automation
+all discover the package automatically. See also the
 `new-mcp-server` skill in `.claude/skills/`.
 
 ## Branch & release flow (trunk-based)
@@ -49,10 +50,11 @@ GitHub Actions live in `.github/workflows/`:
 
 - `ci.yml` — runs on pull requests and pushes to `main`. **Auto-discovers workspace members** under `src/` (a new `src/<product>-mcp-server/` gets lint/format/pytest + Docker build with zero YAML changes), plus a repo-wide `Conventions` job running `tests/test_conventions.py` (verb_noun tool names, `extra="forbid"` on `*Dto` models, `## Requirements` docstrings on write tools — the rules below enforced as failing tests). Branch protection requires the single `CI OK` gate job, so adding packages never touches protection settings.
 - `pr-title.yml` — enforces Conventional Commits on PR titles (semantic-pull-request action).
-- `deploy.yml` — builds and pushes the image to a registry, using **GitHub Environments** so dev and production can have different registry config (environment names `develop`/`production` are decoupled from branch names). Triggers: push to `main` touching watched paths (path filter — no magic strings) → `develop` environment (image tag = commit sha); production deploys run only via `workflow_dispatch` with a `tag` input — chained automatically from `release-please.yml` after a release, or manual (`gh workflow run deploy.yml --ref main -f tag=<component>-vX.Y.Z`); image tag = `vX.Y.Z` (component prefix stripped). The production environment requires **reviewer approval** before the job runs (Actions run page → Review deployments). In each environment (Settings → Environments) set the registry variable `IMAGE_REGISTRY` and the `REGISTRY_USERNAME` / `REGISTRY_PASSWORD` secrets. Both environments' "Deployment branches" policies must allow `main` (dispatch runs on main).
+- `deploy.yml` — builds and pushes one image per package, using **GitHub Environments** so dev and production can have different registry config (environment names `develop`/`production` are decoupled from branch names). Like `ci.yml` it **auto-discovers workspace members**: a package is deployable once it has a `Dockerfile` (`mcp-core` is a library, so it is released but never imaged), and the image is named `greennode-<product>-mcp`. Triggers: push to `main` → the packages that commit actually touched are deployed to the `develop` environment (image tag = commit sha; a change to `mcp-core`, the root `pyproject.toml`, `uv.lock` or the workflow rebuilds every image); production deploys run only via `workflow_dispatch` with a `tag` input — chained automatically from `release-please.yml` after a release, or manual (`gh workflow run deploy.yml --ref main -f tag=<component>-vX.Y.Z`) — where the component names the package directory and the image tag is `vX.Y.Z`. The production environment requires **reviewer approval** before the job runs (Actions run page → Review deployments). In each environment (Settings → Environments) set the registry variable `IMAGE_REGISTRY` and the `REGISTRY_USERNAME` / `REGISTRY_PASSWORD` secrets. Both environments' "Deployment branches" policies must allow `main` (both triggers run on main).
 - `release-please.yml` — per-package release automation (manifest mode). With the default `GITHUB_TOKEN`, required checks don't start on the release PR automatically — close & reopen it once; set the `RELEASE_PLEASE_TOKEN` secret (fine-grained PAT: contents + pull-requests write) to remove that friction.
 - `dependabot.yml` — weekly grouped updates for uv deps and GitHub Actions pins.
 - `.github/CODEOWNERS` — per-product ownership: each team owns its `src/<product>-mcp-server/`.
+- `.github/ISSUE_TEMPLATE/bug_report.yml` — the "Which server" dropdown is a hand-maintained list; add the package when you add a server.
 
 ## Code conventions
 
@@ -62,10 +64,13 @@ GitHub Actions live in `.github/workflows/`:
 - Follow existing handler pattern: class with `__init__` registering tools via `self.mcp.tool()`
 - **Tool naming**: EKS-style `verb_noun` (`list_clusters`, `get_nodegroup`, `create_cluster`), matching the AWS Labs MCP convention and mapping 1:1 to greennode-cli command names (`list-clusters` → `list_clusters`). Never `noun_verb`.
 - Import shared plumbing from `greennode.mcp_core` — do not copy config/auth/HTTP/validator/cache code into a product package.
+- **Models**: a package keeps its response models and write DTOs either in one `models.py` or in a `models/` package whose `__init__.py` re-exports every name (do that once one file gets unwieldy — vserver splits by domain). Either way, handlers import from `greennode.<product>_mcp_server.models`, never from a submodule, and the `Conventions` job enforces the DTO rules on both layouts.
 
 ## GreenNode platform quirks
 
 - **IAM API uses camelCase**: `grantType`, `accessToken`, `expiresIn` (not snake_case OAuth2 standard) — handled by `mcp_core.auth.TokenManager`.
+- **A stale/invalid token is not always a 401**: some GreenNode gateways (e.g. vMonitor's metric + log hosts) answer an expired bearer token with `500 {"code":"IAM_VALIDATION_ERROR"}`. `mcp_core.http.BaseClient` treats that code — at any 4xx/5xx — as an auth failure and refreshes the token once (before the generic 5xx retry), so a drifted token self-heals instead of being retried to death against itself. `IAM_PERMISSION_DENIED` (403) is a genuine denial and is not refreshed. `TokenManager.get_token` is single-flighted so concurrent callers share one refresh.
+- **A 409 usually states a business rule, not a busy resource**: GreenNode APIs answer quota/naming conflicts with `409 {"message": "..."}` (e.g. "You can only create 1 log free project"). `mcp_core.http.BaseClient` surfaces that message as `Conflict: <message>`, falling back to "Resource is being processed. Please wait and try again." only for a bodyless 409 — a generic retry hint on a rule violation sends the agent into a loop that can never succeed.
 - Product API quirks (pagination base, status codes, field casing) belong in the **package** CLAUDE.md.
 
 ## Configuration

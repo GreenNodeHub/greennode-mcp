@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import httpx
 import time
@@ -30,14 +31,18 @@ class TokenManager:
         self._config = config
         self._access_token = None
         self._expires_at = 0
+        self._lock = asyncio.Lock()
 
     async def get_token(self) -> str:
         """Return a valid access token, refreshing if needed."""
         if self._access_token and time.time() < self._expires_at - 60:
             return self._access_token
 
-        await self._fetch_token()
-        return self._access_token
+        async with self._lock:
+            if self._access_token and time.time() < self._expires_at - 60:
+                return self._access_token
+            await self._fetch_token()
+            return self._access_token
 
     async def _fetch_token(self) -> None:
         """Fetch a new token from the IAM API."""

@@ -9,9 +9,24 @@ dependencies = [
     "cachetools>=7.1.7",
 ]
 license = {text = "Apache-2.0"}
+license-files = ["LICENSE", "NOTICE"]
 authors = [
     {name = "Green Node"},
 ]
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+homepage = "https://github.com/vngcloud/greennode-mcp"
+repository = "https://github.com/vngcloud/greennode-mcp.git"
+changelog = "https://github.com/vngcloud/greennode-mcp/blob/main/src/mcp-core/CHANGELOG.md"
 
 [build-system]
 requires = ["hatchling"]

@@ -33,11 +33,41 @@ ALLOWED_VERBS = {
     "generate",
     "manage",
     "search",
+    "start",
+    "stop",
+    "reboot",
+    "resize",
+    "attach",
+    "detach",
+    "import",
+    "rename",
+    "enable",
+    "disable",
+    "rollback",
+    "ping",
 }
 
 # Tools starting with these prefixes mutate state and must carry a structured
 # docstring. *_dryrun previews are read-only and exempt.
-WRITE_PREFIXES = ("create_", "update_", "delete_", "configure_", "upgrade_")
+WRITE_PREFIXES = (
+    "create_",
+    "update_",
+    "delete_",
+    "configure_",
+    "upgrade_",
+    "start_",
+    "stop_",
+    "reboot_",
+    "resize_",
+    "attach_",
+    "detach_",
+    "import_",
+    "rename_",
+    "enable_",
+    "disable_",
+    "rollback_",
+    "ping_",
+)
 
 # name may be followed by other kwargs (e.g. annotations=READ)
 _TOOL_NAME_RE = re.compile(r'\.tool\(\s*name="([a-z0-9_]+)"')
@@ -84,14 +114,28 @@ def test_tool_names_are_verb_noun(pkg_name: str):
     )
 
 
+def _models_module(pkg: Path) -> str | None:
+    """Import path of a package's models, whether it is a module or a package.
+
+    A product may keep models in one `models.py` or split them across a
+    `models/` package that re-exports everything from `__init__.py`. Both are
+    imported the same way, so the rules below apply either way — matching only
+    the file would silently stop enforcing them the day a package is split.
+    """
+    for candidate in (pkg.glob("greennode/*/models.py"), pkg.glob("greennode/*/models/__init__.py")):
+        for path in candidate:
+            product = path.parent.name if path.name == "models.py" else path.parent.parent.name
+            return f"greennode.{product}.models"
+    return None
+
+
 @pytest.mark.parametrize("pkg_name", _package_ids())
 def test_write_dtos_forbid_extra(pkg_name: str):
     """Every request DTO (class name ending in 'Dto') rejects unknown fields."""
     pkg = SRC / pkg_name
-    models_files = list(pkg.glob("greennode/*/models.py"))
-    if not models_files:
-        pytest.skip(f"{pkg_name}: no models.py")
-    module_name = f"greennode.{models_files[0].parent.name}.models"
+    module_name = _models_module(pkg)
+    if module_name is None:
+        pytest.skip(f"{pkg_name}: no models module")
     models = importlib.import_module(module_name)
     bad = []
     for name, cls in inspect.getmembers(models, inspect.isclass):
