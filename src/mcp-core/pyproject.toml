@@ -71,3 +71,5 @@ dev = [
     "respx>=0.21.0",
     "ruff>=0.9.7",
 ]
+
+# release trigger mcp-core
