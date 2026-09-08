@@ -1,0 +1,505 @@
+"""Pools, members and the health monitor — the two read-modify-write footguns."""
+
+from __future__ import annotations
+
+import httpx
+import json
+import pytest
+import respx
+from .helpers import (
+    LB,
+    POOL,
+    PROJECT,
+    SAMPLE_MEMBERS,
+    SAMPLE_POOL,
+    VLB_HCM3,
+    data_env,
+    list_env,
+    mock_iam,
+)
+from greennode.vlb_mcp_server.models import (
+    CreateHealthMonitorDto,
+    CreatePoolDto,
+    HealthMonitorUpdateData,
+    MemberDto,
+    MemberTargetDto,
+    PoolMemberItem,
+)
+from greennode.vlb_mcp_server.pool_handler import PoolHandler
+from mcp.server.mcpserver import MCPServer
+
+
+BASE = f"{VLB_HCM3}/v2/{PROJECT}/loadBalancers"
+POOLS = f"{BASE}/{LB}/pools"
+MEMBERS_URL = f"{POOLS}/{POOL}/members"
+
+HM = {
+    "uuid": "hm-1",
+    "healthCheckProtocol": "HTTP",
+    "healthCheckPath": "/healthz",
+    "healthCheckMethod": "GET",
+    "healthyThreshold": 3,
+    "unhealthyThreshold": 3,
+    "timeout": 5,
+    "interval": 30,
+    "successCode": "200",
+    "httpVersion": "1.1",
+    "displayStatus": "ACTIVE",
+}
+
+
+@pytest.fixture
+def pools_rw(config, client, no_cache):
+    return PoolHandler(MCPServer("t"), config, client, no_cache, allow_write=True)
+
+
+@pytest.fixture
+def pools_ro(config, client, no_cache):
+    return PoolHandler(MCPServer("t"), config, client, no_cache, allow_write=False)
+
+
+def _create_pool() -> CreatePoolDto:
+    return CreatePoolDto(
+        poolName="web-pool",
+        poolProtocol="HTTP",
+        algorithm="ROUND_ROBIN",
+        healthMonitor=CreateHealthMonitorDto(healthCheckProtocol="HTTP", healthCheckPath="/"),
+    )
+
+
+# --- registration -----------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_read_only_mode_registers_no_write_tools(pools_ro):
+    assert {t.name for t in await pools_ro.mcp.list_tools()} == {
+        "list_pools",
+        "get_pool",
+        "list_pool_members",
+        "get_pool_health_monitor",
+    }
+
+
+@pytest.mark.asyncio
+async def test_write_mode_adds_exactly_the_mutating_tools(pools_rw, pools_ro):
+    read = {t.name for t in await pools_ro.mcp.list_tools()}
+    write = {t.name for t in await pools_rw.mcp.list_tools()}
+    assert write - read == {
+        "create_pool",
+        "update_pool",
+        "delete_pool",
+        "update_pool_members",
+        "attach_pool_members",
+        "detach_pool_members",
+        "update_pool_health_monitor",
+    }
+
+
+# --- reads -------------------------------------------------------------------------
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_list_pools_maps_the_response_spellings(pools_ro):
+    mock_iam(respx.mock)
+    respx.get(POOLS).mock(return_value=httpx.Response(200, json=list_env([SAMPLE_POOL])))
+    result = await pools_ro.list_pools(load_balancer_id=LB, region="HCM-3")
+    pool = result.pools[0]
+    assert pool.id == POOL
+    # request says algorithm/poolProtocol/poolName; response says
+    # loadBalanceMethod/protocol/name
+    assert pool.algorithm == "ROUND_ROBIN"
+    assert pool.protocol == "HTTP"
+    assert pool.name == "web-pool"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_pool(pools_ro):
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(
+        return_value=httpx.Response(200, json=data_env({**SAMPLE_POOL, "healthMonitor": HM}))
+    )
+    pool = await pools_ro.get_pool(load_balancer_id=LB, pool_id=POOL, region="HCM-3")
+    assert pool.health_monitor is not None
+    assert pool.health_monitor.health_check_path == "/healthz"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_list_pool_members_maps_address_and_protocol_port(pools_ro):
+    mock_iam(respx.mock)
+    respx.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=list_env(SAMPLE_MEMBERS)))
+    result = await pools_ro.list_pool_members(load_balancer_id=LB, pool_id=POOL, region="HCM-3")
+    assert [(m.ip_address, m.port) for m in result.members] == [
+        ("10.0.0.11", 80),
+        ("10.0.0.12", 80),
+    ]
+    # a real read reports live state
+    assert result.confirmed is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_get_pool_health_monitor(pools_ro):
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env(HM))
+    )
+    hm = await pools_ro.get_pool_health_monitor(load_balancer_id=LB, pool_id=POOL, region="HCM-3")
+    assert hm.health_check_protocol == "HTTP"
+    assert hm.interval == 30
+
+
+def test_pool_member_item_round_trips_to_a_member_dto():
+    """The read side spells it address/protocolPort; the write side ipAddress/port."""
+    item = PoolMemberItem.from_api(SAMPLE_MEMBERS[0])
+    dto = item.to_member_dto()
+    assert isinstance(dto, MemberDto)
+    assert dto.model_dump(exclude_none=True) == {
+        "ipAddress": "10.0.0.11",
+        "port": 80,
+        "backup": False,
+        "weight": 1,
+        "name": "web-01",
+        "monitorPort": 80,
+    }
+
+
+# --- creates / updates ---------------------------------------------------------------
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_create_pool_sends_only_declared_fields(pools_rw):
+    mock_iam(respx.mock)
+    route = respx.post(POOLS).mock(return_value=httpx.Response(200, json={"uuid": POOL}))
+    result = await pools_rw.create_pool(load_balancer_id=LB, body=_create_pool(), region="HCM-3")
+    assert json.loads(route.calls[0].request.content) == {
+        "poolName": "web-pool",
+        "poolProtocol": "HTTP",
+        "algorithm": "ROUND_ROBIN",
+        "healthMonitor": {"healthCheckProtocol": "HTTP", "healthCheckPath": "/"},
+    }
+    assert result.id == POOL
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_delete_pool_tolerates_an_empty_202(pools_rw):
+    mock_iam(respx.mock)
+    route = respx.delete(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(202))
+    message = await pools_rw.delete_pool(load_balancer_id=LB, pool_id=POOL, region="HCM-3")
+    assert route.called and POOL in message
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_pool_tolerates_an_empty_200(pools_rw):
+    mock_iam(respx.mock)
+    route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+    await pools_rw.update_pool(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        algorithm="LEAST_CONNECTIONS",
+        stickiness=None,
+        tls_encryption=None,
+        region="HCM-3",
+    )
+    assert json.loads(route.calls[0].request.content) == {"algorithm": "LEAST_CONNECTIONS"}
+
+
+# --- members: the replace-versus-add footgun -------------------------------------------
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_pool_members_sends_exactly_what_it_was_given(pools_rw):
+    mock_iam(respx.mock)
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+    await pools_rw.update_pool_members(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        members=[MemberDto(ipAddress="10.0.0.99", port=80, backup=False)],
+        region="HCM-3",
+    )
+    assert json.loads(route.calls[0].request.content) == {
+        "members": [{"ipAddress": "10.0.0.99", "port": 80, "backup": False}]
+    }
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_attach_pool_members_keeps_the_existing_members(pools_rw):
+    """The outage regression: a pool with two members must still have three after adding one."""
+    mock_iam(respx.mock)
+    respx.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=list_env(SAMPLE_MEMBERS)))
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+
+    result = await pools_rw.attach_pool_members(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        members=[MemberDto(ipAddress="10.0.0.13", port=80, backup=False)],
+        region="HCM-3",
+    )
+    sent = json.loads(route.calls[0].request.content)["members"]
+    assert [m["ipAddress"] for m in sent] == ["10.0.0.11", "10.0.0.12", "10.0.0.13"]
+    assert result.member_count == 3
+    # the write is asynchronous, so this echoes what was requested — it is not a
+    # read of live state, and must not be presented to the user as one
+    assert result.confirmed is False
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_attach_pool_members_updates_a_duplicate_instead_of_doubling_it(pools_rw):
+    mock_iam(respx.mock)
+    respx.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=list_env(SAMPLE_MEMBERS)))
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+
+    await pools_rw.attach_pool_members(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        members=[MemberDto(ipAddress="10.0.0.11", port=80, backup=True, weight=5)],
+        region="HCM-3",
+    )
+    sent = json.loads(route.calls[0].request.content)["members"]
+    assert len(sent) == 2
+    replaced = next(m for m in sent if m["ipAddress"] == "10.0.0.11")
+    assert replaced["weight"] == 5 and replaced["backup"] is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_detach_pool_members_removes_only_the_named_targets(pools_rw):
+    mock_iam(respx.mock)
+    respx.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=list_env(SAMPLE_MEMBERS)))
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+
+    await pools_rw.detach_pool_members(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        targets=[MemberTargetDto(ipAddress="10.0.0.11", port=80)],
+        allow_empty=False,
+        region="HCM-3",
+    )
+    sent = json.loads(route.calls[0].request.content)["members"]
+    assert [m["ipAddress"] for m in sent] == ["10.0.0.12"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_detach_pool_members_refuses_an_unmatched_target(pools_rw):
+    """A typo must not read as a successful removal."""
+    mock_iam(respx.mock)
+    respx.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=list_env(SAMPLE_MEMBERS)))
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+
+    with pytest.raises(ValueError, match="not in the pool"):
+        await pools_rw.detach_pool_members(
+            load_balancer_id=LB,
+            pool_id=POOL,
+            targets=[MemberTargetDto(ipAddress="10.0.0.99", port=80)],
+            allow_empty=False,
+            region="HCM-3",
+        )
+    assert not route.called
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_detach_pool_members_refuses_to_empty_the_pool_by_default(pools_rw):
+    mock_iam(respx.mock)
+    respx.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=list_env(SAMPLE_MEMBERS)))
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+
+    with pytest.raises(ValueError, match="allow_empty"):
+        await pools_rw.detach_pool_members(
+            load_balancer_id=LB,
+            pool_id=POOL,
+            targets=[
+                MemberTargetDto(ipAddress="10.0.0.11", port=80),
+                MemberTargetDto(ipAddress="10.0.0.12", port=80),
+            ],
+            allow_empty=False,
+            region="HCM-3",
+        )
+    assert not route.called
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_detach_pool_members_can_empty_the_pool_when_asked(pools_rw):
+    mock_iam(respx.mock)
+    respx.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=list_env(SAMPLE_MEMBERS)))
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+
+    await pools_rw.detach_pool_members(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        targets=[
+            MemberTargetDto(ipAddress="10.0.0.11", port=80),
+            MemberTargetDto(ipAddress="10.0.0.12", port=80),
+        ],
+        allow_empty=True,
+        region="HCM-3",
+    )
+    assert json.loads(route.calls[0].request.content) == {"members": []}
+
+
+# --- health monitor: writable only through the pool ---------------------------------------
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_health_monitor_carries_forward_the_pool_settings(pools_rw):
+    """UpdatePoolRequest requires `algorithm`; sending a partial body silently resets it."""
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(
+        return_value=httpx.Response(
+            200,
+            json=data_env(
+                {
+                    **SAMPLE_POOL,
+                    "loadBalanceMethod": "LEAST_CONNECTIONS",
+                    "stickiness": True,
+                    "tlsEncryption": True,
+                    "healthMonitor": HM,
+                }
+            ),
+        )
+    )
+    route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+
+    await pools_rw.update_pool_health_monitor(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        health_check_path="/live",
+        health_check_method=None,
+        healthy_threshold=None,
+        unhealthy_threshold=None,
+        timeout=None,
+        interval=None,
+        success_code=None,
+        domain_name=None,
+        http_version=None,
+        region="HCM-3",
+    )
+    sent = json.loads(route.calls[0].request.content)
+    assert sent["algorithm"] == "LEAST_CONNECTIONS"
+    assert sent["stickiness"] is True
+    assert sent["tlsEncryption"] is True
+    # only the path changed; the four required thresholds came from the pool
+    assert sent["healthMonitor"]["healthCheckPath"] == "/live"
+    assert sent["healthMonitor"]["healthyThreshold"] == 3
+    assert sent["healthMonitor"]["interval"] == 30
+    assert sent["healthMonitor"]["timeout"] == 5
+    # the protocol is immutable and must never be sent on the update path
+    assert "healthCheckProtocol" not in sent["healthMonitor"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_health_monitor_returns_the_requested_config_not_stale_state(pools_rw):
+    """The result must not mix pre-update status with post-update settings.
+
+    The PUT is asynchronous, so reading the monitor back immediately would
+    report the old values. Echoing the requested configuration is honest only if
+    it is not dressed up as a read: a distinct type, and no carried-over
+    lifecycle fields.
+    """
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(
+        return_value=httpx.Response(
+            200, json=data_env({**SAMPLE_POOL, "healthMonitor": {**HM, "displayStatus": "ACTIVE"}})
+        )
+    )
+    respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+
+    result = await pools_rw.update_pool_health_monitor(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        health_check_path="/live",
+        health_check_method=None,
+        healthy_threshold=None,
+        unhealthy_threshold=None,
+        timeout=None,
+        interval=None,
+        success_code=None,
+        domain_name=None,
+        http_version=None,
+        region="HCM-3",
+    )
+    assert isinstance(result, HealthMonitorUpdateData)
+    assert result.pool_id == POOL
+    assert result.health_check_path == "/live"
+    assert result.healthy_threshold == 3
+    # the immutable protocol is carried through so the caller knows which probe
+    # the settings apply to
+    assert result.health_check_protocol == "HTTP"
+    # ...but no lifecycle field is echoed: those would be pre-update values
+    assert not hasattr(result, "display_status")
+    assert not hasattr(result, "progress_status")
+    assert "get_pool_health_monitor" in result.hint
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_health_monitor_refuses_when_the_pool_has_none(pools_rw):
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200, json=data_env(SAMPLE_POOL)))
+    with pytest.raises(ValueError, match="no health monitor"):
+        await pools_rw.update_pool_health_monitor(
+            load_balancer_id=LB,
+            pool_id=POOL,
+            health_check_path="/live",
+            health_check_method=None,
+            healthy_threshold=None,
+            unhealthy_threshold=None,
+            timeout=None,
+            interval=None,
+            success_code=None,
+            domain_name=None,
+            http_version=None,
+            region="HCM-3",
+        )
+
+
+def test_update_health_monitor_has_no_protocol_parameter(pools_rw):
+    """healthCheckProtocol is immutable — offering it would promise what the API cannot do."""
+    import inspect
+
+    params = inspect.signature(pools_rw.update_pool_health_monitor).parameters
+    assert "health_check_protocol" not in params
+
+
+# --- guards ------------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_write_tools_refuse_in_read_only_mode(pools_ro):
+    with pytest.raises(ValueError, match="--allow-write"):
+        await pools_ro.create_pool(load_balancer_id=LB, body=_create_pool(), region="HCM-3")
+    with pytest.raises(ValueError, match="--allow-write"):
+        await pools_ro.update_pool_members(
+            load_balancer_id=LB, pool_id=POOL, members=[], region="HCM-3"
+        )
+
+
+@pytest.mark.asyncio
+async def test_pool_tools_reject_a_reserved_load_balancer_segment(pools_ro):
+    with pytest.raises(ValueError, match="reserved VLB path segment"):
+        await pools_ro.list_pools(load_balancer_id="packages", region="HCM-3")
+
+
+def test_create_pool_dto_forbids_unknown_fields():
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        CreatePoolDto(
+            poolName="web-pool",
+            poolProtocol="HTTP",
+            algorithm="ROUND_ROBIN",
+            healthMonitor=CreateHealthMonitorDto(healthCheckProtocol="TCP"),
+            bogus=1,
+        )

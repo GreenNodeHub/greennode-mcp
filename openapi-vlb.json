@@ -1,0 +1,4478 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "VLB Service API",
+    "description": "API documentation for VLB Service",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway",
+      "description": "HCM-3 Region API"
+    },
+    {
+      "url": "https://han-1.api.vngcloud.vn/vserver/vlb-gateway",
+      "description": "HAN Region API"
+    }
+  ],
+  "security": [
+    {
+      "Authorization": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Load Balancer Pools",
+      "description": "API for managing Load Balancer Pools"
+    },
+    {
+      "name": "Load Balancer Listeners",
+      "description": "API for managing Load Balancer Listeners"
+    },
+    {
+      "name": "Load Balancers",
+      "description": "API for managing Load Balancers"
+    },
+    {
+      "name": "Certificates",
+      "description": "API for managing Certificates"
+    },
+    {
+      "name": "Load Balancer Scale History",
+      "description": "API for managing Load Balancer Scale History"
+    }
+  ],
+  "paths": {
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/resize": {
+      "put": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Resize a load balancer",
+        "operationId": "resizeLoadBalancer",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResizeLoadBalancerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'PUT',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/resize',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {packageId: 'package-1a007f28-bafa-450f-963b-3d177730c3b8'},\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request PUT \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/resize \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"packageId\":\"package-1a007f28-bafa-450f-963b-3d177730c3b8\"}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/rebalancing": {
+      "put": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Scale LoadBalancer Group (HA Configuration)",
+        "operationId": "haConfiguration",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "AutoScale LoadBalancer ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScaleConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'PUT',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/rebalancing',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    scaling: {minSize: 3, maxSize: 5},\n    networking: {subnets: ['subnet-default-id', 'subnet-new-a']}\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request PUT \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/rebalancing \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"scaling\":{\"minSize\":3,\"maxSize\":5},\"networking\":{\"subnets\":[\"subnet-default-id\",\"subnet-new-a\"]}}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/pools/{poolId}": {
+      "get": {
+        "tags": [
+          "Load Balancer Pools"
+        ],
+        "summary": "Get a specific pool",
+        "operationId": "getPool",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "poolId",
+            "in": "path",
+            "description": "The listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponsePoolDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Load Balancer Pools"
+        ],
+        "summary": "Update a pool",
+        "operationId": "updatePool",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "poolId",
+            "in": "path",
+            "description": "The pool id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePoolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'PUT',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    algorithm: 'ROUND_ROBIN',\n    stickiness: true,\n    tlsEncryption: true,\n    healthMonitor: {\n      healthCheckPath: '/',\n      healthCheckMethod: 'GET',\n      healthyThreshold: 3,\n      unhealthyThreshold: 3,\n      timeout: 5,\n      interval: 30,\n      successCode: '200',\n      domainName: 'www.example.com',\n      httpVersion: '1.1'\n    }\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request PUT \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"algorithm\":\"ROUND_ROBIN\",\"stickiness\":true,\"tlsEncryption\":true,\"healthMonitor\":{\"healthCheckPath\":\"/\",\"healthCheckMethod\":\"GET\",\"healthyThreshold\":3,\"unhealthyThreshold\":3,\"timeout\":5,\"interval\":30,\"successCode\":\"200\",\"domainName\":\"www.example.com\",\"httpVersion\":\"1.1\"}}'"
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Load Balancer Pools"
+        ],
+        "summary": "Delete a pool",
+        "operationId": "deletePool",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "poolId",
+            "in": "path",
+            "description": "The pool id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'DELETE',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request DELETE \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/pools/{poolId}/members": {
+      "get": {
+        "tags": [
+          "Load Balancer Pools"
+        ],
+        "summary": "Get members from a pool",
+        "operationId": "getMembersFromPool",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "poolId",
+            "in": "path",
+            "description": "pool id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseListPoolMemberDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D/members',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D/members \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Load Balancer Pools"
+        ],
+        "summary": "Change list members",
+        "operationId": "changesMembers",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "poolId",
+            "in": "path",
+            "description": "The pool id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeMembersRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'PUT',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D/members',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    members: [\n      {\n        ipAddress: '192.168.0.1',\n        port: 80,\n        weight: 1,\n        name: 'string',\n        monitorPort: 1000,\n        backup: false\n      }\n    ]\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request PUT \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D/members \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"members\":[{\"ipAddress\":\"192.168.0.1\",\"port\":80,\"weight\":1,\"name\":\"string\",\"monitorPort\":1000,\"backup\":false}]}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/listeners/{listenerId}": {
+      "get": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Get a specific listener",
+        "operationId": "getListener",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listenerId",
+            "in": "path",
+            "description": "The listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseListenerDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Update a listener",
+        "operationId": "updateListener",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listenerId",
+            "in": "path",
+            "description": "The listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateListenerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'PUT',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    defaultPoolId: 'pool-1a007f28-bafa-450f-963b-3d177730c3b8',\n    timeoutClient: 50,\n    timeoutMember: 50,\n    timeoutConnection: 5,\n    allowedCidrs: '0.0.0.0/0',\n    blockedCidrs: '9.9.9.9/32',\n    defaultAction: 'accept',\n    certificateAuthorities: ['secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe'],\n    defaultCertificateAuthority: 'secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe',\n    clientCertificate: 'secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe',\n    insertHeaders: [\n      {headerName: 'X-Forwarded-For', headerValue: 'true'},\n      {headerName: 'X-Forwarded-Proto', headerValue: 'true'}\n    ],\n    alpnProtocols: ['http/1.1', 'http/1.0'],\n    tlsSecurityPolicy: 'COMPATIBLE'\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request PUT \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"defaultPoolId\":\"pool-1a007f28-bafa-450f-963b-3d177730c3b8\",\"timeoutClient\":50,\"timeoutMember\":50,\"timeoutConnection\":5,\"allowedCidrs\":\"0.0.0.0/0\",\"blockedCidrs\":\"9.9.9.9/32\",\"defaultAction\":\"accept\",\"certificateAuthorities\":[\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\"],\"defaultCertificateAuthority\":\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\",\"clientCertificate\":\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\",\"insertHeaders\":[{\"headerName\":\"X-Forwarded-For\",\"headerValue\":\"true\"},{\"headerName\":\"X-Forwarded-Proto\",\"headerValue\":\"true\"}],\"alpnProtocols\":[\"http/1.1\",\"http/1.0\"],\"tlsSecurityPolicy\":\"COMPATIBLE\"}'"
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Delete a listener",
+        "operationId": "deleteListener",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listenerId",
+            "in": "path",
+            "description": "The listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'DELETE',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request DELETE \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/listeners/{listenerId}/reorderL7Policies": {
+      "put": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Reorder the L7 policies",
+        "operationId": "reorderPolicies",
+        "parameters": [
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listenerId",
+            "in": "path",
+            "description": "The listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderPoliciesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'PUT',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/reorderL7Policies',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    policies: [{policyId: 'policy-4ca4af07-271c-4617-ba9a-1dd01bf2c93c', position: 1}]\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request PUT \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/reorderL7Policies \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"policies\":[{\"policyId\":\"policy-4ca4af07-271c-4617-ba9a-1dd01bf2c93c\",\"position\":1}]}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/listeners/{listenerId}/l7policies/{policyId}": {
+      "put": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Update a policy",
+        "operationId": "updateL7Policy",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listenerId",
+            "in": "path",
+            "description": "The listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "policyId",
+            "in": "path",
+            "description": "The policy id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateL7PolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'PUT',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies/%7BpolicyId%7D',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    redirectPoolId: 'pool-1a007f28-bafa-450f-963b-3d177730c3b8',\n    redirectUrl: 'https://www.example.com',\n    action: 'REDIRECT_TO_URL',\n    redirectHttpCode: 302,\n    keepQueryString: false,\n    rules: [{compareType: 'EQUAL_TO', ruleValue: 'www.example.com', ruleType: 'PATH'}]\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request PUT \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies/%7BpolicyId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"redirectPoolId\":\"pool-1a007f28-bafa-450f-963b-3d177730c3b8\",\"redirectUrl\":\"https://www.example.com\",\"action\":\"REDIRECT_TO_URL\",\"redirectHttpCode\":302,\"keepQueryString\":false,\"rules\":[{\"compareType\":\"EQUAL_TO\",\"ruleValue\":\"www.example.com\",\"ruleType\":\"PATH\"}]}'"
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Delete a policy",
+        "operationId": "deletePolicy",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listenerId",
+            "in": "path",
+            "description": "listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "policyId",
+            "in": "path",
+            "description": "policy id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'DELETE',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies/%7BpolicyId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request DELETE \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies/%7BpolicyId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/bandwidth": {
+      "put": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Update Load Balancer Bandwidth Package",
+        "operationId": "updateLoadBalancerBandwidth",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer UUID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBandwidthPackageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoadBalancerBandwidthDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'PUT',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/bandwidth',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {bandWidthPackageId: 'bandwidth-pack-7d3f1a2c-7utde-4a1e-9c2d-1a2b3c4d5e6f'},\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request PUT \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/bandwidth \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"bandWidthPackageId\":\"bandwidth-pack-7d3f1a2c-7utde-4a1e-9c2d-1a2b3c4d5e6f\"}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers": {
+      "get": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "List LoadBalancers Paging",
+        "operationId": "getListLoadBalancer",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ids": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "names": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "name": {
+                  "type": "string"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TagRequest"
+                  }
+                },
+                "newTag": {
+                  "$ref": "#/components/schemas/TagRequest"
+                },
+                "tagIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "projectId": {
+                  "type": "string"
+                },
+                "isCache": {
+                  "type": "boolean"
+                },
+                "privateIps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "publicIps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "subnetIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "vpcIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "serverIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "encryptionTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "volumeTypes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "status": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "resourceIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "dhcpOptionIds": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "zoneId": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "name": "pageRequest",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "page": {
+                  "type": "integer",
+                  "format": "int32"
+                },
+                "size": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingLoadBalancerDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers',\n  qs: {filter: 'SOME_OBJECT_VALUE', pageRequest: 'SOME_OBJECT_VALUE'},\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers?filter=SOME_OBJECT_VALUE&pageRequest=SOME_OBJECT_VALUE' \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Create a new load balancer",
+        "operationId": "createLoadBalancer",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLoadBalancerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'POST',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    tags: [{key: 'environment', value: 'production'}],\n    zoneId: 'HCM03-1A',\n    name: 'loadbalancer_01',\n    packageId: 'f8e62cf2-d84c-11e9-8a34-2a2ae2dbcce4',\n    scheme: 'Internet',\n    subnetId: 'sub-375e0685-f828-40bc-b8e9-53271fd7860d',\n    type: 'Layer 7',\n    listener: {\n      listenerProtocol: 'HTTP',\n      listenerName: 'listener_01',\n      listenerProtocolPort: 80,\n      timeoutClient: 50,\n      timeoutMember: 50,\n      timeoutConnection: 5,\n      allowedCidrs: '0.0.0.0/0',\n      blockedCidrs: '9.9.9.9/32',\n      defaultAction: 'accept',\n      certificateAuthorities: ['secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe'],\n      defaultCertificateAuthority: 'secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe',\n      clientCertificate: 'secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe',\n      insertHeaders: [{headerName: 'X-Forwarded-For', headerValue: 'true'}],\n      alpnProtocols: ['http/1.1', 'http/1.0'],\n      tlsSecurityPolicy: 'COMPATIBLE'\n    },\n    pool: {\n      poolName: 'This_is_a_pool',\n      algorithm: 'ROUND_ROBIN',\n      stickiness: true,\n      tlsEncryption: true,\n      poolProtocol: 'HTTP',\n      healthMonitor: {\n        healthCheckProtocol: 'TCP',\n        healthCheckPath: '/',\n        healthCheckMethod: 'GET',\n        healthyThreshold: 3,\n        unhealthyThreshold: 3,\n        timeout: 5,\n        interval: 30,\n        successCode: '200',\n        domainName: 'www.example.com',\n        httpVersion: '1.0'\n      },\n      members: {\n        ipAddress: '192.168.0.1',\n        port: 80,\n        weight: 1,\n        name: 'string',\n        monitorPort: 1000,\n        backup: false\n      }\n    },\n    autoScalable: true\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request POST \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"tags\":[{\"key\":\"environment\",\"value\":\"production\"}],\"zoneId\":\"HCM03-1A\",\"name\":\"loadbalancer_01\",\"packageId\":\"f8e62cf2-d84c-11e9-8a34-2a2ae2dbcce4\",\"scheme\":\"Internet\",\"subnetId\":\"sub-375e0685-f828-40bc-b8e9-53271fd7860d\",\"type\":\"Layer 7\",\"listener\":{\"listenerProtocol\":\"HTTP\",\"listenerName\":\"listener_01\",\"listenerProtocolPort\":80,\"timeoutClient\":50,\"timeoutMember\":50,\"timeoutConnection\":5,\"allowedCidrs\":\"0.0.0.0/0\",\"blockedCidrs\":\"9.9.9.9/32\",\"defaultAction\":\"accept\",\"certificateAuthorities\":[\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\"],\"defaultCertificateAuthority\":\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\",\"clientCertificate\":\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\",\"insertHeaders\":[{\"headerName\":\"X-Forwarded-For\",\"headerValue\":\"true\"}],\"alpnProtocols\":[\"http/1.1\",\"http/1.0\"],\"tlsSecurityPolicy\":\"COMPATIBLE\"},\"pool\":{\"poolName\":\"This_is_a_pool\",\"algorithm\":\"ROUND_ROBIN\",\"stickiness\":true,\"tlsEncryption\":true,\"poolProtocol\":\"HTTP\",\"healthMonitor\":{\"healthCheckProtocol\":\"TCP\",\"healthCheckPath\":\"/\",\"healthCheckMethod\":\"GET\",\"healthyThreshold\":3,\"unhealthyThreshold\":3,\"timeout\":5,\"interval\":30,\"successCode\":\"200\",\"domainName\":\"www.example.com\",\"httpVersion\":\"1.0\"},\"members\":{\"ipAddress\":\"192.168.0.1\",\"port\":80,\"weight\":1,\"name\":\"string\",\"monitorPort\":1000,\"backup\":false}},\"autoScalable\":true}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/pools": {
+      "get": {
+        "tags": [
+          "Load Balancer Pools"
+        ],
+        "summary": "Get list of pools",
+        "operationId": "getListPools",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseListPoolDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Load Balancer Pools"
+        ],
+        "summary": "Create a new pool",
+        "operationId": "createPool",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePoolRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'POST',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    poolName: 'pool_01',\n    poolProtocol: 'HTTP',\n    algorithm: 'ROUND_ROBIN',\n    stickiness: true,\n    tlsEncryption: true,\n    healthMonitor: {\n      healthCheckProtocol: 'TCP',\n      healthCheckPath: '/',\n      healthCheckMethod: 'GET',\n      healthyThreshold: 3,\n      unhealthyThreshold: 3,\n      timeout: 5,\n      interval: 30,\n      successCode: '200',\n      domainName: 'www.example.com',\n      httpVersion: '1.0'\n    },\n    members: [\n      {\n        ipAddress: '192.168.0.1',\n        port: 80,\n        weight: 1,\n        name: 'string',\n        monitorPort: 1000,\n        backup: false\n      }\n    ]\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request POST \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"poolName\":\"pool_01\",\"poolProtocol\":\"HTTP\",\"algorithm\":\"ROUND_ROBIN\",\"stickiness\":true,\"tlsEncryption\":true,\"healthMonitor\":{\"healthCheckProtocol\":\"TCP\",\"healthCheckPath\":\"/\",\"healthCheckMethod\":\"GET\",\"healthyThreshold\":3,\"unhealthyThreshold\":3,\"timeout\":5,\"interval\":30,\"successCode\":\"200\",\"domainName\":\"www.example.com\",\"httpVersion\":\"1.0\"},\"members\":[{\"ipAddress\":\"192.168.0.1\",\"port\":80,\"weight\":1,\"name\":\"string\",\"monitorPort\":1000,\"backup\":false}]}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/listeners": {
+      "get": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Get list of listeners",
+        "operationId": "getListListenersByLoadBalancer",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseListListenerDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Create a listener",
+        "operationId": "createListener",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateListenerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'POST',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    listenerName: 'listener_02',\n    defaultPoolId: 'pool-1a007f28-bafa-450f-963b-3d177730c3b8',\n    listenerProtocolPort: 80,\n    listenerProtocol: 'HTTP',\n    timeoutClient: 50,\n    timeoutMember: 50,\n    timeoutConnection: 5,\n    allowedCidrs: '0.0.0.0/0',\n    blockedCidrs: '9.9.9.9/32',\n    defaultAction: 'accept',\n    certificateAuthorities: ['secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe'],\n    defaultCertificateAuthority: 'secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe',\n    clientCertificate: 'secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe',\n    insertHeaders: [\n      {headerName: 'X-Forwarded-For', headerValue: 'true'},\n      {headerName: 'X-Forwarded-Proto', headerValue: 'true'}\n    ],\n    alpnProtocols: ['http/1.1', 'http/1.0'],\n    tlsSecurityPolicy: 'COMPATIBLE'\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request POST \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"listenerName\":\"listener_02\",\"defaultPoolId\":\"pool-1a007f28-bafa-450f-963b-3d177730c3b8\",\"listenerProtocolPort\":80,\"listenerProtocol\":\"HTTP\",\"timeoutClient\":50,\"timeoutMember\":50,\"timeoutConnection\":5,\"allowedCidrs\":\"0.0.0.0/0\",\"blockedCidrs\":\"9.9.9.9/32\",\"defaultAction\":\"accept\",\"certificateAuthorities\":[\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\"],\"defaultCertificateAuthority\":\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\",\"clientCertificate\":\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\",\"insertHeaders\":[{\"headerName\":\"X-Forwarded-For\",\"headerValue\":\"true\"},{\"headerName\":\"X-Forwarded-Proto\",\"headerValue\":\"true\"}],\"alpnProtocols\":[\"http/1.1\",\"http/1.0\"],\"tlsSecurityPolicy\":\"COMPATIBLE\"}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/listeners/{listenerId}/l7policies": {
+      "get": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Get list of policies",
+        "operationId": "getListL7Policies",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listenerId",
+            "in": "path",
+            "description": "The listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseListL7PolicyDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Create a l7 policy",
+        "operationId": "createPolicy",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listenerId",
+            "in": "path",
+            "description": "The listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateL7PolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'POST',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    name: 'l7policy_1',\n    redirectPoolId: 'pool-1a007f28-bafa-450f-963b-3d177730c3b8',\n    redirectUrl: 'https://www.example.com',\n    action: 'REDIRECT_TO_URL',\n    redirectHttpCode: 301,\n    keepQueryString: true,\n    rules: [{compareType: 'EQUAL_TO', ruleValue: 'www.example.com', ruleType: 'PATH'}]\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request POST \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"name\":\"l7policy_1\",\"redirectPoolId\":\"pool-1a007f28-bafa-450f-963b-3d177730c3b8\",\"redirectUrl\":\"https://www.example.com\",\"action\":\"REDIRECT_TO_URL\",\"redirectHttpCode\":301,\"keepQueryString\":true,\"rules\":[{\"compareType\":\"EQUAL_TO\",\"ruleValue\":\"www.example.com\",\"ruleType\":\"PATH\"}]}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/clone": {
+      "post": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Clone a load balancer from existed load balancer",
+        "operationId": "cloneLoadBalancer",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloneLoadBalancerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'POST',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/clone',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    name: 'loadbalancer_01',\n    packageId: 'f8e62cf2-d84c-11e9-8a34-2a2ae2dbcce4',\n    certificates: [\n      {\n        listenerId: 'listener-4ea86b49-9427-4b14-b080-8ac88a1f5efe',\n        defaultCertificateId: 'secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe',\n        sniCertificateIds: ['secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe']\n      }\n    ]\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request POST \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/clone \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"name\":\"loadbalancer_01\",\"packageId\":\"f8e62cf2-d84c-11e9-8a34-2a2ae2dbcce4\",\"certificates\":[{\"listenerId\":\"listener-4ea86b49-9427-4b14-b080-8ac88a1f5efe\",\"defaultCertificateId\":\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\",\"sniCertificateIds\":[\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\"]}]}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/cas": {
+      "get": {
+        "tags": [
+          "Certificates"
+        ],
+        "summary": "List Certificates with Paging",
+        "operationId": "getAllListCertificateAuthority",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 1
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 10
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingCADto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/cas',\n  qs: {\n    name: 'SOME_STRING_VALUE',\n    page: 'SOME_INTEGER_VALUE',\n    size: 'SOME_INTEGER_VALUE'\n  },\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/cas?name=SOME_STRING_VALUE&page=SOME_INTEGER_VALUE&size=SOME_INTEGER_VALUE' \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Certificates"
+        ],
+        "summary": "Import Certificate",
+        "operationId": "importCA",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportCARequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseCADto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'POST',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/cas',\n  headers: {'content-type': 'application/json', Authorization: 'REPLACE_KEY_VALUE'},\n  body: {\n    name: 'ca_01',\n    certificate: 'string',\n    privateKey: 'string',\n    certificateChain: 'string',\n    passphrase: 'string',\n    type: 'TLS/SSL'\n  },\n  json: true\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request POST \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/cas \\\n  --header 'Authorization: REPLACE_KEY_VALUE' \\\n  --header 'content-type: application/json' \\\n  --data '{\"name\":\"ca_01\",\"certificate\":\"string\",\"privateKey\":\"string\",\"certificateChain\":\"string\",\"passphrase\":\"string\",\"type\":\"TLS/SSL\"}'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}": {
+      "get": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Get Load Balancer by ID",
+        "operationId": "getLoadBalancer",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseLoadBalancerDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Delete a load balancer",
+        "operationId": "deleteLoadBalancer",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'DELETE',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request DELETE \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/scale-history": {
+      "get": {
+        "tags": [
+          "Load Balancer Scale History"
+        ],
+        "summary": "List scale history of a Load Balancer",
+        "operationId": "listByLoadBalancer",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScaleHistoryDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/scale-history',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/scale-history \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/pools/{poolId}/healthMonitor": {
+      "get": {
+        "tags": [
+          "Load Balancer Pools"
+        ],
+        "summary": "Get the health monitor associated with a specific pool",
+        "operationId": "getHealthMonitorFromPool",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "poolId",
+            "in": "path",
+            "description": "pool id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseHMonitorDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D/healthMonitor',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/pools/%7BpoolId%7D/healthMonitor \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/listeners/{listenerId}/l7policies/{l7PolicyId}": {
+      "get": {
+        "tags": [
+          "Load Balancer Listeners"
+        ],
+        "summary": "Get a specific l7 policy",
+        "operationId": "getL7Policy",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The Load Balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "listenerId",
+            "in": "path",
+            "description": "The listener id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "l7PolicyId",
+            "in": "path",
+            "description": "The l7Policy id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseL7PolicyDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies/%7Bl7PolicyId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/listeners/%7BlistenerId%7D/l7policies/%7Bl7PolicyId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/{loadBalancerId}/cloneMetadata": {
+      "get": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Get Load Balancer Metadata for Clone",
+        "operationId": "getCloneInfo",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "loadBalancerId",
+            "in": "path",
+            "description": "The load balancer id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LBCloneMetadataDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/cloneMetadata',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/%7BloadBalancerId%7D/cloneMetadata \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/subnet/{subnetId}": {
+      "get": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Get LoadBalancer By Subnet Id",
+        "operationId": "getLoadBalancerBySubnetId",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "the project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subnetId",
+            "in": "path",
+            "description": "subnetId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LoadBalancerDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/subnet/%7BsubnetId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/subnet/%7BsubnetId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/packages": {
+      "get": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Get list packages Active",
+        "operationId": "getPackagesActive",
+        "parameters": [
+          {
+            "name": "zoneId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "HCM03-1A"
+            }
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingLoadBalancerPackageDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/packages',\n  qs: {zoneId: 'SOME_STRING_VALUE'},\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/packages?zoneId=SOME_STRING_VALUE' \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/headers": {
+      "get": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Get list headers",
+        "operationId": "getHeaders",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataResponseListString"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/headers',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/headers \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/loadBalancers/all_packages": {
+      "get": {
+        "tags": [
+          "Load Balancers"
+        ],
+        "summary": "Get All list packages",
+        "operationId": "getAllPackages",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "The project id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PagingLoadBalancerPackageDto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/all_packages',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/loadBalancers/all_packages \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    },
+    "/v2/{projectId}/cas/{caId}": {
+      "get": {
+        "tags": [
+          "Certificates"
+        ],
+        "summary": "Get Certificate",
+        "operationId": "getCertificateAuthorityById",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "caId",
+            "in": "path",
+            "description": "Certificate ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CADto"
+                }
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'GET',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/cas/%7BcaId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request GET \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/cas/%7BcaId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Certificates"
+        ],
+        "summary": "Delete Certificate",
+        "operationId": "deleteCertificateAuthority",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "description": "Project ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "caId",
+            "in": "path",
+            "description": "Certificate ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "Node + Request",
+            "source": "const request = require('request');\n\nconst options = {\n  method: 'DELETE',\n  url: 'https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/cas/%7BcaId%7D',\n  headers: {Authorization: 'REPLACE_KEY_VALUE'}\n};\n\nrequest(options, function (error, response, body) {\n  if (error) throw new Error(error);\n\n  console.log(body);\n});\n"
+          },
+          {
+            "lang": "Shell + Curl",
+            "source": "curl --request DELETE \\\n  --url https://hcm-3.api.vngcloud.vn/vserver/vlb-gateway/v2/%7BprojectId%7D/cas/%7BcaId%7D \\\n  --header 'Authorization: REPLACE_KEY_VALUE'"
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ResizeLoadBalancerRequest": {
+        "required": [
+          "packageId"
+        ],
+        "type": "object",
+        "properties": {
+          "packageId": {
+            "type": "string",
+            "description": "Package ID",
+            "example": "package-1a007f28-bafa-450f-963b-3d177730c3b8"
+          }
+        },
+        "description": "Resize load balancer request"
+      },
+      "NetworkingConfig": {
+        "required": [
+          "subnets"
+        ],
+        "type": "object",
+        "properties": {
+          "subnets": {
+            "type": "array",
+            "description": "List of all active subnet IDs (Must include the primary/default subnet).",
+            "example": [
+              "subnet-default-id",
+              "subnet-new-a"
+            ],
+            "items": {
+              "type": "string",
+              "description": "List of all active subnet IDs (Must include the primary/default subnet).",
+              "example": "[\"subnet-default-id\",\"subnet-new-a\"]"
+            }
+          }
+        },
+        "description": "Networking topology (subnets/zones)"
+      },
+      "ScaleConfigRequest": {
+        "required": [
+          "networking",
+          "scaling"
+        ],
+        "type": "object",
+        "properties": {
+          "scaling": {
+            "$ref": "#/components/schemas/ScalingConfig"
+          },
+          "networking": {
+            "$ref": "#/components/schemas/NetworkingConfig"
+          }
+        },
+        "description": "Configuration payload for Multi-AZ Autoscale Load Balancer"
+      },
+      "ScalingConfig": {
+        "required": [
+          "maxSize"
+        ],
+        "type": "object",
+        "properties": {
+          "minSize": {
+            "type": "integer",
+            "description": "Minimum number of instances. If null, backend defaults to number of subnets.",
+            "format": "int32",
+            "nullable": true,
+            "example": 3
+          },
+          "maxSize": {
+            "type": "integer",
+            "description": "Maximum number of instances allowed.",
+            "format": "int32",
+            "example": 5
+          }
+        },
+        "description": "Scaling policies (min/max nodes)"
+      },
+      "UpdateHMonitorRequest": {
+        "required": [
+          "healthyThreshold",
+          "interval",
+          "timeout",
+          "unhealthyThreshold"
+        ],
+        "type": "object",
+        "properties": {
+          "healthCheckPath": {
+            "pattern": "^((/[a-zA-Z0-9@:_\\-+.~?&]+)+)$|(^/$)",
+            "type": "string",
+            "description": "Health check path for the HTTP protocol.",
+            "example": "/"
+          },
+          "healthCheckMethod": {
+            "type": "string",
+            "description": "Health check method for the HTTP protocol.",
+            "example": "GET"
+          },
+          "healthyThreshold": {
+            "type": "integer",
+            "description": "Healthy threshold. The value must be in range from 2 to 10.",
+            "format": "int64",
+            "example": 3
+          },
+          "unhealthyThreshold": {
+            "type": "integer",
+            "description": "Unhealthy threshold. The value must be in range from 2 to 10.",
+            "format": "int64",
+            "example": 3
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Timeout of health check. The value must be from 2 to 120 seconds.",
+            "format": "int64",
+            "example": 5
+          },
+          "interval": {
+            "type": "integer",
+            "description": "Health check interval. The value must be from 5 to 3600 seconds.",
+            "format": "int64",
+            "example": 30
+          },
+          "successCode": {
+            "pattern": "^(\\d{3}(\\s*,\\s*\\d{3})*)$|^(\\d{3}-\\d{3})$",
+            "type": "string",
+            "description": "Health check success code for HTTP health check protocol.",
+            "example": "200"
+          },
+          "domainName": {
+            "pattern": "(?=.{1,100}\\.?$)(?:(?!-|[^.]+_)[A-Za-z0-9-_]{1,63}(?<!-)(?:\\.|$))+$",
+            "type": "string",
+            "description": "Domain name for HTTP health check protocol.",
+            "example": "www.example.com"
+          },
+          "httpVersion": {
+            "type": "string",
+            "description": "Http version for HTTP health check protocol.",
+            "example": "1.1",
+            "enum": [
+              "1.0",
+              "1.1"
+            ]
+          }
+        },
+        "description": "Request body for updating a Health Monitor in a pool"
+      },
+      "UpdatePoolRequest": {
+        "required": [
+          "algorithm"
+        ],
+        "type": "object",
+        "properties": {
+          "algorithm": {
+            "pattern": "^(ROUND_ROBIN|LEAST_CONNECTIONS|SOURCE_IP)$",
+            "type": "string",
+            "description": "Algorithm of the pool. The algorithm can be \"ROUND_ROBIN\" or \"LEAST_CONNECTIONS\" or \"SOURCE_IP\"",
+            "example": "ROUND_ROBIN",
+            "enum": [
+              "ROUND_ROBIN",
+              "LEAST_CONNECTIONS",
+              "SOURCE_IP"
+            ]
+          },
+          "stickiness": {
+            "type": "boolean",
+            "description": "Enable sticky sessions.",
+            "example": true
+          },
+          "tlsEncryption": {
+            "type": "boolean",
+            "description": "Enable TLS Encryption.",
+            "example": true
+          },
+          "healthMonitor": {
+            "$ref": "#/components/schemas/UpdateHMonitorRequest"
+          }
+        }
+      },
+      "ChangeMembersRequest": {
+        "required": [
+          "members"
+        ],
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "description": "List of members of the pool.",
+            "items": {
+              "$ref": "#/components/schemas/MemberRequest"
+            }
+          }
+        },
+        "description": "Request to update members of a pool"
+      },
+      "MemberRequest": {
+        "required": [
+          "backup",
+          "ipAddress",
+          "port"
+        ],
+        "type": "object",
+        "properties": {
+          "ipAddress": {
+            "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$",
+            "type": "string",
+            "description": "IP address of the server.",
+            "example": "192.168.0.1"
+          },
+          "port": {
+            "type": "integer",
+            "description": "Port of the server to handle request.",
+            "format": "int32",
+            "example": 80
+          },
+          "weight": {
+            "type": "integer",
+            "description": "Weight for the member. Higher weight will make that member receive more requests.",
+            "format": "int32",
+            "example": 1
+          },
+          "name": {
+            "pattern": "^[a-zA-Z0-9_\\-.]{5,50}$",
+            "type": "string",
+            "description": "Friendly name for the member to be recognizable."
+          },
+          "monitorPort": {
+            "type": "integer",
+            "description": "Port for monitoring the member.",
+            "format": "int32",
+            "example": 1000
+          },
+          "backup": {
+            "type": "boolean",
+            "description": "Enable backup.",
+            "example": false
+          }
+        },
+        "description": "Members of the pool"
+      },
+      "Header": {
+        "required": [
+          "headerName",
+          "headerValue"
+        ],
+        "type": "object",
+        "properties": {
+          "headerName": {
+            "type": "string",
+            "description": "Header name",
+            "example": "X-Forwarded-For"
+          },
+          "headerValue": {
+            "pattern": "^[a-zA-Z0-9_ :;.,/?!(){}\\[\\]@<>=\\-+*#&|~^]*$",
+            "type": "string",
+            "description": "Header value",
+            "example": "true"
+          }
+        },
+        "description": "Header key-value pair to be inserted into requests",
+        "example": [
+          {
+            "headerName": "X-Forwarded-For",
+            "headerValue": "true"
+          },
+          {
+            "headerName": "X-Forwarded-Proto",
+            "headerValue": "true"
+          }
+        ]
+      },
+      "UpdateListenerRequest": {
+        "required": [
+          "timeoutClient",
+          "timeoutConnection",
+          "timeoutMember"
+        ],
+        "type": "object",
+        "properties": {
+          "defaultPoolId": {
+            "type": "string",
+            "description": "Id of the pool that this listener will forward to.",
+            "example": "pool-1a007f28-bafa-450f-963b-3d177730c3b8"
+          },
+          "timeoutClient": {
+            "type": "integer",
+            "description": "Idle timeout of client. The value can be in range from 1 to 3600 seconds",
+            "format": "int32",
+            "example": 50
+          },
+          "timeoutMember": {
+            "type": "integer",
+            "description": "Idle timeout of member. The value can be in range from 1 to 3600 seconds",
+            "format": "int32",
+            "example": 50
+          },
+          "timeoutConnection": {
+            "type": "integer",
+            "description": "Idle timeout of connection. The value can be in range from 1 to 3600 seconds",
+            "format": "int32",
+            "example": 5
+          },
+          "allowedCidrs": {
+            "type": "string",
+            "description": "Allowed CIDRs",
+            "example": "0.0.0.0/0"
+          },
+          "blockedCidrs": {
+            "type": "string",
+            "description": "Blocked CIDRs",
+            "example": "9.9.9.9/32"
+          },
+          "defaultAction": {
+            "type": "string",
+            "description": "Default action for the listener",
+            "example": "accept",
+            "enum": [
+              "accept",
+              "drop"
+            ]
+          },
+          "certificateAuthorities": {
+            "type": "array",
+            "description": "List of Certificates",
+            "example": [
+              "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+            ],
+            "items": {
+              "type": "string",
+              "description": "List of Certificates",
+              "example": "[\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\"]"
+            }
+          },
+          "defaultCertificateAuthority": {
+            "type": "string",
+            "description": "Default Certificate.",
+            "example": "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+          },
+          "clientCertificate": {
+            "type": "string",
+            "description": "The TLS client authentication mode",
+            "example": "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+          },
+          "insertHeaders": {
+            "type": "array",
+            "description": "List of headers to insert. Each header object must include a 'headerName' and a 'headerValue'.",
+            "example": [
+              {
+                "headerName": "X-Forwarded-For",
+                "headerValue": "true"
+              },
+              {
+                "headerName": "X-Forwarded-Proto",
+                "headerValue": "true"
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Header"
+            }
+          },
+          "alpnProtocols": {
+            "type": "array",
+            "description": "List of ALPN protocols supported by this listener. ALPN allows negotiation of protocols like HTTP/1.1 or H2 over secure connections.",
+            "example": [
+              "http/1.1",
+              "http/1.0"
+            ],
+            "items": {
+              "type": "string",
+              "description": "List of ALPN protocols supported by this listener. ALPN allows negotiation of protocols like HTTP/1.1 or H2 over secure connections.",
+              "example": "[\"http/1.1\",\"http/1.0\"]",
+              "enum": [
+                "http/1.1",
+                "http/1.0",
+                "h2"
+              ]
+            },
+            "enum": [
+              "http/1.1",
+              "http/1.0",
+              "h2"
+            ]
+          },
+          "tlsSecurityPolicy": {
+            "pattern": "^(COMPATIBLE|MODERN|STRICT)$",
+            "type": "string",
+            "description": "TLS security policy for the listener. It can be one of the predefined policies.",
+            "example": "COMPATIBLE",
+            "enum": [
+              "COMPATIBLE",
+              "MODERN",
+              "STRICT"
+            ]
+          }
+        },
+        "description": "Request to update a listener configuration"
+      },
+      "ReorderPoliciesRequest": {
+        "required": [
+          "policies"
+        ],
+        "type": "object",
+        "properties": {
+          "policies": {
+            "type": "array",
+            "description": "List of policies to reorder, start from 1 to ...",
+            "items": {
+              "$ref": "#/components/schemas/ReorderPolicyRequest"
+            }
+          }
+        },
+        "description": "Request to reorder L7 policies"
+      },
+      "ReorderPolicyRequest": {
+        "required": [
+          "policyId",
+          "position"
+        ],
+        "type": "object",
+        "properties": {
+          "policyId": {
+            "type": "string",
+            "description": "Policy's id to reorder",
+            "example": "policy-4ca4af07-271c-4617-ba9a-1dd01bf2c93c"
+          },
+          "position": {
+            "type": "integer",
+            "description": "New position of the policy. The position property is a zero-based index",
+            "format": "int64",
+            "example": 1
+          }
+        },
+        "description": "Request object representing a policy to be reordered"
+      },
+      "L7RuleRequest": {
+        "required": [
+          "compareType",
+          "ruleType",
+          "ruleValue"
+        ],
+        "type": "object",
+        "properties": {
+          "compareType": {
+            "type": "string",
+            "description": "Compare operation. The value can be CONTAINS, ENDS_WITH, EQUAL_TO, REGEX, or STARTS_WITH.",
+            "example": "EQUAL_TO",
+            "enum": [
+              "CONTAINS",
+              "ENDS_WITH",
+              "EQUAL_TO",
+              "REGEX",
+              "STARTS_WITH"
+            ]
+          },
+          "ruleValue": {
+            "pattern": "^[a-zA-Z0-9_\\-.$/~\"'@:+&*?\\\\\\[\\]{}()|^%#!<>=;,]{1,255}$",
+            "type": "string",
+            "description": "The value to compare with attribute.",
+            "example": "www.example.com"
+          },
+          "ruleType": {
+            "type": "string",
+            "description": "Which attribute to compare. The value can be PATH or HOST_NAME",
+            "example": "PATH",
+            "enum": [
+              "PATH",
+              "HOST_NAME"
+            ]
+          }
+        },
+        "description": "L7 rule of the policy"
+      },
+      "UpdateL7PolicyRequest": {
+        "required": [
+          "action"
+        ],
+        "type": "object",
+        "properties": {
+          "redirectPoolId": {
+            "type": "string",
+            "description": "Pool for forwarding.",
+            "example": "pool-1a007f28-bafa-450f-963b-3d177730c3b8"
+          },
+          "redirectUrl": {
+            "pattern": "^(?=.{1,100}$)(https?|ftp|file)://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]",
+            "type": "string",
+            "description": "URL for forwarding.",
+            "example": "https://www.example.com"
+          },
+          "action": {
+            "type": "string",
+            "description": "Action. This indicates how the listener will route traffic.",
+            "example": "REDIRECT_TO_URL",
+            "enum": [
+              "REDIRECT_TO_POOL",
+              "REDIRECT_TO_URL"
+            ]
+          },
+          "redirectHttpCode": {
+            "type": "integer",
+            "description": "Redirect HTTP code for redirecting to other URL.",
+            "format": "int32",
+            "example": 302,
+            "enum": [
+              301,
+              302
+            ]
+          },
+          "keepQueryString": {
+            "type": "boolean",
+            "description": "Keep the query string or not.",
+            "example": false
+          },
+          "rules": {
+            "type": "array",
+            "description": "List of rules of the policy.",
+            "items": {
+              "$ref": "#/components/schemas/L7RuleRequest"
+            }
+          }
+        },
+        "description": "Request to update an L7 policy"
+      },
+      "UpdateBandwidthPackageRequest": {
+        "required": [
+          "bandWidthPackageId"
+        ],
+        "type": "object",
+        "properties": {
+          "bandWidthPackageId": {
+            "pattern": "^bandwidth-pack-[0-9a-f\\-]+$",
+            "type": "string",
+            "description": "Identifier of the target bandwidth package. Must match the format 'bandwidth-pack-<uuid>'.",
+            "example": "bandwidth-pack-7d3f1a2c-7utde-4a1e-9c2d-1a2b3c4d5e6f"
+          }
+        },
+        "description": "Request body to attach or change the bandwidth package of an internet-facing load balancer."
+      },
+      "LoadBalancerBandwidthDto": {
+        "type": "object",
+        "properties": {
+          "lbUuid": {
+            "type": "string"
+          },
+          "packageId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "lastSyncedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateHMonitorRequest": {
+        "required": [
+          "healthCheckProtocol"
+        ],
+        "type": "object",
+        "properties": {
+          "healthCheckProtocol": {
+            "type": "string",
+            "description": "Protocol for performing health check.",
+            "example": "TCP",
+            "enum": [
+              "TCP",
+              "HTTP",
+              "HTTPS",
+              "PING-UDP"
+            ]
+          },
+          "healthCheckPath": {
+            "pattern": "^((/[a-zA-Z0-9@:_\\-+.~?&]+)+)$|(^/$)",
+            "type": "string",
+            "description": "Health check path for the HTTP protocol.",
+            "example": "/"
+          },
+          "healthCheckMethod": {
+            "type": "string",
+            "description": "Health check method for the HTTP protocol.",
+            "example": "GET",
+            "enum": [
+              "GET",
+              "POST",
+              "PUT"
+            ]
+          },
+          "healthyThreshold": {
+            "type": "integer",
+            "description": "Healthy threshold. The value must be in range from 2 to 10.",
+            "format": "int64",
+            "example": 3
+          },
+          "unhealthyThreshold": {
+            "type": "integer",
+            "description": "Unhealthy threshold. The value must be in range from 2 to 10.",
+            "format": "int64",
+            "example": 3
+          },
+          "timeout": {
+            "type": "integer",
+            "description": "Timeout of health check. The value must be from 2 to 120 seconds",
+            "format": "int64",
+            "example": 5
+          },
+          "interval": {
+            "type": "integer",
+            "description": "Health check interval. The value must be from 5 to 3600 seconds.",
+            "format": "int64",
+            "example": 30
+          },
+          "successCode": {
+            "pattern": "^(\\d{3}(\\s*,\\s*\\d{3})*)$|^(\\d{3}-\\d{3})$",
+            "type": "string",
+            "description": "Health check success code for HTTP health check protocol.",
+            "example": "200"
+          },
+          "domainName": {
+            "pattern": "(?=.{1,100}\\.?$)(?:(?!-|[^.]+_)[A-Za-z0-9-_]{1,63}(?<!-)(?:\\.|$))+$",
+            "type": "string",
+            "description": "Domain name for HTTP health check protocol.",
+            "example": "www.example.com"
+          },
+          "httpVersion": {
+            "type": "string",
+            "description": "Http version for HTTP health check protocol.",
+            "example": "1.0",
+            "enum": [
+              "1.0",
+              "1.1"
+            ]
+          }
+        },
+        "description": "Request body for creating a Health Monitor in Load Balancer pool"
+      },
+      "CreateLoadBalancerRequest": {
+        "required": [
+          "name",
+          "packageId",
+          "scheme",
+          "subnetId",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "tags": {
+            "type": "array",
+            "description": "Tags of resource",
+            "items": {
+              "$ref": "#/components/schemas/TagRequest"
+            }
+          },
+          "zoneId": {
+            "type": "string",
+            "description": "Id of zone",
+            "example": "HCM03-1A"
+          },
+          "name": {
+            "pattern": "^[a-zA-Z0-9_\\-.]{5,50}$",
+            "type": "string",
+            "description": "Load balancer's name. Only letters (a-z, A-Z, 0-9, '_','-', '.') are allowed and your input data must be between 5 and 50 characters.",
+            "example": "loadbalancer_01"
+          },
+          "packageId": {
+            "type": "string",
+            "description": "Package ID of the load balancer.",
+            "example": "f8e62cf2-d84c-11e9-8a34-2a2ae2dbcce4"
+          },
+          "scheme": {
+            "type": "string",
+            "description": "Scheme of the load balancer. Can be Internet or Internal.",
+            "example": "Internet",
+            "enum": [
+              "Internet",
+              "Internal"
+            ]
+          },
+          "subnetId": {
+            "type": "string",
+            "description": "Subnet ID for the load balancer.",
+            "example": "sub-375e0685-f828-40bc-b8e9-53271fd7860d"
+          },
+          "type": {
+            "type": "string",
+            "description": "Type of the load balancer. It may be Layer 4 or Layer 7",
+            "example": "Layer 7",
+            "enum": [
+              "Layer 4",
+              "Layer 7"
+            ]
+          },
+          "listener": {
+            "$ref": "#/components/schemas/LbListener"
+          },
+          "pool": {
+            "$ref": "#/components/schemas/LbPool"
+          },
+          "autoScalable": {
+            "type": "boolean",
+            "description": "Enable autoscale mode. Default is false.",
+            "example": true
+          }
+        },
+        "description": "Request object for creating a load balancer"
+      },
+      "LbListener": {
+        "required": [
+          "listenerName",
+          "listenerProtocol"
+        ],
+        "type": "object",
+        "properties": {
+          "listenerProtocol": {
+            "type": "string",
+            "description": "Protocol of the listener",
+            "example": "HTTP",
+            "enum": [
+              "HTTP",
+              "HTTPS",
+              "TCP",
+              "UDP"
+            ]
+          },
+          "listenerName": {
+            "pattern": "^[a-zA-Z0-9_\\-.]{5,50}$",
+            "type": "string",
+            "description": "Name of the listener. Only letters (a-z, A-Z, 0-9, '_','.', '-') are allowed and must be between 5 and 50 characters.",
+            "example": "listener_01"
+          },
+          "listenerProtocolPort": {
+            "type": "integer",
+            "description": "Port of the listener. From 1 to 65535",
+            "format": "int32",
+            "example": 80
+          },
+          "timeoutClient": {
+            "type": "integer",
+            "description": "Idle timeout of client in seconds (1–3600)",
+            "format": "int32",
+            "example": 50
+          },
+          "timeoutMember": {
+            "type": "integer",
+            "description": "Idle timeout of member in seconds (1–3600)",
+            "format": "int32",
+            "example": 50
+          },
+          "timeoutConnection": {
+            "type": "integer",
+            "description": "Idle timeout of connection in seconds (1–3600)",
+            "format": "int32",
+            "example": 5
+          },
+          "allowedCidrs": {
+            "type": "string",
+            "description": "Allowed CIDRs",
+            "example": "0.0.0.0/0"
+          },
+          "blockedCidrs": {
+            "type": "string",
+            "description": "Blocked CIDRs",
+            "example": "9.9.9.9/32"
+          },
+          "defaultAction": {
+            "type": "string",
+            "description": "Default action for the listener",
+            "example": "accept",
+            "enum": [
+              "accept",
+              "drop"
+            ]
+          },
+          "certificateAuthorities": {
+            "type": "array",
+            "description": "List of Certificates",
+            "example": [
+              "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+            ],
+            "items": {
+              "type": "string",
+              "description": "List of Certificates",
+              "example": "[\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\"]"
+            }
+          },
+          "defaultCertificateAuthority": {
+            "type": "string",
+            "description": "Default Certificate used by the listener",
+            "example": "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+          },
+          "clientCertificate": {
+            "type": "string",
+            "description": "The TLS client authentication mode",
+            "example": "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+          },
+          "insertHeaders": {
+            "type": "array",
+            "description": "List of headers to insert. Each must have 'headerName' and 'headerValue'.",
+            "example": [
+              {
+                "headerName": "X-Forwarded-For",
+                "headerValue": "true"
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Header"
+            }
+          },
+          "alpnProtocols": {
+            "type": "array",
+            "description": "List of ALPN protocols supported by this listener",
+            "example": [
+              "http/1.1",
+              "http/1.0"
+            ],
+            "items": {
+              "type": "string",
+              "description": "List of ALPN protocols supported by this listener",
+              "example": "[\"http/1.1\",\"http/1.0\"]",
+              "enum": [
+                "http/1.1",
+                "http/1.0",
+                "h2"
+              ]
+            },
+            "enum": [
+              "http/1.1",
+              "http/1.0",
+              "h2"
+            ]
+          },
+          "tlsSecurityPolicy": {
+            "pattern": "^(COMPATIBLE|MODERN|STRICT)$",
+            "type": "string",
+            "description": "TLS security policy for the listener",
+            "example": "COMPATIBLE",
+            "enum": [
+              "COMPATIBLE",
+              "MODERN",
+              "STRICT"
+            ]
+          }
+        },
+        "description": "Listener configuration for the load balancer"
+      },
+      "LbPool": {
+        "required": [
+          "algorithm",
+          "poolName",
+          "poolProtocol"
+        ],
+        "type": "object",
+        "properties": {
+          "poolName": {
+            "pattern": "^[a-zA-Z0-9_\\-.]{5,50}$",
+            "type": "string",
+            "description": "Name of the pool. Only letters (a-z, A-Z, 0-9, '_','.', '-') are allowed and must be between 5 and 50 characters.",
+            "example": "This_is_a_pool"
+          },
+          "algorithm": {
+            "pattern": "^(ROUND_ROBIN|LEAST_CONNECTIONS|SOURCE_IP)$",
+            "type": "string",
+            "description": "Algorithm of the pool",
+            "example": "ROUND_ROBIN",
+            "enum": [
+              "ROUND_ROBIN",
+              "LEAST_CONNECTIONS",
+              "SOURCE_IP"
+            ]
+          },
+          "stickiness": {
+            "type": "boolean",
+            "description": "Enable sticky sessions",
+            "example": true
+          },
+          "tlsEncryption": {
+            "type": "boolean",
+            "description": "Enable TLS encryption",
+            "example": true
+          },
+          "poolProtocol": {
+            "type": "string",
+            "description": "Protocol of the pool",
+            "example": "HTTP",
+            "enum": [
+              "HTTP",
+              "TCP",
+              "UDP",
+              "PROXY"
+            ]
+          },
+          "healthMonitor": {
+            "$ref": "#/components/schemas/CreateHMonitorRequest"
+          },
+          "members": {
+            "$ref": "#/components/schemas/MemberRequest"
+          }
+        },
+        "description": "Pool configuration for the load balancer"
+      },
+      "TagRequest": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "Tag key",
+            "example": "environment"
+          },
+          "value": {
+            "type": "string",
+            "description": "Tag value",
+            "example": "production"
+          }
+        },
+        "description": "Create Tag Request"
+      },
+      "CreatePoolRequest": {
+        "required": [
+          "algorithm",
+          "healthMonitor",
+          "poolName",
+          "poolProtocol"
+        ],
+        "type": "object",
+        "properties": {
+          "poolName": {
+            "pattern": "^[a-zA-Z0-9_\\-.]{5,50}$",
+            "type": "string",
+            "description": "Name of the pool. Only letters (a-z, A-Z, 0-9, '_', '-') are allowed and must be between 5 and 50 characters.",
+            "example": "pool_01"
+          },
+          "poolProtocol": {
+            "type": "string",
+            "description": "Protocol of the pool.",
+            "example": "HTTP",
+            "enum": [
+              "HTTP",
+              "TCP",
+              "UDP",
+              "PROXY"
+            ]
+          },
+          "algorithm": {
+            "pattern": "^(ROUND_ROBIN|LEAST_CONNECTIONS|SOURCE_IP)$",
+            "type": "string",
+            "description": "Algorithm of the pool. The algorithm can be ROUND_ROBIN, LEAST_CONNECTIONS, or SOURCE_IP.",
+            "example": "ROUND_ROBIN",
+            "enum": [
+              "ROUND_ROBIN",
+              "LEAST_CONNECTIONS",
+              "SOURCE_IP"
+            ]
+          },
+          "stickiness": {
+            "type": "boolean",
+            "description": "Enable sticky sessions.",
+            "example": true
+          },
+          "tlsEncryption": {
+            "type": "boolean",
+            "description": "Enable TLS Encryption.",
+            "example": true
+          },
+          "healthMonitor": {
+            "$ref": "#/components/schemas/CreateHMonitorRequest"
+          },
+          "members": {
+            "type": "array",
+            "description": "List of members of the pool.",
+            "items": {
+              "$ref": "#/components/schemas/MemberRequest"
+            }
+          }
+        },
+        "description": "Request body for creating a Load Balancer pool"
+      },
+      "CreateListenerRequest": {
+        "required": [
+          "listenerName",
+          "listenerProtocol",
+          "listenerProtocolPort",
+          "timeoutClient",
+          "timeoutConnection",
+          "timeoutMember"
+        ],
+        "type": "object",
+        "properties": {
+          "listenerName": {
+            "pattern": "^[a-zA-Z0-9_\\-.]{5,50}$",
+            "type": "string",
+            "description": "Name of the listener. Only letters (a-z, A-Z, 0-9, '_', '-') are allowed and must be between 5 and 50 characters.",
+            "example": "listener_02"
+          },
+          "defaultPoolId": {
+            "type": "string",
+            "description": "Id of the pool that this listener will forward to.",
+            "example": "pool-1a007f28-bafa-450f-963b-3d177730c3b8"
+          },
+          "listenerProtocolPort": {
+            "type": "integer",
+            "description": "Port of the listener.",
+            "format": "int32",
+            "example": 80
+          },
+          "listenerProtocol": {
+            "type": "string",
+            "description": "Protocol of the listener.",
+            "example": "HTTP",
+            "enum": [
+              "HTTP",
+              "HTTPS",
+              "TCP",
+              "UDP"
+            ]
+          },
+          "timeoutClient": {
+            "type": "integer",
+            "description": "Idle timeout of client in seconds. Must be in range 1–3600.",
+            "format": "int32",
+            "example": 50
+          },
+          "timeoutMember": {
+            "type": "integer",
+            "description": "Idle timeout of member in seconds. Must be in range 1–3600.",
+            "format": "int32",
+            "example": 50
+          },
+          "timeoutConnection": {
+            "type": "integer",
+            "description": "Idle timeout of connection in seconds. Must be in range 1–3600.",
+            "format": "int32",
+            "example": 5
+          },
+          "allowedCidrs": {
+            "type": "string",
+            "description": "Allowed CIDRs",
+            "example": "0.0.0.0/0"
+          },
+          "blockedCidrs": {
+            "type": "string",
+            "description": "Blocked CIDRs",
+            "example": "9.9.9.9/32"
+          },
+          "defaultAction": {
+            "type": "string",
+            "description": "Default action for the listener",
+            "example": "accept",
+            "enum": [
+              "accept",
+              "drop"
+            ]
+          },
+          "certificateAuthorities": {
+            "type": "array",
+            "description": "List of Certificates.",
+            "example": [
+              "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+            ],
+            "items": {
+              "type": "string",
+              "description": "List of Certificates.",
+              "example": "[\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\"]"
+            }
+          },
+          "defaultCertificateAuthority": {
+            "type": "string",
+            "description": "Default Certificate used by the listener.",
+            "example": "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+          },
+          "clientCertificate": {
+            "type": "string",
+            "description": "TLS client authentication mode.",
+            "example": "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+          },
+          "insertHeaders": {
+            "type": "array",
+            "description": "List of headers to insert. Each object must include a 'headerName' and 'headerValue'.",
+            "example": [
+              {
+                "headerName": "X-Forwarded-For",
+                "headerValue": "true"
+              },
+              {
+                "headerName": "X-Forwarded-Proto",
+                "headerValue": "true"
+              }
+            ],
+            "items": {
+              "$ref": "#/components/schemas/Header"
+            }
+          },
+          "alpnProtocols": {
+            "type": "array",
+            "description": "List of ALPN protocols supported. ALPN allows negotiation of protocols like HTTP/1.1 or H2 over secure connections.",
+            "example": [
+              "http/1.1",
+              "http/1.0"
+            ],
+            "items": {
+              "type": "string",
+              "description": "List of ALPN protocols supported. ALPN allows negotiation of protocols like HTTP/1.1 or H2 over secure connections.",
+              "example": "[\"http/1.1\",\"http/1.0\"]",
+              "enum": [
+                "http/1.1",
+                "http/1.0",
+                "h2"
+              ]
+            },
+            "enum": [
+              "http/1.1",
+              "http/1.0",
+              "h2"
+            ]
+          },
+          "tlsSecurityPolicy": {
+            "pattern": "^(COMPATIBLE|MODERN|STRICT)$",
+            "type": "string",
+            "description": "TLS security policy for the listener.",
+            "example": "COMPATIBLE",
+            "enum": [
+              "COMPATIBLE",
+              "MODERN",
+              "STRICT"
+            ]
+          }
+        },
+        "description": "Request model for creating a Listener"
+      },
+      "CreateL7PolicyRequest": {
+        "required": [
+          "action",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "pattern": "^[a-zA-Z0-9_\\-.]{5,50}$",
+            "type": "string",
+            "description": "Policy name. Only letters (a-z, A-Z, 0-9, '_', '-') are allowed and must be between 5 and 50 characters.",
+            "example": "l7policy_1"
+          },
+          "redirectPoolId": {
+            "type": "string",
+            "description": "Pool for forwarding.",
+            "example": "pool-1a007f28-bafa-450f-963b-3d177730c3b8"
+          },
+          "redirectUrl": {
+            "pattern": "^(?=.{1,100}$)(https?|ftp|file)://[-a-zA-Z0-9+&@#/%?=~_|!:,.;]*[-a-zA-Z0-9+&@#/%=~_|]",
+            "type": "string",
+            "description": "URL for forwarding.",
+            "example": "https://www.example.com"
+          },
+          "action": {
+            "type": "string",
+            "description": "Action. This indicates how the listener will route traffic. The value can be REDIRECT_TO_POOL or REDIRECT_TO_URL.",
+            "example": "REDIRECT_TO_URL",
+            "enum": [
+              "REDIRECT_TO_POOL",
+              "REDIRECT_TO_URL"
+            ]
+          },
+          "redirectHttpCode": {
+            "type": "integer",
+            "description": "Redirect HTTP code for redirecting to other URL.",
+            "format": "int32",
+            "example": 301,
+            "enum": [
+              301,
+              302
+            ]
+          },
+          "keepQueryString": {
+            "type": "boolean",
+            "description": "Keep the query string or not.",
+            "example": true
+          },
+          "rules": {
+            "type": "array",
+            "description": "List of rules of the policy.",
+            "items": {
+              "$ref": "#/components/schemas/L7RuleRequest"
+            }
+          }
+        },
+        "description": "Request model for creating L7 policy"
+      },
+      "Certificates": {
+        "required": [
+          "defaultCertificateId",
+          "listenerId"
+        ],
+        "type": "object",
+        "properties": {
+          "listenerId": {
+            "type": "string",
+            "description": "Listener ID",
+            "example": "listener-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+          },
+          "defaultCertificateId": {
+            "type": "string",
+            "description": "Default Certificate that the listener will use",
+            "example": "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+          },
+          "sniCertificateIds": {
+            "type": "array",
+            "description": "List of Certificates",
+            "example": [
+              "secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe"
+            ],
+            "items": {
+              "type": "string",
+              "description": "List of Certificates",
+              "example": "[\"secret-4ea86b49-9427-4b14-b080-8ac88a1f5efe\"]"
+            }
+          }
+        },
+        "description": "Certificates configuration for the load balancer listener"
+      },
+      "CloneLoadBalancerRequest": {
+        "required": [
+          "name",
+          "packageId"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "pattern": "^[a-zA-Z0-9_\\-.]{5,50}$",
+            "type": "string",
+            "description": "Load balancer's name. Only letters (a-z, A-Z, 0-9, '_','-', '.') are allowed and your input data must be between 5 and 50 characters.",
+            "example": "loadbalancer_01"
+          },
+          "packageId": {
+            "type": "string",
+            "description": "Package ID of the load balancer.",
+            "example": "f8e62cf2-d84c-11e9-8a34-2a2ae2dbcce4"
+          },
+          "certificates": {
+            "type": "array",
+            "description": "List of certificate changing",
+            "items": {
+              "$ref": "#/components/schemas/Certificates"
+            }
+          }
+        },
+        "description": "Clone load balancer request"
+      },
+      "ImportCARequest": {
+        "required": [
+          "name",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "pattern": "^[a-zA-Z0-9.-]{5,50}$",
+            "type": "string",
+            "description": "Name of the CA",
+            "example": "ca_01"
+          },
+          "certificate": {
+            "type": "string",
+            "description": "Certificate of the CA"
+          },
+          "privateKey": {
+            "type": "string",
+            "description": "Private key of the CA"
+          },
+          "certificateChain": {
+            "type": "string",
+            "description": "A certificate chain is an ordered list of certificates, containing an SSL/TLS Certificate and (CA) Certificates, that enable the receiver to verify that the sender and all CA's are trustworthy."
+          },
+          "passphrase": {
+            "type": "string",
+            "description": "The password of the private key."
+          },
+          "type": {
+            "type": "string",
+            "description": "Type of the certificate (CA or TLS/SSL)",
+            "example": "TLS/SSL",
+            "enum": [
+              "CA",
+              "TLS/SSL"
+            ]
+          }
+        },
+        "description": "Import CA Request"
+      },
+      "CADto": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "certificateType": {
+            "type": "string"
+          },
+          "expiredAt": {
+            "type": "string"
+          },
+          "importedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notAfter": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "keyAlgorithm": {
+            "type": "string"
+          },
+          "serial": {
+            "type": "string"
+          },
+          "subjectAlternativeNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subject": {
+            "type": "string"
+          },
+          "domainName": {
+            "type": "string"
+          },
+          "inUse": {
+            "type": "boolean"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "signatureAlgorithm": {
+            "type": "string"
+          },
+          "notBefore": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DataResponseCADto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CADto"
+          }
+        }
+      },
+      "FilterRequest": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TagRequest"
+            }
+          },
+          "newTag": {
+            "$ref": "#/components/schemas/TagRequest"
+          },
+          "tagIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "isCache": {
+            "type": "boolean"
+          },
+          "privateIps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "publicIps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "subnetIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "vpcIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "serverIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "encryptionTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "volumeTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "resourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dhcpOptionIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "zoneId": {
+            "type": "string"
+          }
+        }
+      },
+      "LoadBalancerDto": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "displayStatus": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "privateSubnetId": {
+            "type": "string"
+          },
+          "privateSubnetCidr": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "displayType": {
+            "type": "string"
+          },
+          "loadBalancerSchema": {
+            "type": "string"
+          },
+          "packageId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "minSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "backendSubnetId": {
+            "type": "string"
+          },
+          "packageInfo": {
+            "$ref": "#/components/schemas/PackageInfo"
+          },
+          "autoScalable": {
+            "type": "boolean"
+          },
+          "zone": {
+            "$ref": "#/components/schemas/Zone"
+          },
+          "networkId": {
+            "type": "string"
+          },
+          "totalNodes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NodeInfo"
+            }
+          },
+          "progressStatus": {
+            "type": "string"
+          }
+        }
+      },
+      "NodeInfo": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "zoneId": {
+            "type": "string"
+          },
+          "zoneName": {
+            "type": "string"
+          },
+          "subnetId": {
+            "type": "string"
+          }
+        }
+      },
+      "PackageInfo": {
+        "type": "object",
+        "properties": {
+          "packageId": {
+            "type": "string"
+          },
+          "connectionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dataTransfer": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "PagingLoadBalancerDto": {
+        "type": "object",
+        "properties": {
+          "listData": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LoadBalancerDto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPage": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItem": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Zone": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "zoneType": {
+            "type": "string"
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "isEnabled": {
+            "type": "boolean"
+          },
+          "volumeCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "serverCount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "PageRequest": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "DataResponseLoadBalancerDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LoadBalancerDto"
+          }
+        }
+      },
+      "ScaleHistoryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "eventType": {
+            "type": "string"
+          },
+          "adjustmentNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "scaledAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DataResponseListPoolDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PoolDto"
+            }
+          }
+        }
+      },
+      "HMonitorDto": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "domainName": {
+            "type": "string"
+          },
+          "httpVersion": {
+            "type": "string"
+          },
+          "healthCheckProtocol": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "healthyThreshold": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "unhealthyThreshold": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "healthCheckMethod": {
+            "type": "string"
+          },
+          "healthCheckPath": {
+            "type": "string"
+          },
+          "successCode": {
+            "type": "string"
+          },
+          "progressStatus": {
+            "type": "string"
+          },
+          "displayStatus": {
+            "type": "string"
+          }
+        }
+      },
+      "PoolDto": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "loadBalanceMethod": {
+            "type": "string"
+          },
+          "displayStatus": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "healthMonitor": {
+            "$ref": "#/components/schemas/HMonitorDto"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PoolMemberDto"
+            }
+          },
+          "stickiness": {
+            "type": "boolean"
+          },
+          "tlsEncryption": {
+            "type": "boolean"
+          },
+          "progressStatus": {
+            "type": "string"
+          }
+        }
+      },
+      "PoolMemberDto": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "protocolPort": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "weight": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "monitorPort": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "subnetId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "poolId": {
+            "type": "string"
+          },
+          "typeCreate": {
+            "type": "string"
+          },
+          "backup": {
+            "type": "boolean"
+          },
+          "displayStatus": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "progressStatus": {
+            "type": "string"
+          }
+        }
+      },
+      "DataResponsePoolDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PoolDto"
+          }
+        }
+      },
+      "DataResponseListPoolMemberDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PoolMemberDto"
+            }
+          }
+        }
+      },
+      "DataResponseHMonitorDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HMonitorDto"
+          }
+        }
+      },
+      "DataResponseListListenerDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ListenerDto"
+            }
+          }
+        }
+      },
+      "ListenerDto": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "protocolPort": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "connectionLimit": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "defaultPoolId": {
+            "type": "string"
+          },
+          "defaultPoolName": {
+            "type": "string"
+          },
+          "timeoutClient": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "timeoutMember": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "timeoutConnection": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "allowedCidrs": {
+            "type": "string"
+          },
+          "blockedCidrs": {
+            "type": "string"
+          },
+          "defaultAction": {
+            "type": "string"
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "insertHeaders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Header"
+            }
+          },
+          "certificateAuthorities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "displayStatus": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "alpnProtocols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tlsSecurityPolicy": {
+            "type": "string"
+          },
+          "defaultCertificateAuthority": {
+            "type": "string"
+          },
+          "clientCertificateAuthentication": {
+            "type": "string"
+          },
+          "progressStatus": {
+            "type": "string"
+          }
+        }
+      },
+      "DataResponseListenerDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ListenerDto"
+          }
+        }
+      },
+      "DataResponseListL7PolicyDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/L7PolicyDto"
+            }
+          }
+        }
+      },
+      "L7PolicyDto": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "redirectPoolId": {
+            "type": "string"
+          },
+          "redirectPoolName": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "redirectUrl": {
+            "type": "string"
+          },
+          "redirectHttpCode": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "keepQueryString": {
+            "type": "boolean"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "l7Rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/L7RuleDto"
+            }
+          },
+          "displayStatus": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "progressStatus": {
+            "type": "string"
+          }
+        }
+      },
+      "L7RuleDto": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "compareType": {
+            "type": "string"
+          },
+          "ruleValue": {
+            "type": "string"
+          },
+          "ruleType": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "provisioningStatus": {
+            "type": "string"
+          },
+          "operatingStatus": {
+            "type": "string"
+          }
+        }
+      },
+      "DataResponseL7PolicyDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/L7PolicyDto"
+          }
+        }
+      },
+      "LBCloneMetadataDto": {
+        "type": "object",
+        "properties": {
+          "loadBalancerName": {
+            "type": "string"
+          },
+          "certificates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Certificates"
+            }
+          }
+        }
+      },
+      "LoadBalancerPackageDto": {
+        "type": "object",
+        "properties": {
+          "uuid": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "connectionNumber": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dataTransfer": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "lbType": {
+            "type": "string"
+          },
+          "displayLbType": {
+            "type": "string"
+          }
+        }
+      },
+      "PagingLoadBalancerPackageDto": {
+        "type": "object",
+        "properties": {
+          "listData": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LoadBalancerPackageDto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPage": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItem": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "DataResponseListString": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PagingCADto": {
+        "type": "object",
+        "properties": {
+          "listData": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CADto"
+            }
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "pageSize": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalPage": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalItem": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "Authorization": {
+        "type": "apiKey",
+        "description": "Bearer token for authentication",
+        "name": "Authorization",
+        "in": "header"
+      }
+    }
+  }
+}
