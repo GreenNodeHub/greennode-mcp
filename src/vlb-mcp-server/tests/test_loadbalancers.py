@@ -24,6 +24,7 @@ from .helpers import (
 from greennode.vlb_mcp_server.loadbalancer_handler import LoadBalancerHandler
 from greennode.vlb_mcp_server.models import (
     CreatedResourceData,
+    CreateHealthMonitorDto,
     CreateLoadBalancerDto,
     EmbeddedListenerDto,
     EmbeddedPoolDto,
@@ -318,19 +319,18 @@ async def test_validate_rejects_an_http_listener_on_a_layer4_load_balancer(lbs_r
     assert any("Layer 4" in e for e in result.errors)
 
 
-@pytest.mark.asyncio
-async def test_validate_requires_a_default_certificate_for_https(lbs_ro):
-    body = CreateLoadBalancerDto(
-        name="prod-lb",
-        packageId="lbp-small",
-        scheme="Internet",
-        subnetId=SUBNET,
-        type="Layer 7",
-        listener=EmbeddedListenerDto(listenerName="web-listen", listenerProtocol="HTTPS"),
-    )
-    result = await lbs_ro.validate_load_balancer_create(body=body)
-    assert result.ok is False
-    assert any("defaultCertificateAuthority" in e for e in result.errors)
+def test_an_https_listener_without_a_certificate_never_builds():
+    """The rule lives on the DTO, so it guards every path into the API.
+
+    It used to be checked only by validate_load_balancer_create, which an agent
+    is free to skip; on the DTO it also covers create_load_balancer and
+    create_listener. The gateway answers 400 for this body, so failing here
+    costs a round trip instead of a rejected create.
+    """
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="defaultCertificateAuthority"):
+        EmbeddedListenerDto(listenerName="web-listen", listenerProtocol="HTTPS")
 
 
 @pytest.mark.asyncio
@@ -390,6 +390,19 @@ async def test_create_load_balancer_serialises_nested_members_as_an_array(lbs_rw
             poolName="web-pool",
             algorithm="ROUND_ROBIN",
             poolProtocol="HTTP",
+            stickiness=False,
+            tlsEncryption=False,
+            healthMonitor=CreateHealthMonitorDto(
+                healthCheckProtocol="HTTP",
+                healthCheckPath="/",
+                healthCheckMethod="GET",
+                successCode="200",
+                httpVersion="1.0",
+                healthyThreshold=3,
+                unhealthyThreshold=3,
+                timeout=5,
+                interval=30,
+            ),
             members=[
                 MemberDto(ipAddress="10.0.0.11", port=80, backup=False),
                 MemberDto(ipAddress="10.0.0.12", port=80, backup=False),

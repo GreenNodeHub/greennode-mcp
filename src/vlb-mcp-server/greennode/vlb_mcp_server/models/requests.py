@@ -15,6 +15,7 @@ model:
 
 from __future__ import annotations
 
+import re
 from greennode.vlb_mcp_server.models._common import TagDto, list_to_csv
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import Literal
@@ -55,12 +56,49 @@ class MemberDto(BaseModel):
         False, description="Whether this member only receives traffic when others are down."
     )
     weight: int | None = Field(
-        None, ge=1, description="Relative share of requests; higher gets more."
+        None,
+        ge=0,
+        le=256,
+        description=(
+            "Relative share of requests; higher gets more. Defaults to 1 when omitted. "
+            "0 is legal and means the member is drained — it stays in the pool and "
+            "receives nothing."
+        ),
     )
     name: str | None = Field(None, pattern=NAME_PATTERN, description="Friendly name (5-50 chars).")
     monitorPort: int | None = Field(
-        None, ge=1, le=65535, description="Port the health monitor probes, if different."
+        None,
+        ge=1,
+        le=65535,
+        description=(
+            "Port the health monitor probes. Defaults to `port` when omitted — the API "
+            "declares this as a primitive int, so a missing value arrives as 0 and is "
+            "rejected."
+        ),
     )
+
+    @model_validator(mode="after")
+    def _fill_primitive_int_defaults(self):
+        """Supply ``monitorPort`` and ``weight``, which cannot be left unset.
+
+        Both are Java **primitive** ``int`` on ``MemberRequest``, so an absent
+        field deserialises to 0 rather than staying null. The two fail
+        differently and both were verified live:
+
+        - ``monitorPort`` carries ``@Range(min = 1, ...)``, so 0 is rejected
+          outright — every member sent without it failed with "Invalid port
+          number". It defaults to the port the member serves on.
+        - ``weight`` carries ``@Range(min = 0, ...)``, so 0 is **accepted** and
+          stored. A member created without a weight came back with ``weight=0``
+          and therefore takes no traffic at all — a silent dead backend. It
+          defaults to 1, which is what every pool the platform builds itself
+          uses.
+        """
+        if self.monitorPort is None:
+            self.monitorPort = self.port
+        if self.weight is None:
+            self.weight = 1
+        return self
 
 
 class CreateHealthMonitorDto(BaseModel):
@@ -82,14 +120,18 @@ class CreateHealthMonitorDto(BaseModel):
     healthCheckMethod: Literal["GET", "POST", "PUT"] | None = Field(
         None, description="HTTP method for the probe (HTTP/HTTPS only)."
     )
-    healthyThreshold: int | None = Field(
-        None, ge=2, le=10, description="Consecutive successes before a member is healthy."
+    healthyThreshold: int = Field(
+        ..., ge=2, le=10, description="Consecutive successes before a member is healthy."
     )
-    unhealthyThreshold: int | None = Field(
-        None, ge=2, le=10, description="Consecutive failures before a member is unhealthy."
+    unhealthyThreshold: int = Field(
+        ..., ge=2, le=10, description="Consecutive failures before a member is unhealthy."
     )
-    timeout: int | None = Field(None, ge=2, le=120, description="Probe timeout in seconds.")
-    interval: int | None = Field(None, ge=5, le=3600, description="Probe interval in seconds.")
+    timeout: int = Field(
+        ..., ge=2, le=120, description="Probe timeout in seconds. Must be less than `interval`."
+    )
+    interval: int = Field(
+        ..., ge=5, le=3600, description="Probe interval in seconds. Must exceed `timeout`."
+    )
     successCode: str | None = Field(
         None, description="Accepted HTTP status codes, e.g. '200' or '200-299'."
     )
@@ -97,6 +139,104 @@ class CreateHealthMonitorDto(BaseModel):
     httpVersion: Literal["1.0", "1.1"] | None = Field(
         None, description="HTTP version to probe with."
     )
+
+    # The probe fields that only an HTTP/HTTPS check may carry.
+    _HTTP_ONLY = ("healthCheckPath", "healthCheckMethod", "successCode", "httpVersion")
+
+    @model_validator(mode="after")
+    def _probe_is_coherent(self):
+        """Mirror CreatePoolValidator's health-monitor rules locally.
+
+        Every message here was observed from the gateway's own validator, so a
+        body rejected below would have been rejected remotely too — but here
+        the agent learns all of it at once instead of one 400 per round trip.
+        """
+        if self.timeout >= self.interval:
+            raise ValueError("Timeout must be less than interval")
+
+        if self.healthCheckProtocol in ("TCP", "PING-UDP"):
+            named = [f for f in (*self._HTTP_ONLY, "domainName") if getattr(self, f) is not None]
+            if named:
+                raise ValueError(
+                    "If healthCheckProtocol field is TCP or PING-UDP, following fields "
+                    "cannot be specified: healthCheckPath, healthCheckMethod, successCode, "
+                    f"domainName, httpVersion (got {', '.join(named)})"
+                )
+            return self
+
+        missing = [f for f in self._HTTP_ONLY if getattr(self, f) is None]
+        if missing:
+            raise ValueError(
+                f"If healthCheckProtocol field is {self.healthCheckProtocol}, following "
+                "fields must be specified: healthCheckPath, healthCheckMethod, successCode, "
+                f"httpVersion (missing {', '.join(missing)})"
+            )
+        if self.httpVersion == "1.1" and not self.domainName:
+            raise ValueError(
+                "Domain name must be specified for Http version 1.1 health check protocol: "
+                f"{self.healthCheckProtocol}"
+            )
+        if self.httpVersion == "1.0" and self.domainName:
+            raise ValueError(
+                "Domain name cannot be specified for Http version 1.0 health check protocol"
+            )
+        return self
+
+
+class _PoolFieldsDto(BaseModel):
+    """Pool settings shared by the embedded and standalone create bodies.
+
+    ``stickiness`` and ``tlsEncryption`` are required for an HTTP pool and
+    forbidden on any other protocol — the gateway checks this before it checks
+    protocol compatibility, so a Layer 7 body carrying a TCP pool is rejected
+    for the stickiness mismatch first.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    poolName: str = Field(..., pattern=NAME_PATTERN, description="Pool name (5-50 chars).")
+    algorithm: Literal["ROUND_ROBIN", "LEAST_CONNECTIONS", "SOURCE_IP"] = Field(
+        ..., description="Load balancing algorithm."
+    )
+    poolProtocol: Literal["HTTP", "TCP", "UDP", "PROXY"] = Field(
+        ..., description="Protocol used to reach the backends."
+    )
+    stickiness: bool | None = Field(
+        None, description="Pin a client to one backend. Required for HTTP pools only."
+    )
+    tlsEncryption: bool | None = Field(
+        None, description="Encrypt traffic to the backends. Required for HTTP pools only."
+    )
+
+    @model_validator(mode="after")
+    def _stickiness_matches_protocol(self):
+        if self.poolProtocol == "HTTP":
+            if self.stickiness is None:
+                raise ValueError("Stickiness must be specified for HTTP pools")
+            if self.tlsEncryption is None:
+                raise ValueError("Tls Encryption must be specified for HTTP pools")
+            return self
+        if self.stickiness is not None:
+            raise ValueError("Stickiness cannot be specified for non-HTTP pools")
+        if self.tlsEncryption is not None:
+            raise ValueError("Tls Encryption cannot be specified for non-HTTP pools")
+        return self
+
+    @model_validator(mode="after")
+    def _probe_matches_pool(self):
+        """A UDP pool needs a PING-UDP probe, and only a UDP pool may have one."""
+        monitor = getattr(self, "healthMonitor", None)
+        if monitor is None:
+            return self
+        probe = monitor.healthCheckProtocol
+        if self.poolProtocol == "UDP" and probe != "PING-UDP":
+            raise ValueError("Invalid health check protocol for UDP pool. Valid values: PING-UDP")
+        if self.poolProtocol != "UDP" and probe == "PING-UDP":
+            raise ValueError(
+                f"Invalid health check protocol for {self.poolProtocol} pool. "
+                "Valid values: TCP, HTTP, HTTPS"
+            )
+        return self
 
 
 class _ListenerFieldsDto(BaseModel):
@@ -145,6 +285,74 @@ class _ListenerFieldsDto(BaseModel):
             return None
         return list_to_csv(value)
 
+    #: Total length of every headerName + headerValue the gateway will accept.
+    _MAX_HEADER_CHARS = 1024
+
+    #: Fields only an HTTPS listener may carry.
+    _TLS_ONLY = (
+        "clientCertificate",
+        "certificateAuthorities",
+        "defaultCertificateAuthority",
+        "tlsSecurityPolicy",
+    )
+
+    @model_validator(mode="after")
+    def _tls_and_headers_match_protocol(self):
+        """Mirror CreateListenerValidator locally, with its own messages.
+
+        Skipped for :class:`UpdateListenerDto`, which carries no protocol — an
+        update cannot change it, so the gateway checks against the stored
+        listener instead.
+        """
+        protocol = getattr(self, "listenerProtocol", None)
+        if protocol is None:
+            return self
+
+        if protocol != "HTTPS":
+            named = [f for f in self._TLS_ONLY if getattr(self, f, None) is not None]
+            if named:
+                raise ValueError(
+                    "Cannot specify client certificate, certificate authorities, default "
+                    f"certificate authority, or tls security policy for {protocol.lower()} "
+                    f"listener (got {', '.join(named)})"
+                )
+            if self.alpnProtocols is not None:
+                raise ValueError(
+                    f"ALPN protocols cannot be specified for {protocol.lower()} listeners. "
+                    "ALPN is only applicable for HTTPS listeners."
+                )
+        elif not self.defaultCertificateAuthority:
+            raise ValueError(
+                "An HTTPS listener needs defaultCertificateAuthority. Import or pick one "
+                "with import_certificate / list_certificates first."
+            )
+
+        if not self.insertHeaders:
+            return self
+
+        if protocol in ("TCP", "UDP"):
+            raise ValueError(f"Headers cannot be specified for {protocol} listeners")
+
+        total = sum(len(h.headerName) + len(h.headerValue) for h in self.insertHeaders)
+        if total > self._MAX_HEADER_CHARS:
+            raise ValueError(
+                f"Inserted headers total {total} characters; the API accepts at most "
+                f"{self._MAX_HEADER_CHARS}"
+            )
+        seen: set[str] = set()
+        for header in self.insertHeaders:
+            if header.headerName in seen:
+                raise ValueError(f"Duplicated header name: {header.headerName}")
+            seen.add(header.headerName)
+            if protocol == "HTTP" and "SSL" in header.headerName.upper():
+                raise ValueError("Header 'SSL' is not allowed for HTTP protocol")
+            if not header.headerName.startswith("Access") and header.headerValue.lower() != "true":
+                raise ValueError(
+                    f"Invalid value for header '{header.headerName}': {header.headerValue}"
+                    " — every header outside the Access-* family takes the value 'true'."
+                )
+        return self
+
 
 class EmbeddedListenerDto(_ListenerFieldsDto):
     """Listener created inline with a load balancer (``CreateLoadBalancerRequest.listener``).
@@ -161,22 +369,15 @@ class EmbeddedListenerDto(_ListenerFieldsDto):
     )
 
 
-class EmbeddedPoolDto(BaseModel):
-    """Pool created inline with a load balancer (``CreateLoadBalancerRequest.pool``)."""
+class EmbeddedPoolDto(_PoolFieldsDto):
+    """Pool created inline with a load balancer (``CreateLoadBalancerRequest.pool``).
 
-    model_config = ConfigDict(extra="forbid")
+    ``healthMonitor`` is required here too: the gateway rejects the whole
+    create with ``pool.healthMonitor: must not be null``.
+    """
 
-    poolName: str = Field(..., pattern=NAME_PATTERN, description="Pool name (5-50 chars).")
-    algorithm: Literal["ROUND_ROBIN", "LEAST_CONNECTIONS", "SOURCE_IP"] = Field(
-        ..., description="Load balancing algorithm."
-    )
-    poolProtocol: Literal["HTTP", "TCP", "UDP", "PROXY"] = Field(
-        ..., description="Protocol used to reach the backends."
-    )
-    stickiness: bool | None = Field(None, description="Pin a client to one backend.")
-    tlsEncryption: bool | None = Field(None, description="Encrypt traffic to the backends.")
-    healthMonitor: CreateHealthMonitorDto | None = Field(
-        None, description="Health monitor for the pool."
+    healthMonitor: CreateHealthMonitorDto = Field(
+        ..., description="Health monitor for the pool. Required by the API."
     )
     members: list[MemberDto] | None = Field(
         None,
@@ -256,14 +457,33 @@ class UpdateBandwidthPackageDto(BaseModel):
 
 
 class ScalingConfigDto(BaseModel):
-    """Min/max node counts for a Multi-AZ autoscaling load balancer."""
+    """Min/max node counts for a Multi-AZ autoscaling load balancer.
+
+    ``ScaleValidationHelper`` in the gateway caps ``maxSize`` at 15 and also
+    requires ``minSize`` to be at least the number of availability zones the
+    ``subnets`` span (one node per zone). That zone count is only knowable from
+    the subnets, so it is enforced by the tool rather than here.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    maxSize: int = Field(..., ge=1, description="Maximum number of nodes.")
+    maxSize: int = Field(..., ge=1, le=15, description="Maximum number of nodes (max 15).")
     minSize: int | None = Field(
-        None, ge=1, description="Minimum number of nodes; defaults to the number of subnets."
+        None,
+        ge=1,
+        description=(
+            "Minimum number of nodes. Defaults to the number of subnets, and must be at "
+            "least one per availability zone."
+        ),
     )
+
+    @model_validator(mode="after")
+    def _min_within_max(self):
+        if self.minSize is not None and self.minSize > self.maxSize:
+            raise ValueError(
+                f"Min size ({self.minSize}) cannot be greater than max size ({self.maxSize})"
+            )
+        return self
 
 
 class NetworkingConfigDto(BaseModel):
@@ -341,7 +561,7 @@ class ChangeMembersDto(BaseModel):
     )
 
 
-class CreatePoolDto(BaseModel):
+class CreatePoolDto(_PoolFieldsDto):
     """Request body for ``POST /v2/{projectId}/loadBalancers/{id}/pools``.
 
     ``healthMonitor`` is **required**: there is no standalone health-monitor
@@ -349,20 +569,9 @@ class CreatePoolDto(BaseModel):
     rewriting the pool.
     """
 
-    model_config = ConfigDict(extra="forbid")
-
-    poolName: str = Field(..., pattern=NAME_PATTERN, description="Pool name (5-50 chars).")
-    poolProtocol: Literal["HTTP", "TCP", "UDP", "PROXY"] = Field(
-        ..., description="Protocol used to reach the backends. Cannot be changed later."
-    )
-    algorithm: Literal["ROUND_ROBIN", "LEAST_CONNECTIONS", "SOURCE_IP"] = Field(
-        ..., description="Load balancing algorithm."
-    )
     healthMonitor: CreateHealthMonitorDto = Field(
         ..., description="Health check for the members. Required by the API."
     )
-    stickiness: bool | None = Field(None, description="Pin a client to one backend.")
-    tlsEncryption: bool | None = Field(None, description="Encrypt traffic to the backends.")
     members: list[MemberDto] | None = Field(
         None, description="Initial backend members; can also be added later."
     )
@@ -513,6 +722,26 @@ class L7RuleDto(BaseModel):
     ruleValue: str = Field(
         ..., min_length=1, max_length=255, description="The value to compare against."
     )
+
+    @model_validator(mode="after")
+    def _regex_must_compile(self):
+        """Reject an uncompilable pattern here rather than a round trip later.
+
+        The gateway runs `Pattern.compile` and answers
+        ``400 "Rule value: <value> is invalid regex pattern"``. Java and Python
+        regex syntax differ at the edges, so this only catches what both agree
+        is broken — unbalanced brackets, a dangling quantifier — which is what
+        a typo actually produces.
+        """
+        if self.compareType != "REGEX":
+            return self
+        try:
+            re.compile(self.ruleValue)
+        except re.error as exc:
+            raise ValueError(
+                f"Rule value: {self.ruleValue} is invalid regex pattern ({exc})"
+            ) from None
+        return self
 
 
 class _L7PolicyFieldsDto(BaseModel):

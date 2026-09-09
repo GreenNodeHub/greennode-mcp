@@ -14,7 +14,7 @@ travels back out through a model.
 
 from __future__ import annotations
 
-from greennode.vlb_mcp_server.models._common import _resource_id
+from greennode.vlb_mcp_server.models._common import _resource_id, epoch_to_iso
 from pydantic import BaseModel, Field
 
 
@@ -36,8 +36,16 @@ class CertificateItem(BaseModel):
     key_algorithm: str = Field("", description="Key algorithm")
     signature_algorithm: str = Field("", description="Signature algorithm")
     expired_at: str = Field("", description="Expiry as the API reports it (plain string)")
-    not_before: str = Field("", description="Validity start, epoch seconds as reported")
-    not_after: str = Field("", description="Validity end, epoch seconds as reported")
+    not_before: str = Field(
+        "", description="Validity start as ISO-8601 UTC (the API reports epoch millis)"
+    )
+    not_after: str = Field(
+        "",
+        description=(
+            "Expiry as ISO-8601 UTC (the API reports epoch millis). This is the field to "
+            "answer 'when does this certificate expire'; `expired_at` is usually empty."
+        ),
+    )
     imported_at: str = Field("", description="When the certificate was imported")
     in_use: bool = Field(False, description="Whether a listener currently serves it")
 
@@ -57,8 +65,8 @@ class CertificateItem(BaseModel):
             key_algorithm=data.get("keyAlgorithm") or "",
             signature_algorithm=data.get("signatureAlgorithm") or "",
             expired_at=str(data.get("expiredAt") or ""),
-            not_before=str(data.get("notBefore") or ""),
-            not_after=str(data.get("notAfter") or ""),
+            not_before=epoch_to_iso(data.get("notBefore")),
+            not_after=epoch_to_iso(data.get("notAfter")),
             imported_at=str(data.get("importedAt") or ""),
             in_use=bool(data.get("inUse")),
         )

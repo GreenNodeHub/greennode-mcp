@@ -7,6 +7,7 @@ import pytest
 import respx
 from .helpers import PROJECT, VLB_HCM3, mock_iam, paging_env
 from greennode.vlb_mcp_server.paging import (
+    SERVER_SIDE_FILTERS,
     as_list,
     created_id,
     fetch_all_items,
@@ -102,28 +103,29 @@ def test_lb_list_params_defaults_to_flat_page_and_size():
 
 
 def test_lb_list_params_emits_flat_filter_keys():
-    params = lb_list_params(
-        name="prod",
-        status="ACTIVE",
-        subnet_id="sub-1",
-        vpc_id="vpc-1",
-        zone_id="HCM03-1A",
-        page=2,
-        size=10,
-    )
-    assert params == {
-        "page": 2,
-        "size": 10,
-        "name": "prod",
-        "status": "ACTIVE",
-        "subnetIds": "sub-1",
-        "vpcIds": "vpc-1",
-        "zoneId": "HCM03-1A",
-    }
+    params = lb_list_params(name="prod", zone_id="HCM03-1A", page=2, size=10)
+    assert params == {"page": 2, "size": 10, "name": "prod", "zoneId": "HCM03-1A"}
 
 
 def test_lb_list_params_omits_unset_filters():
-    assert "name" not in lb_list_params(status="ACTIVE")
+    assert "name" not in lb_list_params(zone_id="HCM03-1A")
+    assert "zoneId" not in lb_list_params(name="prod")
+
+
+def test_lb_list_params_takes_only_the_filters_the_gateway_applies():
+    """status / subnetIds / vpcIds must never reach the wire.
+
+    The gateway binds them from the query string and then drops them —
+    createSearchCriteria forwards only projectId, name, zoneId, tagIds and
+    dhcpOptionIds. Sending them makes an agent believe it filtered when a bogus
+    value provably returns the whole project. list_load_balancers applies those
+    three itself instead.
+    """
+    import inspect
+
+    accepted = set(inspect.signature(lb_list_params).parameters)
+    assert accepted == {"name", "zone_id", "page", "size"}
+    assert SERVER_SIDE_FILTERS == {"name", "zoneId"}
 
 
 # --- fetch_all_items ----------------------------------------------------------

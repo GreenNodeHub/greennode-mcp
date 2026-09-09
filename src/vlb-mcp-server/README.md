@@ -77,7 +77,7 @@ Prompts: `vlb_getting_started`, `vlb_create_load_balancer`, `vlb_manage_members`
 
 | Tool | Access | Description |
 |------|--------|-------------|
-| `list_load_balancers` | read | List, with best-effort server-side filtering |
+| `list_load_balancers` | read | List; `name`/`zone_id` filter server-side, the rest locally |
 | `get_load_balancer` | read | One load balancer in full |
 | `list_load_balancers_by_subnet` | read | Load balancers on a subnet |
 | `list_load_balancer_scale_history` | read | Autoscaling events |
@@ -161,13 +161,64 @@ deliberate narrowings:
 - `list_load_balancers` exposes only the filter fields that mean anything for a
   load balancer (`name`, `status`, `subnet_id`, `vpc_id`, `zone_id`). The API's
   `FilterRequest` is a shared vServer grab-bag whose other fields the gateway
-  ignores here.
+  ignores here. Of the five, only `name` and `zone_id` are sent to the API —
+  the gateway accepts `status`, `subnet_id` and `vpc_id` and then drops them, so
+  this server applies those itself and names them in `filtered_locally`.
+  Paging likewise only takes effect alongside `name`; without it the whole
+  project comes back in one response.
 
 ## Testing status
 
-181 tests, all `respx`-mocked — no network, no credentials. Several API details
-the OpenAPI spec leaves ambiguous are still marked ASSUMED; see the "Known open
-questions" section of `CLAUDE.md`.
+374 tests, all `respx`-mocked — no network, no credentials.
+
+**Verified against the live HCM-3 gateway (2026-09-08).** Every read tool was
+run against a project holding 48 load balancers, and every create-body rule was
+checked against the gateway's own dry-run validator
+(`POST /v2/{projectId}/validation`, which runs the real validators and creates
+nothing): of 29 rules, 28 now give the same verdict locally as the API does.
+That closed the questions the OpenAPI spec left ambiguous — the create-response
+id key, the query encoding, the page base, the CIDR separator, the nested
+member array — and corrected several rules the spec had wrong, including the
+status vocabulary, the member `weight` range, the required health-monitor
+timings, and three list filters the gateway accepts and silently ignores.
+
+**Write paths were exercised live too**: one throwaway load balancer was
+created, given a pool, a member and a listener, then deleted. That confirmed the
+202 body shape (`{"uuid": ...}`, no job id), that a member without
+`monitorPort` now succeeds, that `weight=0` is stored, that re-adding an
+unchanged member performs no write, and that a write issued while another is in
+flight really answers `LoadBalancerNotReady` — which the client now reports as
+transient rather than as a bad request. It also produced the real status
+sequence, including three listener/pool health values that appear nowhere in the
+gateway's own status constants.
+
+A second run built an ALB with an HTTPS listener and the full L7 policy
+surface. That settled the last spec ambiguity — `position` is **1-based** — and
+turned up four things worth knowing before you use the certificate and clone
+tools: a listener's `certificate_authorities` lists only the *extra* SNI certs
+so an empty list does not mean "no certificate"; the gateway injects three
+`X-Forwarded-*` headers into any L7 listener created without them;
+`configure_load_balancer_scaling` on a load balancer that is not autoscalable
+answers a bare 500; and **cloning holds the source load balancer in `UPDATING`
+for about 15 minutes**, refusing every other write to it including delete.
+
+A third run drove every remaining tool against an ALB with two pools, members,
+HTTP and HTTPS listeners and three L7 policies. It found **two tools that could
+never have worked**: `update_pool_health_monitor` read the probe from a field
+the API declares and never fills in, so it failed for every pool; and
+`update_pool` omitted the monitor, which the gateway re-validates regardless
+and rejects for any HTTP probe. Both are fixed and verified. It also showed
+that `update_listener` clears `defaultPoolId` and `insertHeaders` when they are
+omitted — it is now marked destructive.
+
+Limits worth knowing:
+
+- **HAN is untested** — every live probe ran against HCM-3.
+- **Three write paths were never exercised**: resize to a different package,
+  autoscale configuration and bandwidth attachment. Each changes what the
+  account is billed, so only their refusal paths are known.
+
+`CLAUDE.md` records what was verified, and what remains open.
 
 Develop-environment auto-deploy is not wired for this package yet (the shared
 `deploy.yml` push path is hardcoded to another package); production deploys work

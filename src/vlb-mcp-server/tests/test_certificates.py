@@ -8,7 +8,7 @@ import pytest
 import respx
 from .helpers import CA, PROJECT, VLB_HCM3, data_env, mock_iam, paging_env
 from greennode.vlb_mcp_server.certificate_handler import CertificateHandler
-from greennode.vlb_mcp_server.models import ImportCertificateDto
+from greennode.vlb_mcp_server.models import CertificateItem, ImportCertificateDto
 from mcp.server.mcpserver import MCPServer
 from pydantic import ValidationError
 
@@ -204,3 +204,48 @@ async def test_write_tools_refuse_in_read_only_mode(certs_ro):
 async def test_get_certificate_validates_the_id(certs_ro):
     with pytest.raises(ValueError, match="Invalid certificate_id"):
         await certs_ro.get_certificate(certificate_id="../secrets", region="HCM-3")
+
+
+# --- timestamps ---------------------------------------------------------------
+# CADto reports notBefore/notAfter as epoch MILLISECONDS. Observed live from a
+# real import: notAfter=1791456697000. The raw value answers nothing an agent
+# is asked, so the model renders it.
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("1791456697000", "2026-10-08T10:51:37Z"),  # 13 digits: milliseconds
+        (1791456697000, "2026-10-08T10:51:37Z"),
+        ("1791456697", "2026-10-08T10:51:37Z"),  # 10 digits: seconds
+        ("2026-10-08T10:51:37Z", "2026-10-08T10:51:37Z"),  # already a date
+        ("", ""),
+        (None, ""),
+        ("not-a-timestamp", "not-a-timestamp"),  # passed through, never raises
+    ],
+)
+def test_epoch_to_iso(raw, expected):
+    from greennode.vlb_mcp_server.models._common import epoch_to_iso
+
+    assert epoch_to_iso(raw) == expected
+
+
+def test_certificate_expiry_is_rendered_not_echoed():
+    """`not_after` is the field that answers "when does this expire".
+
+    `expiredAt` comes back empty on a freshly imported certificate, so the
+    readable expiry has to come from `notAfter`.
+    """
+    item = CertificateItem.from_api(
+        {
+            "uuid": CA,
+            "name": "mcptest-cert-01",
+            "certificateType": "TLS/SSL",
+            "notBefore": "1760000000000",
+            "notAfter": "1791456697000",
+            "expiredAt": None,
+        }
+    )
+    assert item.not_after == "2026-10-08T10:51:37Z"
+    assert item.not_before.endswith("Z")
+    assert item.expired_at == ""

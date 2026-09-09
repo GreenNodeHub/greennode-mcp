@@ -128,15 +128,36 @@ class LoadBalancerListData(BaseModel):
     load_balancers: list[LoadBalancerItem] = Field(
         default_factory=list, description="Load balancers in the project"
     )
-    total_item: int | None = Field(None, description="Total the gateway reports for this query")
-    page: int | None = Field(None, description="Page returned")
-    page_size: int | None = Field(None, description="Page size returned")
+    total_item: int | None = Field(
+        None,
+        description=(
+            "Number of load balancers this response describes. The gateway's own total "
+            "when no local filter ran, otherwise the length of the filtered list."
+        ),
+    )
+    page: int | None = Field(
+        None,
+        description=(
+            "Page returned. 0 when paging did not take effect — the gateway only pages "
+            "this endpoint when a name filter is set, and returns the whole project "
+            "otherwise."
+        ),
+    )
+    page_size: int | None = Field(None, description="Page size returned; 0 when unpaged")
     filter_applied: bool = Field(
         True,
         description=(
             "False when a name filter was passed but the gateway returned "
             "non-matching entries — i.e. the server-side filter did not take effect. "
             "Results are still complete; filter locally before presenting them."
+        ),
+    )
+    filtered_locally: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Filters this server applied to the results itself because the gateway "
+            "accepts them and then ignores them (status, subnet_id, vpc_id). The list "
+            "is already filtered — this only records where the work happened."
         ),
     )
 

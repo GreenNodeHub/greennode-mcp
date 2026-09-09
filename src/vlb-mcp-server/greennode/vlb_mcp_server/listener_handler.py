@@ -49,7 +49,11 @@ class ListenerHandler:
 
         if self.allow_write:
             self.mcp.tool(name="create_listener", annotations=WRITE)(self.create_listener)
-            self.mcp.tool(name="update_listener", annotations=WRITE)(self.update_listener)
+            # DESTRUCTIVE, not WRITE: PUT .../listeners/{id} is a full
+            # replacement, so a body that omits defaultPoolId and insertHeaders
+            # clears both. Measured live — a listener serving a pool was left
+            # with no pool at all by a body carrying only its three timeouts.
+            self.mcp.tool(name="update_listener", annotations=DESTRUCTIVE)(self.update_listener)
             self.mcp.tool(name="delete_listener", annotations=DESTRUCTIVE)(self.delete_listener)
 
     async def _listeners_path(self, load_balancer_id: str, region: str | None) -> str:
@@ -86,7 +90,7 @@ class ListenerHandler:
 
         Returns {id, name, protocol, port, timeouts, allowed_cidrs,
         blocked_cidrs, certificate_authorities, insert_headers,
-        available_headers, tls_security_policy, ...}.
+        inserted_header_names, tls_security_policy, ...}.
 
         Read this before `update_listener`: that call replaces the whole
         configuration, so anything you do not resend may be cleared.

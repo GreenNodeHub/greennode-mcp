@@ -11,12 +11,15 @@ handled by read-modify-write composites rather than passed on to the agent:
 - **There is no health-monitor write endpoint.** The only way to change a probe
   is ``PUT .../pools/{poolId}``, which requires ``algorithm`` and all four
   thresholds — so a naive partial update resets the load balancing method and
-  the thresholds at once. ``update_pool_health_monitor`` reads the pool and
-  carries every untouched value forward.
+  the thresholds at once. ``update_pool_health_monitor`` therefore reads
+  **both** ``GET /pools/{poolId}`` and ``GET /pools/{poolId}/healthMonitor``
+  and carries every untouched value forward. Two reads, because the pool
+  response declares a nested ``healthMonitor`` and never fills it in.
 """
 
 from __future__ import annotations
 
+import asyncio
 from greennode.vlb_mcp_server.client import VlbClient
 from greennode.vlb_mcp_server.config import Region, VlbConfig
 from greennode.vlb_mcp_server.discovery_cache import DiscoveryCache
@@ -96,12 +99,64 @@ class PoolHandler:
         pid = await require_project_id(self.config, self.client, region)
         return f"/v2/{pid}/loadBalancers/{load_balancer_id}/pools"
 
+    async def _read_health_monitor(
+        self, path: str, pool_id: str, region: str | None
+    ) -> UpdateHealthMonitorDto | None:
+        """Read the pool's probe in write shape, for resending unchanged.
+
+        ``PUT .../pools/{poolId}`` re-validates the probe whether or not the
+        body carries it, so every pool update has to send the current one back.
+        Returns ``None`` for a pool that genuinely has no monitor.
+        """
+        raw = await self.client.get(f"{path}/{pool_id}/healthMonitor", region=region)
+        current = HealthMonitorItem.from_api(unwrap_one(raw))
+        if not current.health_check_protocol:
+            return None
+        return UpdateHealthMonitorDto(
+            healthyThreshold=current.healthy_threshold or 3,
+            unhealthyThreshold=current.unhealthy_threshold or 3,
+            timeout=current.timeout or 5,
+            interval=current.interval or 30,
+            healthCheckPath=current.health_check_path or None,
+            healthCheckMethod=current.health_check_method or None,
+            successCode=current.success_code or None,
+            domainName=current.domain_name or None,
+            httpVersion=current.http_version or None,
+        )
+
     async def _read_members(self, path: str, pool_id: str, region: str | None) -> list[MemberDto]:
         """Read the pool's current members in write shape, for a read-modify-write."""
         raw = await self.client.get(f"{path}/{pool_id}/members", region=region)
         return [
             PoolMemberItem.from_api(m).to_member_dto() for m in as_list(raw) if isinstance(m, dict)
         ]
+
+    @staticmethod
+    def _member_list_data(
+        members: list[MemberDto],
+        pool_id: str,
+        load_balancer_id: str,
+        *,
+        confirmed: bool,
+    ) -> PoolMemberListData:
+        """Project a desired member list into the read-shaped response model."""
+        return PoolMemberListData(
+            load_balancer_id=load_balancer_id,
+            pool_id=pool_id,
+            members=[
+                PoolMemberItem(
+                    ip_address=m.ipAddress,
+                    port=m.port,
+                    weight=m.weight,
+                    name=m.name or "",
+                    monitor_port=m.monitorPort,
+                    backup=m.backup,
+                )
+                for m in members
+            ],
+            member_count=len(members),
+            confirmed=confirmed,
+        )
 
     async def _put_members(
         self,
@@ -118,23 +173,7 @@ class PoolHandler:
         """
         payload = ChangeMembersDto(members=members).model_dump(exclude_none=True)
         await self.client.put(f"{path}/{pool_id}/members", region=region, json=payload)
-        return PoolMemberListData(
-            load_balancer_id=load_balancer_id,
-            pool_id=pool_id,
-            members=[
-                PoolMemberItem(
-                    ip_address=m.ipAddress,
-                    port=m.port,
-                    weight=m.weight,
-                    name=m.name or "",
-                    monitor_port=m.monitorPort,
-                    backup=m.backup,
-                )
-                for m in members
-            ],
-            member_count=len(members),
-            confirmed=False,
-        )
+        return self._member_list_data(members, pool_id, load_balancer_id, confirmed=False)
 
     # --- reads -------------------------------------------------------------------
 
@@ -163,10 +202,15 @@ class PoolHandler:
         pool_id: str = Field(..., description="Pool ID."),
         region: Region = Field("HCM-3", description="Region ('HCM-3' or 'HAN')."),
     ) -> PoolItem:
-        """Get one pool, including its health monitor and members when returned.
+        """Get one pool's configuration.
 
         Returns {id, name, protocol, algorithm, stickiness, tls_encryption,
         health_monitor, members, display_status, progress_status}.
+
+        `health_monitor` and `members` come back **empty**: the API declares
+        them on the pool object but never populates them. Use
+        `get_pool_health_monitor` and `list_pool_members` — they are separate
+        endpoints and the only ones that answer.
         """
         path = await self._pools_path(load_balancer_id, region)
         validate_id(pool_id, "pool_id")
@@ -271,9 +315,9 @@ class PoolHandler:
         - `algorithm` is required by the API; passing a different value than the
           pool currently has silently changes how traffic is distributed. Read
           it from `get_pool` first.
-        - This tool does NOT send `healthMonitor`, which may reset the pool's
-          probe. To change a health check use `update_pool_health_monitor`,
-          which carries the current values forward.
+        - The pool's health monitor is read and resent unchanged, so this
+          cannot disturb the probe. To change the probe itself use
+          `update_pool_health_monitor`.
         - Neither the pool name nor its protocol can be changed here; recreate
           the pool for that.
 
@@ -283,8 +327,19 @@ class PoolHandler:
         require_write(self.allow_write)
         path = await self._pools_path(load_balancer_id, region)
         validate_id(pool_id, "pool_id")
+
+        # The monitor has to be resent even though nothing here changes it.
+        # Omitting it does not "leave the probe alone": the gateway validates
+        # the pool's existing protocol against the absent fields and rejects
+        # the whole call with "If healthCheckProtocol field is HTTP, following
+        # fields must be specified: …". A TCP probe happens to survive the
+        # omission — which is exactly why this was easy to miss.
+        monitor = await self._read_health_monitor(path, pool_id, region)
         payload = UpdatePoolDto(
-            algorithm=algorithm, stickiness=stickiness, tlsEncryption=tls_encryption
+            algorithm=algorithm,
+            stickiness=stickiness,
+            tlsEncryption=tls_encryption,
+            healthMonitor=monitor,
         ).model_dump(exclude_none=True)
         await self.client.put(f"{path}/{pool_id}", region=region, json=payload)
         return f"Pool {pool_id} updated. Poll get_load_balancer_status until settled."
@@ -370,6 +425,8 @@ class PoolHandler:
         ## Workflow
         - This reads the current members and writes the merged list back, so it
           is not atomic: do not run two member changes on the same pool at once.
+        - Adding members that are all already present is a no-op and performs
+          no write.
         - Poll `get_load_balancer_status` until `settled`.
         """
         require_write(self.allow_write)
@@ -380,6 +437,16 @@ class PoolHandler:
         incoming = {_member_key(m): m for m in members}
         merged = [incoming.pop(_member_key(m), m) for m in existing]
         merged.extend(m for m in members if _member_key(m) in incoming)
+
+        # The gateway refuses a member list identical to the stored one with
+        # 400 "The members provided are identical to the existing members in
+        # the pool". Re-adding a member that is already there, unchanged, is a
+        # no-op — reporting it as an error would make an idempotent retry look
+        # like a failure.
+        if merged == existing:
+            # Nothing was written, so this list IS the live state — the one
+            # case where a member write can honestly report confirmed=True.
+            return self._member_list_data(merged, pool_id, load_balancer_id, confirmed=True)
         return await self._put_members(path, pool_id, merged, load_balancer_id, region)
 
     async def detach_pool_members(
@@ -490,11 +557,18 @@ class PoolHandler:
         path = await self._pools_path(load_balancer_id, region)
         validate_id(pool_id, "pool_id")
 
-        pool = PoolItem.from_api(
-            unwrap_one(await self.client.get(f"{path}/{pool_id}", region=region))
+        # Two reads, because the monitor is not where the spec implies it is.
+        # `PoolDto` declares a nested `healthMonitor`, but the live
+        # `GET /pools/{poolId}` never populates it — the monitor is only served
+        # by `GET /pools/{poolId}/healthMonitor`. Reading the pool alone made
+        # this tool raise "has no health monitor" for every pool that had one.
+        pool_raw, monitor_raw = await asyncio.gather(
+            self.client.get(f"{path}/{pool_id}", region=region),
+            self.client.get(f"{path}/{pool_id}/healthMonitor", region=region),
         )
-        current = pool.health_monitor
-        if current is None:
+        pool = PoolItem.from_api(unwrap_one(pool_raw))
+        current = pool.health_monitor or HealthMonitorItem.from_api(unwrap_one(monitor_raw))
+        if not current.health_check_protocol:
             raise ValueError(
                 f"Pool {pool_id} has no health monitor, and the API offers no way to add "
                 "one to an existing pool. Recreate the pool with a healthMonitor instead."

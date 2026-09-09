@@ -107,8 +107,17 @@ async def test_get_listener_splits_the_cidr_string_into_a_list(listeners_ro):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_get_listener_keeps_available_and_inserted_headers_distinct(listeners_ro):
-    """`headers` lists names that MAY be inserted; `insertHeaders` lists what IS inserted."""
+async def test_the_headers_field_is_not_the_available_set(listeners_ro):
+    """`headers` holds the names of the CONFIGURED insertHeaders, nothing more.
+
+    This file used to assert the opposite — that `headers` was "names a
+    listener MAY insert" and `insertHeaders` "what IS inserted" — because the
+    spec reads that way. Two live observations killed it: an HTTPS listener
+    reported the three names of its own configured headers rather than the
+    eleven `list_listener_headers` returns, and clearing `insertHeaders`
+    emptied `headers` in the same write. `list_listener_headers` is the only
+    source of the available set.
+    """
     mock_iam(respx.mock)
     respx.get(f"{LISTENERS}/{LISTENER}").mock(
         return_value=httpx.Response(200, json=data_env(SAMPLE_LISTENER))
@@ -116,8 +125,9 @@ async def test_get_listener_keeps_available_and_inserted_headers_distinct(listen
     listener = await listeners_ro.get_listener(
         load_balancer_id=LB, listener_id=LISTENER, region="HCM-3"
     )
-    assert listener.available_headers == ["X-Forwarded-For"]
+    assert listener.inserted_header_names == ["X-Forwarded-For"]
     assert listener.insert_headers[0].headerName == "X-Forwarded-Proto"
+    assert not hasattr(listener, "available_headers")
 
 
 @respx.mock
@@ -182,13 +192,15 @@ async def test_create_listener_serialises_headers_and_alpn(listeners_rw):
         listenerProtocol="HTTPS",
         listenerProtocolPort=443,
         defaultCertificateAuthority="ca-1",
-        insertHeaders=[HeaderDto(headerName="X-Forwarded-Proto", headerValue="https")],
+        # Outside the Access-* family the only value the gateway accepts is
+        # "true" — it answers 400 "Invalid value for header '<name>': <value>".
+        insertHeaders=[HeaderDto(headerName="X-Forwarded-Proto", headerValue="true")],
         alpnProtocols=["h2", "http/1.1"],
         tlsSecurityPolicy="MODERN",
     )
     await listeners_rw.create_listener(load_balancer_id=LB, body=body, region="HCM-3")
     sent = json.loads(route.calls[0].request.content)
-    assert sent["insertHeaders"] == [{"headerName": "X-Forwarded-Proto", "headerValue": "https"}]
+    assert sent["insertHeaders"] == [{"headerName": "X-Forwarded-Proto", "headerValue": "true"}]
     assert sent["alpnProtocols"] == ["h2", "http/1.1"]
     assert sent["tlsSecurityPolicy"] == "MODERN"
 

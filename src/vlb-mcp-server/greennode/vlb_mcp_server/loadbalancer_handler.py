@@ -49,17 +49,38 @@ from greennode.vlb_mcp_server.validators import validate_id, validate_lb_id
 from pydantic import Field
 
 
-# Which listener protocols each load balancer type can terminate. The API
-# rejects a mismatch with a single unlabelled Java validation message, so
-# validate_load_balancer_create catches it locally instead.
-_PROTOCOLS_BY_TYPE = {
+# The compatibility matrix the gateway enforces, transcribed from
+# CreateListenerValidator / CreatePoolValidator and confirmed against its
+# dry-run validator. Rules that hold regardless of load balancer type live on
+# the DTOs instead; only the type-dependent ones need to be here, because a
+# listener or pool DTO cannot see the load balancer it will belong to.
+_LISTENER_PROTOCOLS_BY_TYPE = {
     "Layer 4": {"TCP", "UDP"},
     "Layer 7": {"HTTP", "HTTPS"},
+}
+_POOL_PROTOCOLS_BY_TYPE = {
+    "Layer 4": {"TCP", "UDP", "PROXY"},
+    "Layer 7": {"HTTP"},
+}
+_PROBE_PROTOCOLS_BY_TYPE = {
+    "Layer 4": {"TCP", "PING-UDP", "HTTP", "HTTPS"},
+    "Layer 7": {"TCP", "HTTP"},
+}
+#: A listener protocol constrains the pool behind it, on top of the LB type.
+_POOL_PROTOCOLS_BY_LISTENER = {
+    "TCP": {"TCP", "PROXY"},
+    "UDP": {"UDP"},
 }
 
 
 def _validate_create_body(body: CreateLoadBalancerDto) -> ValidationResult:
-    """Check a create body against the rules the API enforces but does not explain."""
+    """Check a create body against the rules the API enforces but does not explain.
+
+    Only the load-balancer-wide rules are here. Everything a listener or pool
+    can judge on its own — HTTPS needing a certificate, an HTTP pool needing
+    stickiness, a probe timeout below its interval — is enforced by the DTOs, so
+    it also guards ``create_listener`` and ``create_pool``.
+    """
     errors: list[str] = []
     warnings: list[str] = [
         "A load balancer cannot be renamed — there is no update endpoint for its name. "
@@ -68,16 +89,11 @@ def _validate_create_body(body: CreateLoadBalancerDto) -> ValidationResult:
 
     listener = body.listener
     if listener is not None:
-        allowed = _PROTOCOLS_BY_TYPE[body.type]
+        allowed = _LISTENER_PROTOCOLS_BY_TYPE[body.type]
         if listener.listenerProtocol not in allowed:
             errors.append(
                 f"A '{body.type}' load balancer cannot terminate "
                 f"{listener.listenerProtocol}; allowed: {sorted(allowed)}."
-            )
-        if listener.listenerProtocol == "HTTPS" and not listener.defaultCertificateAuthority:
-            errors.append(
-                "An HTTPS listener needs defaultCertificateAuthority. Import or pick one "
-                "with import_certificate / list_certificates first."
             )
         if listener.listenerProtocolPort is None:
             warnings.append(
@@ -87,14 +103,25 @@ def _validate_create_body(body: CreateLoadBalancerDto) -> ValidationResult:
 
     pool = body.pool
     if pool is not None:
-        if body.type == "Layer 4" and pool.poolProtocol == "HTTP":
+        allowed_pool = _POOL_PROTOCOLS_BY_TYPE[body.type]
+        if pool.poolProtocol not in allowed_pool:
             errors.append(
-                "A 'Layer 4' load balancer cannot use an HTTP pool; use TCP, UDP or PROXY."
+                f"A '{body.type}' load balancer cannot use a {pool.poolProtocol} pool; "
+                f"allowed: {sorted(allowed_pool)}."
             )
-        if pool.healthMonitor is None:
-            warnings.append(
-                "The pool has no healthMonitor. One is required by the standalone "
-                "create_pool endpoint and cannot be added later except through update_pool."
+        if listener is not None:
+            by_listener = _POOL_PROTOCOLS_BY_LISTENER.get(listener.listenerProtocol)
+            if by_listener and pool.poolProtocol not in by_listener:
+                errors.append(
+                    f"Pool protocol must be {' or '.join(sorted(by_listener))} if listener "
+                    f"protocol is {listener.listenerProtocol}."
+                )
+        probe = pool.healthMonitor.healthCheckProtocol
+        allowed_probe = _PROBE_PROTOCOLS_BY_TYPE[body.type]
+        if probe not in allowed_probe:
+            errors.append(
+                f"A '{body.type}' load balancer cannot health-check with {probe}; "
+                f"allowed: {sorted(allowed_probe)}."
             )
 
     if body.scheme == "Internal":
@@ -170,39 +197,57 @@ class LoadBalancerHandler:
 
     async def list_load_balancers(
         self,
-        name: str | None = Field(None, description="Filter by name (server-side, best effort)."),
-        status: str | None = Field(None, description="Filter by status, e.g. 'ACTIVE'."),
-        subnet_id: str | None = Field(None, description="Filter by subnet id."),
-        vpc_id: str | None = Field(None, description="Filter by VPC id."),
-        zone_id: str | None = Field(None, description="Filter by availability zone."),
-        page: int = Field(1, ge=1, description="Page number (1-based)."),
-        size: int = Field(DEFAULT_PAGE_SIZE, ge=1, description="Page size."),
+        name: str | None = Field(
+            None, description="Filter by name (server-side, substring match)."
+        ),
+        status: str | None = Field(
+            None,
+            description="Filter by status, e.g. 'ACTIVE' — applied by this server, not the API.",
+        ),
+        subnet_id: str | None = Field(
+            None,
+            description=(
+                "Filter by subnet id — applied by this server. "
+                "list_load_balancers_by_subnet asks the API directly."
+            ),
+        ),
+        vpc_id: str | None = Field(
+            None, description="Filter by VPC id — applied by this server, not the API."
+        ),
+        zone_id: str | None = Field(
+            None, description="Filter by availability zone (server-side)."
+        ),
+        page: int = Field(
+            1, ge=1, description="Page number (1-based). Only honoured together with `name`."
+        ),
+        size: int = Field(
+            DEFAULT_PAGE_SIZE, ge=1, description="Page size. Only honoured together with `name`."
+        ),
         region: Region = Field("HCM-3", description="Region ('HCM-3' or 'HAN')."),
         refresh: bool = Field(False, description="Bypass the cache and refetch from vLB."),
     ) -> LoadBalancerListData:
         """List the load balancers in the project.
 
         Returns {region, load_balancers[{id, name, display_status, scheme, type,
-        address, ...}], total_item, page, page_size, filter_applied}.
+        address, ...}], total_item, page, page_size, filter_applied,
+        filtered_locally}.
 
         ## Workflow
+        - Only `name` and `zone_id` are filters the API acts on. `status`,
+          `subnet_id` and `vpc_id` are applied here instead — the gateway
+          accepts them and silently ignores them — and appear in
+          `filtered_locally`.
         - Check `filter_applied`: when it is false the gateway ignored the
           `name` filter, so filter the returned list yourself before answering —
           do not claim a match count the server did not produce.
+        - Paging only takes effect when `name` is set. Without it the whole
+          project comes back in one response and `page`/`page_size` read 0.
         - `progress_status` on an entry means a write is still in flight there.
         """
         pid = await require_project_id(self.config, self.client, region)
         resolved_region = region or self.config.default_region
         path = f"/v2/{pid}/loadBalancers"
-        params = lb_list_params(
-            name=name,
-            status=status,
-            subnet_id=subnet_id,
-            vpc_id=vpc_id,
-            zone_id=zone_id,
-            page=page,
-            size=size,
-        )
+        params = lb_list_params(name=name, zone_id=zone_id, page=page, size=size)
 
         async def fetch() -> LoadBalancerListData:
             # fetch_list walks the remaining pages when the gateway reports more
@@ -211,10 +256,33 @@ class LoadBalancerHandler:
             items, envelope = await fetch_list(
                 self.client, path, region=region, params=params, page_size=size
             )
-            total = total_items(envelope)
             load_balancers = [
                 LoadBalancerItem.from_api(lb) for lb in items if isinstance(lb, dict)
             ]
+
+            # status / subnet_id / vpc_id are applied here: the gateway accepts
+            # them in the query and then drops them, so sending them would
+            # report a filter that never ran.
+            client_side = {
+                "status": status,
+                "subnet_id": subnet_id,
+                "vpc_id": vpc_id,
+            }
+            if status:
+                wanted = status.strip().upper()
+                load_balancers = [
+                    lb
+                    for lb in load_balancers
+                    if wanted in (lb.display_status.upper(), lb.progress_status.upper())
+                ]
+            if subnet_id:
+                load_balancers = [lb for lb in load_balancers if lb.subnet_id == subnet_id]
+            if vpc_id:
+                load_balancers = [lb for lb in load_balancers if lb.network_id == vpc_id]
+
+            # The gateway's own count describes the unfiltered query, so it
+            # would overstate a locally filtered list.
+            total = len(load_balancers) if any(client_side.values()) else total_items(envelope)
             applied = True
             if name:
                 applied = all(name.lower() in lb.name.lower() for lb in load_balancers)
@@ -225,6 +293,7 @@ class LoadBalancerHandler:
                 page=envelope.get("page"),
                 page_size=envelope.get("pageSize"),
                 filter_applied=applied,
+                filtered_locally=sorted(k for k, v in client_side.items() if v),
             )
 
         key = ("list_load_balancers", resolved_region, pid, tuple(sorted(params.items())))
@@ -465,7 +534,9 @@ class LoadBalancerHandler:
     async def configure_load_balancer_scaling(
         self,
         load_balancer_id: str = Field(..., description="Load balancer ID."),
-        max_size: int = Field(..., ge=1, description="Maximum number of nodes."),
+        max_size: int = Field(
+            ..., ge=1, le=15, description="Maximum number of nodes. The platform caps this at 15."
+        ),
         subnets: list[str] = Field(
             ...,
             description=(
@@ -486,6 +557,13 @@ class LoadBalancerHandler:
           `subnet_id` with `get_load_balancer` and include it, or that zone
           loses its node.
         - The load balancer must have been created with `autoScalable=true`.
+          Check `autoscalable` on `get_load_balancer` FIRST: calling this on a
+          load balancer that is not autoscalable answers a bare
+          `500 Internal Server Error` with no explanation, so there is nothing
+          in the failure to tell you that was the problem.
+        - `max_size` cannot exceed 15, and `min_size` must be at least one node
+          per availability zone the `subnets` span — so a two-zone topology
+          cannot have `min_size=1`.
 
         ## Workflow
         - Poll `get_load_balancer_status` until `settled`, then check
@@ -573,6 +651,12 @@ class LoadBalancerHandler:
 
         ## Workflow
         - Poll `get_load_balancer_status` on the NEW id until `settled`.
+        - **The SOURCE load balancer is held in `UPDATING` for far longer than
+          the clone takes** — measured at roughly 15 minutes after the clone
+          itself was already `ACTIVE`, with its listeners stuck `UPDATING` too.
+          Every other write to the source is refused until then, including
+          `delete_load_balancer`. Do not clone a load balancer you are about to
+          change, and do not read the refusal as a failed clone.
         - If the returned `id` is empty the clone still SUCCEEDED — confirm with
           `list_load_balancers` and never retry.
         """

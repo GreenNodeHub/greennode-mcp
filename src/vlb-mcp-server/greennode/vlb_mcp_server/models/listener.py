@@ -46,9 +46,14 @@ class ListenerItem(BaseModel):
     blocked_cidrs: list[str] = Field(
         default_factory=list, description="Source CIDRs blocked (stored as one string upstream)"
     )
-    available_headers: list[str] = Field(
+    inserted_header_names: list[str] = Field(
         default_factory=list,
-        description="Header names this listener MAY insert (the API calls this `headers`)",
+        description=(
+            "The names from `insert_headers`, which is all the API's `headers` field "
+            "turns out to hold — it is NOT the set of headers a listener may insert. "
+            "Use list_listener_headers for that. Kept because the API sends it, but "
+            "`insert_headers` carries the same information with the values attached."
+        ),
     )
     insert_headers: list[HeaderDto] = Field(
         default_factory=list, description="Headers actually injected into forwarded requests"
@@ -97,7 +102,9 @@ class ListenerItem(BaseModel):
             connection_limit=data.get("connectionLimit"),
             allowed_cidrs=csv_to_list(data.get("allowedCidrs")),
             blocked_cidrs=csv_to_list(data.get("blockedCidrs")),
-            available_headers=[str(h) for h in (available if isinstance(available, list) else [])],
+            inserted_header_names=[
+                str(h) for h in (available if isinstance(available, list) else [])
+            ],
             insert_headers=[
                 HeaderDto(headerName=h.get("headerName", ""), headerValue=h.get("headerValue", ""))
                 for h in (inserted if isinstance(inserted, list) else [])

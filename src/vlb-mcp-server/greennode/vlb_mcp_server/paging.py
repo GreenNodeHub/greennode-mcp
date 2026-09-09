@@ -121,11 +121,17 @@ def created_id(data: Any) -> str:
     return ""
 
 
+#: Filters the gateway binds from the query string but never applies. Its
+#: ``FilterRequest`` is a shared vServer grab-bag, and
+#: ``VlbGatewayHelper.createSearchCriteria`` forwards only projectId, name,
+#: zoneId, tagIds and dhcpOptionIds to the query — so ``status``, ``subnetIds``
+#: and ``vpcIds`` are accepted and silently dropped. Verified live: a bogus
+#: value for any of them returns the full unfiltered list.
+SERVER_SIDE_FILTERS = frozenset({"name", "zoneId"})
+
+
 def lb_list_params(
     name: str | None = None,
-    status: str | None = None,
-    subnet_id: str | None = None,
-    vpc_id: str | None = None,
     zone_id: str | None = None,
     page: int = 1,
     size: int = DEFAULT_PAGE_SIZE,
@@ -133,24 +139,20 @@ def lb_list_params(
     """Build the query for ``GET /v2/{projectId}/loadBalancers``.
 
     The single place the ``filter`` / ``pageRequest`` encoding lives (see
-    ``_LIST_PARAM_STYLE``). Only the five filter fields that mean anything for a
-    load balancer are exposed: the spec's ``FilterRequest`` is a shared vServer
-    grab-bag carrying ``volumeTypes``, ``encryptionTypes``, ``dhcpOptionIds``
-    and friends, which the gateway ignores here — offering them would let an
-    agent believe it had filtered when it had not.
+    ``_LIST_PARAM_STYLE``). Only ``name`` and ``zone_id`` are sent, because
+    they are the only filters the gateway acts on (see
+    :data:`SERVER_SIDE_FILTERS`); anything else has to be applied to the
+    returned list instead of pretended at the API.
 
-    ``page`` is assumed 1-based, matching the sibling ``/cas`` endpoint which
-    documents that default. ``PageRequest`` itself documents nothing.
+    ``page`` is 1-based, and **paging only takes effect when ``name`` is also
+    set**: the controller declares two mappings, and the paged one is
+    ``@GetMapping(params = {"name", "page", "size"})``. Without a name the
+    plain mapping wins, the whole project is returned in one response, and
+    ``page``/``pageSize``/``totalPage`` come back as 0. Both verified live.
     """
     params: dict = {"page": page, "size": size}
     if name:
         params["name"] = name
-    if status:
-        params["status"] = status
-    if subnet_id:
-        params["subnetIds"] = subnet_id
-    if vpc_id:
-        params["vpcIds"] = vpc_id
     if zone_id:
         params["zoneId"] = zone_id
     return params

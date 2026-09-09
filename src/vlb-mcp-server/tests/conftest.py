@@ -62,3 +62,12 @@ def no_cache():
     cached, which is what a test asserting on request counts needs.
     """
     return DiscoveryCache(ttl_config={})
+
+
+@pytest.fixture
+def lbs_ro(config, client, no_cache):
+    """Read-only LoadBalancerHandler, for the local-validation tests."""
+    from greennode.vlb_mcp_server.loadbalancer_handler import LoadBalancerHandler
+    from mcp.server.mcpserver import MCPServer
+
+    return LoadBalancerHandler(MCPServer("t"), config, client, no_cache, allow_write=False)

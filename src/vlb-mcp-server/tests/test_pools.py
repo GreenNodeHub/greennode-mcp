@@ -59,11 +59,29 @@ def pools_ro(config, client, no_cache):
 
 
 def _create_pool() -> CreatePoolDto:
+    """A pool the gateway actually accepts.
+
+    An HTTP pool must carry `stickiness` and `tlsEncryption`, and an HTTP probe
+    must carry all four of path/method/successCode/httpVersion — verified
+    against the gateway's own validator, which answers 400 for each omission.
+    """
     return CreatePoolDto(
         poolName="web-pool",
         poolProtocol="HTTP",
         algorithm="ROUND_ROBIN",
-        healthMonitor=CreateHealthMonitorDto(healthCheckProtocol="HTTP", healthCheckPath="/"),
+        stickiness=False,
+        tlsEncryption=False,
+        healthMonitor=CreateHealthMonitorDto(
+            healthCheckProtocol="HTTP",
+            healthCheckPath="/",
+            healthCheckMethod="GET",
+            successCode="200",
+            httpVersion="1.0",
+            healthyThreshold=3,
+            unhealthyThreshold=3,
+            timeout=5,
+            interval=30,
+        ),
     )
 
 
@@ -179,7 +197,19 @@ async def test_create_pool_sends_only_declared_fields(pools_rw):
         "poolName": "web-pool",
         "poolProtocol": "HTTP",
         "algorithm": "ROUND_ROBIN",
-        "healthMonitor": {"healthCheckProtocol": "HTTP", "healthCheckPath": "/"},
+        "stickiness": False,
+        "tlsEncryption": False,
+        "healthMonitor": {
+            "healthCheckProtocol": "HTTP",
+            "healthCheckPath": "/",
+            "healthCheckMethod": "GET",
+            "successCode": "200",
+            "httpVersion": "1.0",
+            "healthyThreshold": 3,
+            "unhealthyThreshold": 3,
+            "timeout": 5,
+            "interval": 30,
+        },
     }
     assert result.id == POOL
 
@@ -195,8 +225,44 @@ async def test_delete_pool_tolerates_an_empty_202(pools_rw):
 
 @respx.mock
 @pytest.mark.asyncio
-async def test_update_pool_tolerates_an_empty_200(pools_rw):
+async def test_update_pool_resends_the_existing_health_monitor(pools_rw):
+    """Omitting `healthMonitor` does not leave the probe alone — it 400s.
+
+    The gateway re-validates the pool's stored probe against whatever the body
+    carries, so a body without a monitor is rejected with "If
+    healthCheckProtocol field is HTTP, following fields must be specified: …".
+    Observed live. A TCP probe survives the omission, which is why this only
+    showed up on an HTTP pool.
+    """
     mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env(HM))
+    )
+    route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+    await pools_rw.update_pool(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        algorithm="LEAST_CONNECTIONS",
+        stickiness=None,
+        tls_encryption=None,
+        region="HCM-3",
+    )
+    sent = json.loads(route.calls[0].request.content)
+    assert sent["algorithm"] == "LEAST_CONNECTIONS"
+    # The probe goes back exactly as it was, so this call cannot disturb it.
+    assert sent["healthMonitor"]["healthCheckPath"] == HM["healthCheckPath"]
+    assert sent["healthMonitor"]["interval"] == HM["interval"]
+    assert "healthCheckProtocol" not in sent["healthMonitor"]  # immutable, never sent
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_pool_on_a_monitorless_pool_sends_no_monitor(pools_rw):
+    """A pool created without a probe must not gain an invented one."""
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env({}))
+    )
     route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
     await pools_rw.update_pool(
         load_balancer_id=LB,
@@ -223,8 +289,20 @@ async def test_update_pool_members_sends_exactly_what_it_was_given(pools_rw):
         members=[MemberDto(ipAddress="10.0.0.99", port=80, backup=False)],
         region="HCM-3",
     )
+    # Both primitive-int fields are filled in. monitorPort would be rejected at
+    # 0; weight would be ACCEPTED at 0 and the member would silently take no
+    # traffic — verified live, a member added without a weight came back with
+    # weight=0.
     assert json.loads(route.calls[0].request.content) == {
-        "members": [{"ipAddress": "10.0.0.99", "port": 80, "backup": False}]
+        "members": [
+            {
+                "ipAddress": "10.0.0.99",
+                "port": 80,
+                "backup": False,
+                "weight": 1,
+                "monitorPort": 80,
+            }
+        ]
     }
 
 
@@ -355,6 +433,8 @@ async def test_detach_pool_members_can_empty_the_pool_when_asked(pools_rw):
 async def test_update_health_monitor_carries_forward_the_pool_settings(pools_rw):
     """UpdatePoolRequest requires `algorithm`; sending a partial body silently resets it."""
     mock_iam(respx.mock)
+    # The live GET returns the pool WITHOUT a nested healthMonitor, however the
+    # spec types it — so the probe has to come from its own endpoint.
     respx.get(f"{POOLS}/{POOL}").mock(
         return_value=httpx.Response(
             200,
@@ -364,10 +444,12 @@ async def test_update_health_monitor_carries_forward_the_pool_settings(pools_rw)
                     "loadBalanceMethod": "LEAST_CONNECTIONS",
                     "stickiness": True,
                     "tlsEncryption": True,
-                    "healthMonitor": HM,
                 }
             ),
         )
+    )
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env(HM))
     )
     route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
 
@@ -409,10 +491,9 @@ async def test_update_health_monitor_returns_the_requested_config_not_stale_stat
     lifecycle fields.
     """
     mock_iam(respx.mock)
-    respx.get(f"{POOLS}/{POOL}").mock(
-        return_value=httpx.Response(
-            200, json=data_env({**SAMPLE_POOL, "healthMonitor": {**HM, "displayStatus": "ACTIVE"}})
-        )
+    respx.get(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200, json=data_env(SAMPLE_POOL)))
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env({**HM, "displayStatus": "ACTIVE"}))
     )
     respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
 
@@ -448,6 +529,10 @@ async def test_update_health_monitor_returns_the_requested_config_not_stale_stat
 async def test_update_health_monitor_refuses_when_the_pool_has_none(pools_rw):
     mock_iam(respx.mock)
     respx.get(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200, json=data_env(SAMPLE_POOL)))
+    # A pool created without a monitor: the dedicated route has nothing either.
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env({}))
+    )
     with pytest.raises(ValueError, match="no health monitor"):
         await pools_rw.update_pool_health_monitor(
             load_balancer_id=LB,
@@ -503,3 +588,74 @@ def test_create_pool_dto_forbids_unknown_fields():
             healthMonitor=CreateHealthMonitorDto(healthCheckProtocol="TCP"),
             bogus=1,
         )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_health_monitor_reads_the_monitor_from_its_own_endpoint(pools_rw):
+    """The live regression: the pool response has no nested healthMonitor.
+
+    `PoolDto` declares one, but `GET /pools/{poolId}` never populates it. When
+    this tool trusted that field it raised "Pool <id> has no health monitor"
+    for every pool that had one — the tool was dead for its entire surface, and
+    no test caught it because the fixtures supplied the nested object the
+    gateway does not send.
+    """
+    mock_iam(respx.mock)
+    pool_route = respx.get(f"{POOLS}/{POOL}").mock(
+        return_value=httpx.Response(200, json=data_env(SAMPLE_POOL))
+    )
+    monitor_route = respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env(HM))
+    )
+    put_route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+
+    result = await pools_rw.update_pool_health_monitor(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        interval=45,
+        health_check_path=None,
+        health_check_method=None,
+        healthy_threshold=None,
+        unhealthy_threshold=None,
+        timeout=None,
+        success_code=None,
+        domain_name=None,
+        http_version=None,
+        region="HCM-3",
+    )
+    assert pool_route.called and monitor_route.called
+    sent = json.loads(put_route.calls[0].request.content)
+    # The one requested change...
+    assert sent["healthMonitor"]["interval"] == 45
+    # ...and everything else carried forward from the two reads.
+    assert sent["algorithm"] == SAMPLE_POOL["loadBalanceMethod"]
+    assert sent["healthMonitor"]["healthCheckPath"] == HM["healthCheckPath"]
+    assert sent["healthMonitor"]["timeout"] == HM["timeout"]
+    assert result.interval == 45
+    assert result.health_check_protocol == HM["healthCheckProtocol"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_a_member_without_a_weight_is_not_left_drained(pools_rw):
+    """weight=0 is legal and means "take no traffic" — so it cannot be the default.
+
+    `MemberRequest.weight` is a Java primitive int with `@Range(min = 0, ...)`.
+    An omitted weight therefore arrives as 0, passes validation, and is stored:
+    a backend that is in the pool and receives nothing. Observed live.
+    """
+    mock_iam(respx.mock)
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+    await pools_rw.update_pool_members(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        members=[MemberDto(ipAddress="10.0.0.99", port=80, backup=False)],
+        region="HCM-3",
+    )
+    assert json.loads(route.calls[0].request.content)["members"][0]["weight"] == 1
+
+
+def test_an_explicit_zero_weight_is_still_honoured():
+    """Draining a member without removing it is a real operation."""
+    assert MemberDto(ipAddress="10.0.0.1", port=80, backup=False, weight=0).weight == 0

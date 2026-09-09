@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -54,6 +55,30 @@ def list_to_csv(value: object) -> str:
     if isinstance(value, list):
         return ",".join(str(v).strip() for v in value if str(v).strip())
     return ""
+
+
+def epoch_to_iso(value: object) -> str:
+    """Render a certificate timestamp as ISO-8601 UTC.
+
+    ``CADto`` reports ``notBefore`` / ``notAfter`` as **epoch milliseconds**
+    (13 digits — verified live: ``1791456697000``). Handing that straight to an
+    agent makes the one question anyone asks of a certificate — when does it
+    expire — unanswerable without arithmetic, so it is converted here.
+
+    Anything that is not a plausible epoch is passed through untouched: the
+    spec types these as strings and other GreenNode services already return
+    ISO dates in the same position.
+    """
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text.isdigit():
+        return text
+    seconds = int(text) / 1000 if len(text) == 13 else int(text)
+    try:
+        return datetime.fromtimestamp(seconds, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    except (OverflowError, OSError, ValueError):
+        return text
 
 
 class TagDto(BaseModel):
