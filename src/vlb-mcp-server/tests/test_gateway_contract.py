@@ -418,3 +418,65 @@ async def test_a_delete_during_an_update_reads_as_transient(lbs):
         await lbs.get_load_balancer(load_balancer_id="lb-1", region="HCM-3")
     assert "currently updating" in str(exc.value)
     assert "get_load_balancer_status" in str(exc.value)
+
+
+# --- packages are per-zone, and disjoint -------------------------------------
+# Measured live: HCM03-1A offers 58 packages and HCM03-1B offers 16, sharing
+# ZERO ids. HAN01-1A/1B likewise share none. Omitting zoneId does not widen the
+# search — it answers for the platform's default zone (HCM03-1A / HAN01-1A),
+# so a package id picked without a zone is wrong for every other zone and the
+# create fails with "Invalid package id (<id>)".
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_packages_are_requested_for_the_zone_the_caller_named(config, client, no_cache):
+    from greennode.vlb_mcp_server.catalogue_handler import CatalogueHandler
+
+    cat = CatalogueHandler(MCPServer("t"), config, client, no_cache)
+    mock_iam(respx.mock)
+    route = respx.get(f"{BASE}/packages").mock(
+        return_value=httpx.Response(200, json={"listData": []})
+    )
+    result = await cat.list_load_balancer_packages(
+        scope="active", zone_id="HCM03-1B", region="HCM-3", refresh=True
+    )
+    assert dict(route.calls[0].request.url.params) == {"zoneId": "HCM03-1B"}
+    # The answer records which zone it is for, so an id cannot be reused blind.
+    assert result.zone_id == "HCM03-1B"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_omitting_the_zone_sends_no_filter_and_records_none(config, client, no_cache):
+    """An empty `zone_id` in the result means "the platform default", not "all"."""
+    from greennode.vlb_mcp_server.catalogue_handler import CatalogueHandler
+
+    cat = CatalogueHandler(MCPServer("t"), config, client, no_cache)
+    mock_iam(respx.mock)
+    route = respx.get(f"{BASE}/packages").mock(
+        return_value=httpx.Response(200, json={"listData": []})
+    )
+    result = await cat.list_load_balancer_packages(
+        scope="active", zone_id=None, region="HCM-3", refresh=True
+    )
+    assert dict(route.calls[0].request.url.params) == {}
+    assert result.zone_id == ""
+
+
+def test_validate_create_says_it_cannot_check_the_package():
+    """The one rejection class the local validator is blind to must be named."""
+    from greennode.vlb_mcp_server.loadbalancer_handler import _validate_create_body
+    from greennode.vlb_mcp_server.models import CreateLoadBalancerDto
+
+    result = _validate_create_body(
+        CreateLoadBalancerDto(
+            name="prod-lb",
+            packageId="lbp-from-the-wrong-zone",
+            scheme="Internet",
+            subnetId="sub-1",
+            type="Layer 7",
+        )
+    )
+    assert any("packageId is NOT checked" in w for w in result.warnings)
+    assert any("disjoint between zones" in w for w in result.warnings)

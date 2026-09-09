@@ -52,8 +52,11 @@ class CatalogueHandler:
         zone_id: str | None = Field(
             None,
             description=(
-                "Filter active packages to one availability zone (e.g. 'HCM03-1A'). "
-                "Ignored when scope='all'. Get zone ids from list_zones."
+                "The availability zone to list packages FOR (e.g. 'HCM03-1A'). Pass the "
+                "same zone you will create the load balancer in: package ids are "
+                "zone-specific and share nothing between zones. Omitting this does not "
+                "list every package — it lists the platform's default zone. Ignored when "
+                "scope='all'. Get zone ids from list_zones."
             ),
         ),
         region: Region = Field("HCM-3", description="Region ('HCM-3' or 'HAN')."),
@@ -68,6 +71,13 @@ class CatalogueHandler:
         ## Workflow
         - Call this before `create_load_balancer`; a package is required and
           decides both capacity and cost.
+        - **Pass the `zone_id` you will actually create in.** Package ids are
+          per-zone and disjoint: HCM03-1A offers 58 packages, HCM03-1B offers
+          16, and the two sets share *no* ids. Using one zone's id in another
+          fails the create with "Invalid package id (<id>)", and nothing in
+          this listing hints at it. With `zone_id` omitted the API answers for
+          its own default zone — the response's `zone_id` is then empty, which
+          means "whatever the platform defaults to", not "all zones".
         - Match `lb_type` to the load balancer `type` you intend to create
           ('Layer 4' or 'Layer 7') — the two are not interchangeable.
         - Use the default scope='active'. A package listed only under

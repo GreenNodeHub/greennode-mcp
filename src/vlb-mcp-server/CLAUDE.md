@@ -40,7 +40,9 @@ three.
   `GET /v1/projects` on the **vServer** gateway via `VlbClient.get_vserver`.
   The same gateway serves the zone/VPC/subnet/server discovery tools.
 - Use the `/vserver/vserver-gateway` spelling. The shorter `/vserver-gateway`
-  answers in HCM-3 but 404s in HAN (recorded by `vbackup-mcp-server`).
+  answers in HCM-3 but **404s in HAN** — measured here, not inherited:
+  `/vserver/vserver-gateway/v1/projects` → 200, `/vserver-gateway/v1/projects`
+  → 404 on `han-1`.
 - Auth is declared as an apiKey header, so the client prepends `Bearer ` itself
   — which `mcp_core.http.BaseClient` already does.
 
@@ -442,12 +444,13 @@ member list.
 | `test_tool_annotations.py` | Every tool declares `readOnlyHint`/`destructiveHint`, and the labels match what the tool does |
 | `test_gateway_contract.py` | Rules transcribed from the gateway source: the status vocabulary, which list filters are real, the not-ready/lock/quota error surface |
 | `test_write_rules.py` | Every cross-field create rule, with the gateway's own messages |
+| `test_http_transport.py` | Identity resolution on the HTTP transport, `/health` exemption, and what the `--auth-debug` summary may reveal |
 
 All `respx`-mocked. Handlers are called directly, so **every parameter must be
 passed explicitly** — a `Field(...)` default arrives as a `FieldInfo` object
 when MCP is not resolving it.
 
-## Verified against the live HCM-3 gateway (2026-09-08)
+## Verified against the live gateway (HCM-3 and HAN, 2026-09-08/09)
 
 Read with a service account against a project holding 48 load balancers, plus
 the gateway source and its dry-run validator. All 29 create-body rules were run
@@ -466,7 +469,7 @@ exception is noted below.
 | `portal-user-id` header | Not needed. Every public route declares it `@RequestHeader(required)`, but the public API gateway injects it from the IAM token — which is why `SwaggerConfiguration` strips it from the published spec. Every read and the dry-run validator work without it. |
 | Real status values | `LBGatewayStatus.LoadBalancer`, now transcribed into `status.IN_FLIGHT`. All 48 live load balancers read `progressStatus=CREATED` / `displayStatus=ACTIVE`. |
 | Error body shape | Three shapes — see *Errors* above. |
-| `zoneId` on `/packages` | Optional; defaults to `${zone.default.id}`. `/all_packages` takes no `zoneId`. |
+| `zoneId` on `/packages` | Optional, and **not** a widening filter — it defaults to `${zone.default.id}`, so omitting it answers for one zone (HCM03-1A / HAN01-1A). See *Packages are per-zone* below. `/all_packages` takes no `zoneId`. |
 | Capital-W `bandWidthPackageId` | Still only confirmed from the spec and the Java DTO; no live write was made. |
 
 ### Write paths, exercised live
@@ -526,15 +529,15 @@ Only a status the gateway itself reports as in flight counts.
 
 **Still open:**
 
-1. **Region parity** — every probe ran against HCM-3. HAN is untested.
-2. **Package type vs load balancer type.** The gateway rejects an L4 package on
-   a `Layer 7` create ("Invalid package type for Application load balancer");
-   `validate_load_balancer_create` cannot see that without fetching the package
-   catalogue, and so is the one case out of 29 where it accepts a body the
-   gateway refuses. Fixable by having the validator read the (1h-cached)
-   catalogue — deliberately not done yet, since it would turn the only
+1. **Package versus load balancer type and zone.** The gateway rejects an L4
+   package on a `Layer 7` create ("Invalid package type for Application load
+   balancer") and a package from the wrong zone with "Invalid package id".
+   `validate_load_balancer_create` cannot see either without fetching the
+   catalogue, so it is the one case out of 29 where it accepts a body the
+   gateway refuses. It now says so in its warnings. Fixable by reading the
+   (1h-cached) catalogue — deliberately not done, since it would turn the only
    request-free tool into one that needs credentials and a region.
-3. **Still-untouched write tools**: `resize_load_balancer` and the autoscale
+2. **Still-untouched write tools**: `resize_load_balancer` and the autoscale
    and bandwidth happy paths. Each changes what the account is billed, so none
    was exercised; only their refusal paths are known.
 
@@ -560,6 +563,73 @@ trusted a field the spec declares and the service never fills in.**
 | L7 rule types | `HOST_NAME`/`EQUAL_TO`, `PATH`/`REGEX` and `PATH`/`ENDS_WITH` all accepted, at positions 1, 2, 3. |
 | An uncompilable regex | `400 "Rule value: ^[unclosed is invalid regex pattern"`. `L7RuleDto` now compiles the pattern locally first. |
 | `CREATING-BILLING` | **Seen in a live create sequence.** One of the five statuses the original guessed `IN_FLIGHT` set omitted — so on the old code a load balancer in this state would have read as settled and the next write would have failed. |
+
+### Packages are per-zone, and the sets are disjoint
+
+Measured across both regions:
+
+| Zone | Active packages |
+|---|---|
+| HCM03-1A | 58 |
+| HCM03-1B | 16 |
+| HAN01-1A | 12 |
+| HAN01-1B | 11 |
+
+**No two zones share a single package id.** HCM03-1A and HCM03-1B overlap on
+zero; so do HAN01-1A and HAN01-1B. A package id is therefore only meaningful
+together with the zone it came from, and reusing one across zones fails the
+create with "Invalid package id (<id>)" — with nothing in the listing to warn
+you.
+
+Worse, omitting `zone_id` does **not** list every package: the gateway
+substitutes `${zone.default.id}`, which resolved to HCM03-1A and HAN01-1A. So
+the default answer is one zone's catalogue wearing no label. The tool's
+`zone_id` description and docstring now say to pass the zone you will actually
+create in, and the response records which zone it answered for (empty meaning
+"the platform default").
+
+One curiosity that is *not* a problem: HAN01-1A's 12 ids are byte-identical to
+12 of HCM03-1A's 58. Package rows are evidently shared across regions but
+scoped per zone, so a HAN create with one of those ids is accepted — the
+gateway validates against `listLoadBalancerPackageActive(projectId, zoneId)`,
+which returns them. Region alone never disambiguates a package id; the zone
+does.
+
+### Region parity: HAN behaves, and resolves its own project
+
+Every read tool was run against HAN. Findings:
+
+- **Project resolution is per region and does not leak.** `~/.greennode/config`
+  named an HCM-3 project; asking for HAN made `require_project_id` fall through
+  to `GET /v1/projects` on the HAN vServer gateway, which returned a
+  *different* project, cached under `('service', 'HAN')`. The configured id is
+  only used for the default region — which is the behaviour that matters, since
+  a project id is not valid across regions.
+- Zones are `HAN01-1A` and `HAN01-1B`; the `zoneId` prefix is regional, so an
+  HCM zone id in a HAN request is silently wrong rather than an error.
+- `list_vpcs` answers `403 IAM_PERMISSION_DENIED` in HAN as it does in HCM-3 —
+  an account policy limit, not a code path.
+
+### The HTTP transport and the --auth-debug surface
+
+Driven against a locally running server (three configurations, 14 assertions),
+now pinned by `test_http_transport.py`. Nothing was wrong here; what matters is
+that it stays that way, because this is the only code in the package that
+handles somebody else's credential.
+
+- `/health` is reachable with no credential **and** with none configured, so a
+  container healthcheck never depends on auth.
+- A bearer token becomes the request identity via a contextvar reset in a
+  `finally`, so one caller's token cannot survive into the next request.
+- With no token: the service account if one is configured, otherwise
+  `401` + `WWW-Authenticate: Bearer` — never an anonymous call. An
+  `Authorization` header that is empty, bare `Bearer`, or a different scheme
+  counts as no token rather than as an empty one.
+- `/whoami` exists only under `--auth-debug`; without it the route is a 404.
+- The diagnostic summary carries a 6-character token prefix and its length,
+  never the token or even its payload segment, and filters JWT claims to an
+  allow-list — decoy `ssn` and `email` claims were dropped from both the
+  response and the log.
 
 ## Relationship with greennode-cli
 

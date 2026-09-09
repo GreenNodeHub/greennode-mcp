@@ -98,7 +98,7 @@ Prompts: `vlb_getting_started`, `vlb_create_load_balancer`, `vlb_manage_members`
 | `list_listeners` | read | Listeners of a load balancer |
 | `get_listener` | read | One listener in full |
 | `create_listener` | write | Add a listener |
-| `update_listener` | write | **Full replacement** of the configuration |
+| `update_listener` | destructive | **Full replacement** — omitted fields are cleared, including the default pool |
 | `delete_listener` | destructive | Delete it and its L7 policies |
 
 ### Pools, members and health monitor
@@ -169,7 +169,7 @@ deliberate narrowings:
 
 ## Testing status
 
-374 tests, all `respx`-mocked — no network, no credentials.
+393 tests, all `respx`-mocked — no network, no credentials.
 
 **Verified against the live HCM-3 gateway (2026-09-08).** Every read tool was
 run against a project holding 48 load balancers, and every create-body rule was
@@ -211,9 +211,21 @@ and rejects for any HTTP probe. Both are fixed and verified. It also showed
 that `update_listener` clears `defaultPoolId` and `insertHeaders` when they are
 omitted — it is now marked destructive.
 
+**HAN was checked too.** Every read tool works there, and asking for a region
+other than the configured one makes the server resolve that region's own
+project rather than reusing the configured id. The HTTP transport, its identity
+middleware and the `--auth-debug` redaction were driven against a locally
+running server.
+
+One finding worth carrying into your own use: **package ids are per-zone and no
+two zones share one.** HCM03-1A offers 58 packages and HCM03-1B offers 16, with
+zero ids in common, and calling `list_load_balancer_packages` without a
+`zone_id` answers for the platform's default zone rather than for all of them.
+Pass the zone you will actually create in, or the create fails with "Invalid
+package id".
+
 Limits worth knowing:
 
-- **HAN is untested** — every live probe ran against HCM-3.
 - **Three write paths were never exercised**: resize to a different package,
   autoscale configuration and bandwidth attachment. Each changes what the
   account is billed, so only their refusal paths are known.

@@ -85,6 +85,13 @@ def _validate_create_body(body: CreateLoadBalancerDto) -> ValidationResult:
     warnings: list[str] = [
         "A load balancer cannot be renamed — there is no update endpoint for its name. "
         f"Confirm '{body.name}' with the user before creating.",
+        # The one class of rejection this function cannot see: packages are
+        # per-zone and per-layer, and checking would mean fetching the
+        # catalogue, which would turn the only request-free tool into one that
+        # needs credentials and a region.
+        "packageId is NOT checked here. It must come from "
+        "list_load_balancer_packages called with this exact zone_id, and its lb_type "
+        f"must match type='{body.type}' — package ids are disjoint between zones.",
     ]
 
     listener = body.listener
