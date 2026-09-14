@@ -121,6 +121,7 @@ class BaseClient:
         raw_response: bool = False,
         binary_response: bool = False,
         service: str | None = None,
+        headers: dict[str, str] | None = None,
         _retried_auth: bool = False,
     ) -> Any:
         """Send an HTTP request to the product API.
@@ -144,6 +145,13 @@ class BaseClient:
                 binary payloads such as downloaded certificate files.
             service: Target service name resolved by the config's
                 ``get_base_url``; ``None`` uses the client's default service.
+            headers: Extra request headers for gateways that take a
+                request-scoped header changing what the call *does* rather than
+                who makes it — vDB's ``user-type`` selects the billing flow on
+                order endpoints. Additive only: ``Authorization`` and
+                ``User-Agent`` are applied afterwards and cannot be overridden
+                from here, so a caller can never spoof the bearer token. They
+                are carried into the token-refresh retry as well.
             _retried_auth: Internal flag to prevent infinite token-refresh
                 retry loops.
         """
@@ -155,16 +163,18 @@ class BaseClient:
 
         for attempt in range(MAX_RETRIES + 1):
             token = user_token if user_token else await self._token_manager.get_token()
-            headers = {"Authorization": f"Bearer {token}"}
+            # Caller headers first so identity headers below always win.
+            request_headers = dict(headers) if headers else {}
+            request_headers["Authorization"] = f"Bearer {token}"
             if self._user_agent:
-                headers["User-Agent"] = self._user_agent
+                request_headers["User-Agent"] = self._user_agent
 
             try:
                 async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
                     resp = await client.request(
                         method,
                         url,
-                        headers=headers,
+                        headers=request_headers,
                         params=params,
                         json=json,
                     )
@@ -204,6 +214,7 @@ class BaseClient:
                     raw_response=raw_response,
                     binary_response=binary_response,
                     service=resolved_service,
+                    headers=headers,
                     _retried_auth=True,
                 )
 
@@ -276,9 +287,10 @@ class BaseClient:
         path: str,
         region: str | None = None,
         params: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
         """Send a GET request."""
-        return await self._request("GET", path, region=region, params=params)
+        return await self._request("GET", path, region=region, params=params, headers=headers)
 
     async def post(
         self,
@@ -286,9 +298,12 @@ class BaseClient:
         region: str | None = None,
         params: dict[str, Any] | None = None,
         json: Any = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
         """Send a POST request."""
-        return await self._request("POST", path, region=region, params=params, json=json)
+        return await self._request(
+            "POST", path, region=region, params=params, json=json, headers=headers
+        )
 
     async def put(
         self,
@@ -296,9 +311,12 @@ class BaseClient:
         region: str | None = None,
         params: dict[str, Any] | None = None,
         json: Any = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
         """Send a PUT request."""
-        return await self._request("PUT", path, region=region, params=params, json=json)
+        return await self._request(
+            "PUT", path, region=region, params=params, json=json, headers=headers
+        )
 
     async def patch(
         self,
@@ -306,18 +324,30 @@ class BaseClient:
         region: str | None = None,
         params: dict[str, Any] | None = None,
         json: Any = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
         """Send a PATCH request."""
-        return await self._request("PATCH", path, region=region, params=params, json=json)
+        return await self._request(
+            "PATCH", path, region=region, params=params, json=json, headers=headers
+        )
 
     async def delete(
         self,
         path: str,
         region: str | None = None,
         params: dict[str, Any] | None = None,
+        json: Any = None,
+        headers: dict[str, str] | None = None,
     ) -> Any:
-        """Send a DELETE request."""
-        return await self._request("DELETE", path, region=region, params=params)
+        """Send a DELETE request.
+
+        ``json`` is accepted because a few gateways expect a body on DELETE —
+        vDB deletes backups and configurations by posting a JSON **array** of
+        ids to a DELETE endpoint. Omit it for the usual bodyless delete.
+        """
+        return await self._request(
+            "DELETE", path, region=region, params=params, json=json, headers=headers
+        )
 
     async def get_raw(
         self,

@@ -62,7 +62,7 @@ GitHub Actions live in `.github/workflows/`:
 - Async/await throughout — all handlers and client methods are async
 - Use `from __future__ import annotations` in all files
 - Follow existing handler pattern: class with `__init__` registering tools via `self.mcp.tool()`
-- **Tool naming**: EKS-style `verb_noun` (`list_clusters`, `get_nodegroup`, `create_cluster`), matching the AWS Labs MCP convention and mapping 1:1 to greennode-cli command names (`list-clusters` → `list_clusters`). Never `noun_verb`.
+- **Tool naming**: EKS-style `verb_noun` (`list_clusters`, `get_nodegroup`, `create_cluster`), matching the AWS Labs MCP convention and mapping 1:1 to greennode-cli command names (`list-clusters` → `list_clusters`). Never `noun_verb`. The verb must come from the `ALLOWED_VERBS` whitelist in `tests/test_conventions.py`; adding a verb is a deliberate monorepo-level change, and a verb that mutates state must be added to `WRITE_PREFIXES` in the same file so its tools still owe a `## Requirements` docstring (that is why `restore` — added for vDB backup restore — appears in both lists).
 - Import shared plumbing from `greennode.mcp_core` — do not copy config/auth/HTTP/validator/cache code into a product package.
 - **Models**: a package keeps its response models and write DTOs either in one `models.py` or in a `models/` package whose `__init__.py` re-exports every name (do that once one file gets unwieldy — vserver splits by domain). Either way, handlers import from `greennode.<product>_mcp_server.models`, never from a submodule, and the `Conventions` job enforces the DTO rules on both layouts.
 

@@ -13,6 +13,7 @@ members = [
     "greennode-mcp",
     "greennode-mcp-core",
     "greennode-vbackup-mcp-server",
+    "greennode-vdb-mcp-server",
     "greennode-vks-mcp-server",
     "greennode-vmonitor-mcp-server",
     "greennode-vserver-mcp-server",
@@ -757,7 +758,7 @@ source = { virtual = "." }
 
 [[package]]
 name = "greennode-mcp-core"
-version = "0.5.0"
+version = "0.5.1"
 source = { editable = "src/mcp-core" }
 dependencies = [
     { name = "cachetools" },
@@ -788,7 +789,7 @@ dev = [
 
 [[package]]
 name = "greennode-vbackup-mcp-server"
-version = "0.0.0"
+version = "0.1.1"
 source = { editable = "src/vbackup-mcp-server" }
 dependencies = [
     { name = "cachetools" },
@@ -839,8 +840,36 @@ dev = [
 ]
 
 [[package]]
+name = "greennode-vdb-mcp-server"
+version = "0.0.0"
+source = { editable = "src/vdb-mcp-server" }
+dependencies = [
+    { name = "greennode-mcp-core" },
+    { name = "httpx" },
+    { name = "mcp", extra = ["cli"] },
+    { name = "pydantic" },
+    { name = "starlette" },
+]
+
+[package.optional-dependencies]
+http = [
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "greennode-mcp-core", editable = "src/mcp-core" },
+    { name = "httpx", specifier = ">=0.27.0,<1.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=2.0.0" },
+    { name = "pydantic", specifier = ">=2.10.6" },
+    { name = "starlette", specifier = ">=0.27.0" },
+    { name = "uvicorn", marker = "extra == 'http'", specifier = ">=0.30.0" },
+]
+provides-extras = ["http"]
+
+[[package]]
 name = "greennode-vks-mcp-server"
-version = "0.14.2"
+version = "0.14.3"
 source = { editable = "src/vks-mcp-server" }
 dependencies = [
     { name = "cachetools" },
@@ -900,7 +929,7 @@ dev = [
 
 [[package]]
 name = "greennode-vmonitor-mcp-server"
-version = "0.0.0"
+version = "0.1.1"
 source = { editable = "src/vmonitor-mcp-server" }
 dependencies = [
     { name = "greennode-mcp-core" },
@@ -950,7 +979,7 @@ dev = [
 
 [[package]]
 name = "greennode-vserver-mcp-server"
-version = "0.0.0"
+version = "0.1.1"
 source = { editable = "src/vserver-mcp-server" }
 dependencies = [
     { name = "cachetools" },
