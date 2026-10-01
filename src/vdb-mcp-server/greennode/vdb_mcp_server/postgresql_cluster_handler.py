@@ -523,9 +523,26 @@ class PostgresqlClusterHandler:
     ) -> DryRunData:
         """Show the exact order that create_postgresql_cluster would place.
 
-        Validates the whole body locally -- including the node range and the
-        password rule -- and sends nothing.
+        Validates the whole body locally -- including the node range, the
+        password rule and the one-subnet-per-zone rule -- and sends nothing.
         """
+        warnings = [
+            "Raises a BILLABLE order, and a cluster bills per node: the cost is roughly "
+            f"{spec.numberOfNodes}x a single instance of the same flavour.",
+            "Returns an order, not a cluster: the resourceId it carries is only provisioned once "
+            "the order completes -- around nine minutes for two nodes.",
+            "packageId, volumeTypeId and locateZoneId must all come from the same zone.",
+            NO_DELETE_NOTE,
+        ]
+        if len(spec.netIds) > 1:
+            warnings.append(
+                f"Multi-AZ: {len(spec.netIds)} subnets spread the {spec.numberOfNodes} nodes "
+                "across that many zones. Check with list_relational_subnets that each subnet "
+                "sits in a DIFFERENT zone_id and that one of them is in locateZoneId, and that "
+                "the flavour and volume type are listed in EVERY one of those zones -- each "
+                "zone builds its nodes from its own copy (HCM03-1C has no NVMe volume type). "
+                "This dry-run cannot see a subnet's zone."
+            )
         return DryRunData(
             tool="create_postgresql_cluster",
             method="POST",
@@ -533,14 +550,7 @@ class PostgresqlClusterHandler:
             service=VDB_POSTGRESQL_SERVICE,
             user_type=DEFAULT_USER_TYPE,
             body=spec.model_dump(exclude_none=True),
-            warnings=[
-                "Raises a BILLABLE order, and a cluster bills per node: the cost is roughly "
-                f"{spec.numberOfNodes}x a single instance of the same flavour.",
-                "Returns an order, not a cluster: the resourceId it carries is only provisioned once "
-                "the order completes -- around nine minutes for two nodes.",
-                "packageId, volumeTypeId and locateZoneId must all come from the same zone.",
-                NO_DELETE_NOTE,
-            ],
+            warnings=warnings,
         )
 
     async def resize_postgresql_cluster_dryrun(
@@ -597,6 +607,15 @@ class PostgresqlClusterHandler:
           **same zone**: both catalogues return different ids per zone.
         - `netIds` takes a **subnet** id ('sub-...') from
           `list_relational_subnets`, not a network id.
+        - **Multi-AZ**: pass several subnets in `netIds`, one per zone (each
+          with a different `zone_id`, one of them in `locateZoneId`), and the
+          nodes are spread evenly across those zones. `numberOfNodes` must be
+          at least the number of subnets. Take `packageId`, `volumeTypeId`
+          and `locateZoneId` from the catalogues called with
+          `multi_zone=True` (they answer for the Multi-AZ default zone,
+          HCM03-1A). Each zone builds its nodes from **its own** copy of that
+          flavour and volume type, so both must be listed in every chosen
+          zone: HCM03-1C has no NVMe volume type and cannot be one of them.
         - `configId`, if given, must be a configuration group whose deployType
           is `cluster` -- its id is prefixed `pg-cfg-`. A `single_node` group
           cannot be attached to a cluster.
@@ -609,11 +628,16 @@ class PostgresqlClusterHandler:
         ## Workflow
 
         1. `list_postgresql_datastores` → pick `datastoreVersion`.
-        2. `list_relational_zones` → pick the zone.
+        2. `list_relational_zones` → pick the zone, or the zones for
+           Multi-AZ.
         3. `list_postgresql_flavors` with that zone → pick `packageId`.
-        4. `list_postgresql_volume_types` with the same zone → pick
-           `volumeTypeId` and respect its size range.
-        5. `list_relational_subnets` → pick `netIds`.
+           Multi-AZ: call with `multi_zone=True` instead, and confirm the
+           same flavour `name` is listed for each other chosen zone.
+        4. `list_postgresql_volume_types` the same way → pick
+           `volumeTypeId` and respect its size range. Multi-AZ: the same
+           `type` must be listed for each chosen zone.
+        5. `list_relational_subnets` → pick `netIds`: one subnet for a
+           single zone, or one subnet per zone for Multi-AZ.
         6. Optional: `list_postgresql_backup_locations` and
            `list_postgresql_backup_policies` to schedule backups from the
            start.
@@ -621,7 +645,8 @@ class PostgresqlClusterHandler:
         8. This tool. It returns an **order**, whose `resourceId` is the
            cluster id under the default IAM_USER flow; poll
            `get_postgresql_cluster` with it and expect BUILDING before ACTIVE
-           (about nine minutes for two nodes).
+           (about nine minutes for two nodes). A Multi-AZ cluster also
+           reports each zone's nodes, status and endpoints in `zones`.
         """
         require_write(self.allow_write)
         orders = await self._order(CLUSTER_BASE, spec.model_dump(exclude_none=True), user_type)

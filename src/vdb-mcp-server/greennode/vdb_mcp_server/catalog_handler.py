@@ -109,6 +109,26 @@ EMPTY_FLAVORS_NOTE = (
 )
 
 
+def _postgresql_catalogue_params(zone_id: str | None, multi_zone: bool) -> dict[str, Any] | None:
+    """Query parameters of the two zoned PostgreSQL Cluster catalogues.
+
+    `multiZone=true` asks for the catalogue that suits a Multi-AZ cluster, and
+    the API then **replaces** `zoneId` with the Multi-AZ default zone
+    (HCM03-1A) -- so the two are refused together here instead of sending a
+    zone the answer would not describe. `multiZone` is sent only when asked
+    for, so a default call stays the request it was before the flag existed.
+    """
+    if multi_zone:
+        if zone_id:
+            raise ValueError(
+                "zone_id cannot be combined with multi_zone: the API replaces the zone with the "
+                "Multi-AZ default zone. Call with multi_zone alone (each row's zone_id names the "
+                "zone it describes), or with zone_id alone for a single-zone cluster."
+            )
+        return {"multiZone": "true"}
+    return {"zoneId": zone_id} if zone_id else None
+
+
 class CatalogHandler:
     """Register and serve the vDB catalogue tools."""
 
@@ -656,6 +676,13 @@ class CatalogHandler:
                 "platform default zone (HCM03-1A), not every zone."
             ),
         ),
+        multi_zone: bool = Field(
+            False,
+            description=(
+                "List what suits a Multi-AZ cluster (the API's `multiZone=true`), answered for "
+                "the Multi-AZ default zone, currently HCM03-1A. Cannot be combined with zone_id"
+            ),
+        ),
         refresh: bool = Field(False, description="Bypass the cache and re-fetch"),
     ) -> FlavorListData:
         """List the cluster flavours (node sizes) available in a zone.
@@ -673,8 +700,16 @@ class CatalogHandler:
         A row's `id` ('pgp-...') is a create's `packageId`. The `ram_gb` and
         `vcpus` are **per node**, so the cluster's total is that times
         `numberOfNodes`.
+
+        For a **Multi-AZ** cluster call with `multi_zone=True` and no
+        `zone_id`: the API answers for the Multi-AZ default zone (HCM03-1A
+        today; each row's `zone_id` says so), and that zone is the create's
+        `locateZoneId`. The cluster builds each zone's nodes from that zone's
+        own copy of the flavour, so the chosen size must also be listed --
+        same `name` -- in every other zone the cluster will span; check them
+        with `zone_id`.
         """
-        params = {"zoneId": zone_id} if zone_id else None
+        params = _postgresql_catalogue_params(zone_id, multi_zone)
         raw = await self._fetch(
             "list_postgresql_flavors",
             VDB_POSTGRESQL_SERVICE,
@@ -683,7 +718,9 @@ class CatalogHandler:
             params,
         )
         items = [FlavorOption.from_api(row) for row in as_list(raw)]
-        return FlavorListData(count=len(items), items=items, zone_id=zone_id)
+        return FlavorListData(
+            count=len(items), items=items, zone_id=zone_id, multi_zone=multi_zone
+        )
 
     async def list_postgresql_volume_types(
         self,
@@ -692,6 +729,13 @@ class CatalogHandler:
             description=(
                 "Availability zone from list_relational_zones. Omitting it describes the "
                 "platform default zone (HCM03-1A), not every zone."
+            ),
+        ),
+        multi_zone: bool = Field(
+            False,
+            description=(
+                "List what suits a Multi-AZ cluster (the API's `multiZone=true`), answered for "
+                "the Multi-AZ default zone, currently HCM03-1A. Cannot be combined with zone_id"
             ),
         ),
         refresh: bool = Field(False, description="Bypass the cache and re-fetch"),
@@ -707,8 +751,15 @@ class CatalogHandler:
         (measured: 5 types in HCM03-1A and HCM03-1B, 4 in HCM03-1C), and the
         three must agree: `packageId`, `volumeTypeId` and `locateZoneId` all
         from the same zone.
+
+        For a **Multi-AZ** cluster call with `multi_zone=True` and no
+        `zone_id`, exactly as for the flavours. Each zone's nodes are built
+        from that zone's own copy of the volume type, so the chosen `type`
+        must exist in every zone the cluster spans. As of 2026-10-01
+        **HCM03-1C has no NVMe volume type**, which keeps it out of Multi-AZ
+        clusters; check each zone with `zone_id` rather than assuming.
         """
-        params = {"zoneId": zone_id} if zone_id else None
+        params = _postgresql_catalogue_params(zone_id, multi_zone)
         raw = await self._fetch(
             "list_postgresql_volume_types",
             VDB_POSTGRESQL_SERVICE,
@@ -720,7 +771,9 @@ class CatalogHandler:
         # volume-type endpoints wrap theirs in `{projectId, data[]}`. Same
         # catalogue, three families, two shapes: measured, not assumed.
         items = [VolumeTypeOption.from_api(row) for row in as_list(raw)]
-        return VolumeTypeListData(count=len(items), items=items, zone_id=zone_id)
+        return VolumeTypeListData(
+            count=len(items), items=items, zone_id=zone_id, multi_zone=multi_zone
+        )
 
     # ------------------------------------------------------------------
     # Kafka

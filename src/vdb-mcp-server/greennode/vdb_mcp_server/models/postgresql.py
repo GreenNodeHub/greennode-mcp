@@ -19,6 +19,49 @@ from __future__ import annotations
 
 from greennode.vdb_mcp_server.statuses import StatusKind, classify, describe
 from pydantic import BaseModel, Field
+from typing import Any
+
+
+def _port(value: Any) -> int | None:
+    """Parse a port the spec types as a string; null while the zone is building."""
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+class PostgresqlClusterZone(BaseModel):
+    """The nodes of a Multi-AZ cluster that sit in one zone (a `MultiZoneInfo` row)."""
+
+    zone_id: str = Field("", description="Zone this subset of nodes is placed in, e.g. 'HCM03-1B'")
+    subnet_id: str = Field("", description="Subnet ('sub-...') used in this zone")
+    status: str = Field("", description="Status of the nodes in this zone, verbatim")
+    status_kind: StatusKind = Field(
+        "unknown", description="What the zone's status means to act on; see the cluster's own"
+    )
+    private_rw_ip: str = Field("", description="Private read/write address in this zone")
+    public_rw_ip: str = Field("", description="Public read/write address in this zone")
+    private_ro_ip: str = Field("", description="Private read-only address in this zone")
+    public_ro_ip: str = Field("", description="Public read-only address in this zone")
+    rw_port: int | None = Field(None, description="Read/write port in this zone")
+    ro_port: int | None = Field(None, description="Read-only port in this zone")
+
+    @classmethod
+    def from_api(cls, data: dict) -> "PostgresqlClusterZone":
+        """Build from one raw `multiZoneInfos` entry."""
+        status = data.get("status") or ""
+        return cls(
+            zone_id=data.get("zoneId") or "",
+            subnet_id=data.get("subnetId") or "",
+            status=status,
+            status_kind=classify(status),
+            private_rw_ip=data.get("privateRwIp") or "",
+            public_rw_ip=data.get("publicRwIp") or "",
+            private_ro_ip=data.get("privateRoIp") or "",
+            public_ro_ip=data.get("publicRoIp") or "",
+            rw_port=_port(data.get("rwPort")),
+            ro_port=_port(data.get("roPort")),
+        )
 
 
 class PostgresqlCluster(BaseModel):
@@ -28,6 +71,10 @@ class PostgresqlCluster(BaseModel):
     `port` reach the primary, `private_ro_ip` / `port_ro` reach the replicas.
     On a single-subnet cluster the two IPs are identical and only the port
     differs, so the port is what routes a connection, not the address.
+
+    A **Multi-AZ** cluster (created with one subnet per zone in `netIds`) also
+    reports its nodes per zone in `zones`; `zone_id` / `subnet_id` then name
+    only the zone the order was placed in (`locateZoneId`), not every zone.
     """
 
     id: str = Field("", description="Cluster ID, always prefixed 'pg-'")
@@ -65,8 +112,27 @@ class PostgresqlCluster(BaseModel):
         ),
     )
     flavor_name: str = Field("", description="Current flavour name, e.g. 'vdb.s-general-2x4'")
-    zone_id: str = Field("", description="Availability zone, e.g. 'HCM03-1A'")
-    subnet_id: str = Field("", description="Subnet the cluster sits in")
+    zone_id: str = Field(
+        "",
+        description=(
+            "Availability zone, e.g. 'HCM03-1A'. For a Multi-AZ cluster this is only the zone "
+            "the order was placed in; `zones` lists every zone"
+        ),
+    )
+    subnet_id: str = Field(
+        "",
+        description="Subnet the cluster sits in; for a Multi-AZ cluster, that of `zone_id` only",
+    )
+    multi_zone: bool = Field(
+        False, description="Whether the cluster's nodes are spread across several zones"
+    )
+    zones: list[PostgresqlClusterZone] = Field(
+        default_factory=list,
+        description=(
+            "Per-zone node placement of a Multi-AZ cluster, from `multiZoneInfos`. Empty for a "
+            "single-zone cluster"
+        ),
+    )
     public_access: bool | None = Field(None, description="Whether public access is enabled")
     port: int | None = Field(None, description="Read/write port (the primary), e.g. 5432")
     port_ro: int | None = Field(None, description="Read-only port (the replicas), e.g. 15432")
@@ -97,6 +163,7 @@ class PostgresqlCluster(BaseModel):
         """Build from a raw relational `DatabaseInstancesGateway` row with a `pg-` id."""
         configuration = data.get("configuration") or {}
         status = data.get("status") or ""
+        zones = [PostgresqlClusterZone.from_api(row) for row in data.get("multiZoneInfos") or []]
         return cls(
             id=data.get("id") or "",
             name=data.get("name") or "",
@@ -116,6 +183,8 @@ class PostgresqlCluster(BaseModel):
             flavor_name=data.get("packageName") or "",
             zone_id=data.get("zoneId") or "",
             subnet_id=data.get("subnetId") or "",
+            multi_zone=len({zone.zone_id for zone in zones}) > 1,
+            zones=zones,
             public_access=data.get("publicAccess"),
             port=data.get("port"),
             port_ro=data.get("portRo"),

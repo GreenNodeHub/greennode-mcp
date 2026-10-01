@@ -332,6 +332,9 @@ class FlavorListData(_CatalogListData):
     zone_id: str | None = Field(
         None, description="Zone the result describes; None means the platform default zone"
     )
+    multi_zone: bool = Field(
+        False, description="Whether the PostgreSQL Cluster `multiZone` flag was sent"
+    )
     items: list[FlavorOption] = Field(default_factory=list, description="Flavour options")
 
 
@@ -346,6 +349,9 @@ class VolumeTypeListData(_CatalogListData):
 
     zone_id: str | None = Field(
         None, description="Zone the result describes; None means the platform default zone"
+    )
+    multi_zone: bool = Field(
+        False, description="Whether the PostgreSQL Cluster `multiZone` flag was sent"
     )
     items: list[VolumeTypeOption] = Field(default_factory=list, description="Volume type options")
 

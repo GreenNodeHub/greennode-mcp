@@ -52,6 +52,7 @@ CONFIG_GROUP_ID = "pg-cfg-b8cf4290-9c11-4b52-bea1-d4423e90b729"
 FLAVOR_ID = "pgp-51e30a6d-bc9e-4ffb-843f-11e950de12e8"
 VOLUME_TYPE_ID = "pgst-63e28e83-165c-4a6d-8cd4-36ed37f1b65d"
 SUBNET_ID = "sub-66a5327f-1970-427d-b1a3-8eb146e94bab"
+SUBNET_ID_1B = "sub-7cc39ad2-a00f-4edd-8e8b-5f5aaa3eeffe"
 
 
 def _cluster_row(cluster_id=CLUSTER_ID, name="database-or7221hk-90", status="ACTIVE"):
@@ -317,6 +318,58 @@ async def test_the_two_endpoints_are_reported_separately(handler):
     assert cluster.private_rw_ip == cluster.private_ro_ip == "10.5.1.6"
 
 
+def _zone_info(zone, subnet, status="ACTIVE", rw_port="5432", ro_port="15432"):
+    """One `multiZoneInfos` entry; the spec types both ports as strings."""
+    return {
+        "zoneId": zone,
+        "subnetId": subnet,
+        "privateRwIp": "172.24.2.10",
+        "publicRwIp": None,
+        "privateRoIp": "172.24.2.11",
+        "publicRoIp": None,
+        "rwPort": rw_port,
+        "roPort": ro_port,
+        "status": status,
+    }
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_reports_the_nodes_of_a_multi_zone_cluster_per_zone(handler):
+    mock_iam(respx.mock)
+    row = _cluster_row()
+    row["multiZoneInfos"] = [
+        _zone_info("HCM03-1A", SUBNET_ID),
+        _zone_info("HCM03-1B", SUBNET_ID_1B, status="BUILDING", rw_port=None, ro_port=None),
+    ]
+    respx.get(f"{RELATIONAL}/v1/database-instances/id/{CLUSTER_ID}").mock(
+        return_value=httpx.Response(200, json=envelope(row))
+    )
+    cluster = await handler.get_postgresql_cluster(CLUSTER_ID)
+    assert cluster.multi_zone is True
+    assert [z.zone_id for z in cluster.zones] == ["HCM03-1A", "HCM03-1B"]
+    first, second = cluster.zones
+    assert (first.subnet_id, first.rw_port, first.ro_port) == (SUBNET_ID, 5432, 15432)
+    assert first.status_kind == "settled"
+    assert second.status_kind == "transitional"
+    assert (second.rw_port, second.ro_port) == (None, None)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_a_single_zone_cluster_reports_no_zones(handler):
+    """The field is null for a single-zone cluster -- and for every relational row."""
+    mock_iam(respx.mock)
+    row = _cluster_row()
+    row["multiZoneInfos"] = None
+    respx.get(f"{RELATIONAL}/v1/database-instances/id/{CLUSTER_ID}").mock(
+        return_value=httpx.Response(200, json=envelope(row))
+    )
+    cluster = await handler.get_postgresql_cluster(CLUSTER_ID)
+    assert cluster.multi_zone is False
+    assert cluster.zones == []
+
+
 # --------------------------------------------------------------------------
 # volume used
 # --------------------------------------------------------------------------
@@ -439,6 +492,36 @@ async def test_create_dryrun_sends_nothing_and_warns_about_cost(handler):
     assert "per node" in joined
     assert "delete_postgresql_cluster" in joined
     assert "same zone" in joined
+    assert "Multi-AZ" not in joined
+
+
+def test_create_accepts_one_subnet_per_zone_for_a_multi_zone_cluster():
+    dto = _valid_create(netIds=[SUBNET_ID, SUBNET_ID_1B])
+    assert dto.netIds == [SUBNET_ID, SUBNET_ID_1B]
+
+
+def test_create_rejects_the_same_subnet_twice():
+    """Two entries for one subnet is one zone, not two -- almost certainly a mistake."""
+    with pytest.raises(pydantic.ValidationError, match="more than once"):
+        _valid_create(netIds=[SUBNET_ID, SUBNET_ID])
+
+
+def test_create_rejects_more_zones_than_nodes():
+    """Every subnet names a zone that must receive at least one node."""
+    with pytest.raises(pydantic.ValidationError, match="numberOfNodes"):
+        _valid_create(numberOfNodes=2, netIds=[SUBNET_ID, SUBNET_ID_1B, "sub-third"])
+
+
+@pytest.mark.asyncio
+async def test_create_dryrun_explains_a_multi_zone_order(handler):
+    result = await handler.create_postgresql_cluster_dryrun(
+        _valid_create(netIds=[SUBNET_ID, SUBNET_ID_1B])
+    )
+    joined = " ".join(result.warnings)
+    assert "Multi-AZ" in joined
+    assert "2 subnets" in joined
+    assert "list_relational_subnets" in joined
+    assert result.body["netIds"] == [SUBNET_ID, SUBNET_ID_1B]
 
 
 # --------------------------------------------------------------------------

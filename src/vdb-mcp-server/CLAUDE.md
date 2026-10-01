@@ -897,6 +897,32 @@ Ids differ per zone even for an identical size, so neither an id nor the
 memory flavour catalogues, this one takes no `type`/`version` — one engine —
 and can be called bare, which then describes HCM03-1A only.
 
+**Multi-AZ (added 2026-10-01) is chosen by `netIds`, not by a flag.** One
+subnet = one zone; several subnets, one per zone, spread the nodes evenly
+across those zones. Semantics as stated by the API owner, and verified live
+with a two-node HCM03-1A + HCM03-1B cluster (~11 min to ACTIVE, one node per
+zone):
+
+- `?multiZone=true` on `/cluster/flavors` and `/cluster/volume-types` returns
+  the catalogue that suits Multi-AZ, answered for the **Multi-AZ default zone
+  (HCM03-1A)**. It **replaces `zoneId`**, so the two cannot be combined —
+  `_postgresql_catalogue_params` refuses the pair rather than send a zone the
+  answer will not describe.
+- Each zone builds its nodes from **its own copy** of the flavour and volume
+  type, so both must exist in every chosen zone. **HCM03-1C has no NVMe
+  volume type**, which keeps it out of Multi-AZ today.
+- The response carries `multiZoneInfos[]` (zoneId, subnetId, status, rw/ro
+  IPs, `rwPort`/`roPort` **as strings**) on both the listing row and the
+  detail; null for a single-zone cluster and for every relational row. The
+  top-level `zoneId`/`subnetId` name only `locateZoneId`. `PostgresqlCluster`
+  projects it as `multi_zone` + `zones`.
+- **The API's own catalogue cache was keyed without `multiZone`** on
+  2026-10-01 (`{userId, zoneId}`), so flavours and volume types came back for
+  the wrong zone, non-deterministically, even on plain single-zone calls — the
+  owner is fixing it. If a catalogue row's `zone_id` disagrees with what was
+  asked, suspect that, not the client. Our `DiscoveryCache` key carries every
+  query parameter, so it cannot repeat the bug.
+
 **`GET /v1/cluster/volume-types` is a bare array** inside the envelope, where
 the relational and memory twins wrap theirs in `{projectId, data[]}`. Same
 catalogue, two shapes.
@@ -1172,7 +1198,7 @@ relational resizes do, so polling the cluster is the only confirmation.
 | `memory_backup_handler.py` | 7 tools for MemoryStore backups (3 read, 1 dry-run, 3 write) |
 | `memory_config_handler.py` | 6 tools for MemoryStore configuration groups (3 read, 3 write) |
 | `memory_storage_handler.py` | 7 tools for MemoryStore backup storage (2 read, 2 dry-run, 3 write) |
-| `postgresql_cluster_handler.py` | 17 tools for PostgreSQL Clusters (5 read, 2 dry-run, 6 write, 2 destructive); the reads are **derived** from the relational listing |
+| `postgresql_cluster_handler.py` | 17 tools for PostgreSQL Clusters (5 read, 2 dry-run, 6 write, 2 destructive); the reads are **derived** from the relational listing; Multi-AZ via `netIds` |
 | `postgresql_backup_handler.py` | 6 tools for cluster backups, which are vBackup resources rather than vDB ones |
 | `kafka_cluster_handler.py` | 14 tools for Kafka clusters, including the firewall rules (added and removed one at a time) |
 | `kafka_topic_handler.py` | 5 tools for topics |

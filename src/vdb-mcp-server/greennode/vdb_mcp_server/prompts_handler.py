@@ -130,6 +130,16 @@ Năm thao tác nữa của cụm cũng không có endpoint riêng và dùng endp
 relational: security rule (đọc + ghi), history, reboot và **xoá**. Nhưng đừng
 suy rộng: `replicas` trả 403 và `backups/insId` trả mảng rỗng cho một cụm.
 
+**Cụm Multi-AZ** chọn bằng `netIds`, không có cờ riêng: một subnet là một zone,
+nhiều subnet (mỗi zone một subnet) thì các node được rải đều qua các zone đó.
+Lấy `packageId`, `volumeTypeId` và `locateZoneId` từ `list_postgresql_flavors`
+/ `list_postgresql_volume_types` gọi với `multi_zone=true` (trả về zone mặc
+định của Multi-AZ, hiện là HCM03-1A; không dùng chung với `zone_id`). Mỗi zone
+dựng node bằng flavor và volume type **của chính zone đó**, nên cả hai phải có
+mặt ở mọi zone được chọn — HCM03-1C hiện chưa có volume type NVMe nên chưa
+chọn được cho Multi-AZ. Sau khi tạo, `get_postgresql_cluster` báo từng zone
+trong `zones`.
+
 ## Kafka khác mọi họ còn lại — đừng mang quy ước nào sang
 
 - **Bắt đầu bằng `get_kafka_limits`.** Đây là chỗ DUY NHẤT trong vDB mà nền tảng

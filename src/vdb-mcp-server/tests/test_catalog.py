@@ -552,7 +552,7 @@ async def test_postgresql_flavors_need_no_engine_or_version(handler):
     route = respx.get(f"{POSTGRESQL}/v1/cluster/flavors").mock(
         return_value=httpx.Response(200, json=envelope([_pg_flavor()]))
     )
-    result = await handler.list_postgresql_flavors(zone_id=None, refresh=False)
+    result = await handler.list_postgresql_flavors(zone_id=None, multi_zone=False, refresh=False)
     assert result.count == 1
     assert result.items[0].id == "pgp-cd1958e4"
     assert result.items[0].zone_id == "HCM03-1A"
@@ -570,8 +570,12 @@ async def test_postgresql_flavors_are_keyed_per_zone_in_the_cache(handler):
         return httpx.Response(200, json=envelope([_pg_flavor(f"pgp-{zone}", zone)]))
 
     respx.get(f"{POSTGRESQL}/v1/cluster/flavors").mock(side_effect=respond)
-    first = await handler.list_postgresql_flavors(zone_id="HCM03-1A", refresh=False)
-    second = await handler.list_postgresql_flavors(zone_id="HCM03-1B", refresh=False)
+    first = await handler.list_postgresql_flavors(
+        zone_id="HCM03-1A", multi_zone=False, refresh=False
+    )
+    second = await handler.list_postgresql_flavors(
+        zone_id="HCM03-1B", multi_zone=False, refresh=False
+    )
     assert first.items[0].id != second.items[0].id
 
 
@@ -583,11 +587,91 @@ async def test_postgresql_volume_types_are_a_bare_array(handler):
     respx.get(f"{POSTGRESQL}/v1/cluster/volume-types").mock(
         return_value=httpx.Response(200, json=envelope([_pg_volume_type()]))
     )
-    result = await handler.list_postgresql_volume_types(zone_id=None, refresh=False)
+    result = await handler.list_postgresql_volume_types(
+        zone_id=None, multi_zone=False, refresh=False
+    )
     assert result.count == 1
     row = result.items[0]
     assert row.id == "pgst-63e28e83"
     assert (row.min_volume_size, row.max_volume_size) == (20, 5000)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_postgresql_catalogues_send_no_multi_zone_flag_by_default(handler):
+    mock_iam(respx.mock)
+    flavors = respx.get(f"{POSTGRESQL}/v1/cluster/flavors").mock(
+        return_value=httpx.Response(200, json=envelope([_pg_flavor()]))
+    )
+    volumes = respx.get(f"{POSTGRESQL}/v1/cluster/volume-types").mock(
+        return_value=httpx.Response(200, json=envelope([_pg_volume_type()]))
+    )
+    flavor_result = await handler.list_postgresql_flavors(
+        zone_id="HCM03-1A", multi_zone=False, refresh=False
+    )
+    volume_result = await handler.list_postgresql_volume_types(
+        zone_id="HCM03-1A", multi_zone=False, refresh=False
+    )
+    assert "multiZone" not in flavors.calls.last.request.url.params
+    assert "multiZone" not in volumes.calls.last.request.url.params
+    assert flavor_result.multi_zone is False and volume_result.multi_zone is False
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_postgresql_catalogues_pass_the_multi_zone_flag_without_a_zone(handler):
+    """With `multiZone` the API replaces `zoneId` by the Multi-AZ default zone, so none is sent."""
+    mock_iam(respx.mock)
+    flavors = respx.get(f"{POSTGRESQL}/v1/cluster/flavors").mock(
+        return_value=httpx.Response(200, json=envelope([_pg_flavor()]))
+    )
+    volumes = respx.get(f"{POSTGRESQL}/v1/cluster/volume-types").mock(
+        return_value=httpx.Response(200, json=envelope([_pg_volume_type()]))
+    )
+    flavor_result = await handler.list_postgresql_flavors(
+        zone_id=None, multi_zone=True, refresh=False
+    )
+    volume_result = await handler.list_postgresql_volume_types(
+        zone_id=None, multi_zone=True, refresh=False
+    )
+    for route in (flavors, volumes):
+        params = route.calls.last.request.url.params
+        assert params["multiZone"] == "true"
+        assert "zoneId" not in params
+    assert flavor_result.multi_zone is True and volume_result.multi_zone is True
+    # The rows say which zone the Multi-AZ catalogue describes.
+    assert flavor_result.items[0].zone_id == "HCM03-1A"
+
+
+@pytest.mark.asyncio
+async def test_postgresql_catalogues_refuse_a_zone_with_the_multi_zone_flag(handler):
+    """The API would silently swap the zone for HCM03-1A; refuse rather than mislead."""
+    with pytest.raises(ValueError, match="cannot be combined"):
+        await handler.list_postgresql_flavors(zone_id="HCM03-1B", multi_zone=True, refresh=False)
+    with pytest.raises(ValueError, match="cannot be combined"):
+        await handler.list_postgresql_volume_types(
+            zone_id="HCM03-1B", multi_zone=True, refresh=False
+        )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_postgresql_flavors_are_keyed_per_multi_zone_flag_in_the_cache(handler):
+    """The flag changes the answer, so a cached single-zone list must not serve it.
+
+    This is exactly the bug the API's own cache had on 2026-10-01: keyed on the
+    zone alone, it served Multi-AZ and single-zone answers for one another.
+    """
+    mock_iam(respx.mock)
+
+    def respond(request):
+        flag = request.url.params.get("multiZone", "false")
+        return httpx.Response(200, json=envelope([_pg_flavor(f"pgp-{flag}")]))
+
+    respx.get(f"{POSTGRESQL}/v1/cluster/flavors").mock(side_effect=respond)
+    single = await handler.list_postgresql_flavors(zone_id=None, multi_zone=False, refresh=False)
+    multi = await handler.list_postgresql_flavors(zone_id=None, multi_zone=True, refresh=False)
+    assert single.items[0].id != multi.items[0].id
 
 
 # --------------------------------------------------------------------------

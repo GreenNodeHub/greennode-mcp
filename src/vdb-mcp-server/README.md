@@ -64,8 +64,8 @@ cache.
 | `list_memory_networks` | read | Networks available to MemoryStore instances |
 | `list_memory_subnets` | read | Subnets available to MemoryStore instances |
 | `list_postgresql_datastores` | read | PostgreSQL Cluster versions — a different set from the relational family's PostgreSQL |
-| `list_postgresql_flavors` | read | Cluster node sizes for one zone; **no engine or version argument** — the family has one engine |
-| `list_postgresql_volume_types` | read | Cluster storage types for one zone; a create takes the `id`, not the name |
+| `list_postgresql_flavors` | read | Cluster node sizes for one zone; **no engine or version argument** — the family has one engine. `multi_zone=true` lists what suits a Multi-AZ cluster (answered for the Multi-AZ default zone, HCM03-1A); not combinable with `zone_id` |
+| `list_postgresql_volume_types` | read | Cluster storage types for one zone; a create takes the `id`, not the name. Same `multi_zone` flag |
 | `get_kafka_limits` | read | **Start here for Kafka** — the bounds, ports and name regexes the platform enforces |
 | `list_kafka_flavors` | read | Broker sizes; `type`/`version` optional, no zone |
 | `list_kafka_volume_types` | read | Broker storage types |
@@ -448,13 +448,13 @@ separate pools, so don't sum them when answering "how much room is left".
 | Tool | Access | Description |
 |------|--------|-------------|
 | `list_postgresql_clusters` | read | The project's clusters. **Derived** — see below |
-| `get_postgresql_cluster` | read | One cluster in full; rejects a non-`pg-` id locally |
+| `get_postgresql_cluster` | read | One cluster in full, with per-zone placement (`zones`) for a Multi-AZ cluster; rejects a non-`pg-` id locally |
 | `get_postgresql_cluster_volume_used` | read | Disk actually used. The **only** source — the detail reports `volume_used` as null |
 | `list_postgresql_cluster_secrules` | read | Security rules guarding the cluster |
 | `list_postgresql_cluster_histories` | read | What has been done, and what the platform made of it |
 | `create_postgresql_cluster_dryrun` | read | Preview the order a create would place |
 | `resize_postgresql_cluster_dryrun` | read | Preview a resize order |
-| `create_postgresql_cluster` | **write** | Order a cluster. Billable, **per node** |
+| `create_postgresql_cluster` | **write** | Order a cluster, in one zone or spread across several (Multi-AZ). Billable, **per node** |
 | `resize_postgresql_cluster` | **destructive** | Resize one axis. Billable; shrinking nodes destroys them |
 | `update_postgresql_cluster_setting` | **write** | Master password and/or public access |
 | `update_postgresql_cluster_config_group` | **write** | Attach or detach a `cluster` configuration group (`pg-cfg-…`); `""` detaches |
@@ -488,6 +488,28 @@ list, read, update and delete them with `create_relational_configuration` (with
 the attach/detach lives here. See *Configuration tools (relational family)*
 above, and note that `list_relational_configuration_params` needs
 `deploy_type="cluster"` or it answers empty for PostgreSQL 17 and 16.
+
+**Multi-AZ is chosen by `netIds` alone.** One subnet puts every node in one
+zone; several subnets — one per zone, e.g. a HCM03-1A and a HCM03-1B subnet of
+the same network (`list_relational_subnets` reports each subnet's `zone_id`) —
+spread the nodes evenly across those zones. There is no separate flag on the
+create. For a Multi-AZ order:
+
+- take `packageId`, `volumeTypeId` and `locateZoneId` from
+  `list_postgresql_flavors` / `list_postgresql_volume_types` called with
+  `multi_zone=true` — they answer for the Multi-AZ default zone, currently
+  HCM03-1A. `zone_id` cannot be combined with it (the API would replace the
+  zone), so the tool refuses the pair;
+- each zone builds its nodes from **its own copy** of that flavour and volume
+  type, so both must be listed in every chosen zone. **HCM03-1C has no NVMe
+  volume type** (as of 2026-10-01) and therefore cannot be part of a Multi-AZ
+  cluster.
+
+The DTO rejects a repeated subnet and more subnets than nodes; the dry-run adds
+a Multi-AZ warning, since it cannot see which zone a subnet is in. Once
+created, `get_postgresql_cluster` reports `multi_zone: true` and a `zones`
+list — each zone's subnet, status, addresses and ports — while the top-level
+`zone_id` / `subnet_id` name only the order's own zone.
 
 **A cluster has two ports.** `port` (5432) reaches the primary and `port_ro`
 (15432) the replicas; on a single-subnet cluster both resolve to the same

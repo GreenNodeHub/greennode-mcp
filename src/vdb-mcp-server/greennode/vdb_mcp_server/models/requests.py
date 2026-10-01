@@ -988,10 +988,32 @@ class CreatePostgresqlClusterDto(_Dto):
     `backupPolicyId` and `backupPointId` are vBackup ids, listed by
     `list_postgresql_backup_locations` and `list_postgresql_backup_policies`.
     `backupPointId` is what turns a create into a restore.
+
+    **Multi-AZ** is chosen by `netIds` alone: one subnet places every node in
+    one zone, several subnets -- one per zone -- spread the nodes evenly
+    across those zones. There is no separate flag on the create. For a
+    Multi-AZ order `locateZoneId`, `packageId` and `volumeTypeId` come from
+    the `multi_zone=True` catalogues, which answer for the Multi-AZ default
+    zone (HCM03-1A). Each zone's nodes are then built from **that zone's own
+    copy** of the flavour and volume type, so both must exist in every zone
+    chosen -- HCM03-1C, with no NVMe volume type as of 2026-10-01, cannot be
+    one of them. Verified live 2026-10-01: HCM03-1A ids with a 1A + 1B subnet
+    pair gave one node in each zone.
+
+    A subnet's zone is the `zone_id` that `list_relational_subnets` reports,
+    which this DTO cannot see, so the rules it checks locally are only: no
+    subnet twice, and no more zones than nodes.
     """
 
     name: str = Field(..., min_length=1, description="Cluster name")
-    locateZoneId: str = Field(..., description="Availability zone from list_relational_zones")
+    locateZoneId: str = Field(
+        ...,
+        description=(
+            "Availability zone from list_relational_zones; packageId and volumeTypeId come from "
+            "this zone. For a Multi-AZ cluster, the Multi-AZ default zone that the multi_zone "
+            "catalogues report (currently HCM03-1A)"
+        ),
+    )
     packageId: str = Field(
         ..., description="Flavour id ('pgp-...') from list_postgresql_flavors for this zone"
     )
@@ -1015,7 +1037,15 @@ class CreatePostgresqlClusterDto(_Dto):
         ..., min_length=1, description="PostgreSQL version from list_postgresql_datastores"
     )
     netIds: list[str] = Field(
-        ..., min_length=1, description="Subnet IDs ('sub-...') from list_relational_subnets"
+        ...,
+        min_length=1,
+        description=(
+            "Subnet IDs ('sub-...') from list_relational_subnets. ONE subnet puts every node in "
+            "one zone. SEVERAL subnets, one per zone (each from a different `zone_id`, e.g. a "
+            "HCM03-1A and a HCM03-1B subnet of the same network), spread the nodes evenly across "
+            "those zones (Multi-AZ); one of them should be in locateZoneId, and the flavour and "
+            "volume type must exist in every one of those zones"
+        ),
     )
     user: PostgresqlUserDto | None = Field(None, description="Master user to create")
     databases: list[PostgresqlDatabaseDto] = Field(
@@ -1044,6 +1074,22 @@ class CreatePostgresqlClusterDto(_Dto):
         ),
     )
     isPoc: bool = Field(False, description="Pay with PoC credit (Auto Payment only)")
+
+    @model_validator(mode="after")
+    def _one_subnet_per_zone(self) -> "CreatePostgresqlClusterDto":
+        # Each subnet stands for a zone that must receive at least one node,
+        # so a repeated subnet or more subnets than nodes cannot be what the
+        # caller meant -- and an order flow bills before it validates.
+        if len(set(self.netIds)) != len(self.netIds):
+            raise ValueError(
+                "netIds lists the same subnet more than once; give one subnet per zone"
+            )
+        if len(self.netIds) > self.numberOfNodes:
+            raise ValueError(
+                f"netIds names {len(self.netIds)} subnets (zones) but numberOfNodes is "
+                f"{self.numberOfNodes}; every zone needs at least one node"
+            )
+        return self
 
 
 class ResizePostgresqlClusterDto(_Dto):
