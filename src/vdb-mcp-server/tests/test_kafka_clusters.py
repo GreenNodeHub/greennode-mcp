@@ -108,9 +108,21 @@ def _valid_create(**overrides):
         "vserverProjectId": "pro-test-0001",
         "networkId": NETWORK_ID,
         "subnetId": SUBNET_ID,
+        # The gateway's KafkaClusterValidator refuses both flags off with a
+        # bare `bad_request: Need to enable at least one authentication mode`.
+        "saslAuthen": True,
     }
     body.update(overrides)
     return CreateKafkaClusterDto(**body)
+
+
+def _create_without_project(**overrides):
+    """A spec that omits `vserverProjectId`, as the docstring tells callers to.
+
+    The handler must fill it from the configured profile (conftest's
+    `sample_config` carries `project_id = pro-test-0001`).
+    """
+    return _valid_create(**overrides).model_copy(update={"vserverProjectId": None})
 
 
 def _handler(sample_config, allow_write):
@@ -277,6 +289,40 @@ def test_create_rejects_an_unknown_field():
         _valid_create(zoneId="HCM03-1A")  # Kafka has no zone
 
 
+def test_create_always_sends_config_group_version_even_when_empty():
+    """Omitting `configGroupVersionId` makes the backend dereference null.
+
+    Measured live 2026-10-13 with the gateway log as proof: an absent field
+    answers a bare 500 -- 'Cannot invoke "String.isEmpty()" because the return
+    value of ClusterCreateRequest.getConfigGroupVersionId() is null'. The
+    empty string is the wire vocabulary for "no config group", so the field
+    defaults to "" rather than None, which exclude_none would drop.
+    """
+    body = _valid_create().model_dump(exclude_none=True)
+    assert body["configGroupVersionId"] == ""
+
+    body = _valid_create(
+        configGroupVersionId="cgroupver-7748ded8-f6d2-479b-8901-472ed5167348"
+    ).model_dump(exclude_none=True)
+    assert body["configGroupVersionId"] == "cgroupver-7748ded8-f6d2-479b-8901-472ed5167348"
+
+
+def test_create_requires_an_authentication_mode():
+    """Both flags off is refused by the gateway's own validator.
+
+    Measured live 2026-10-13: `400 bad_request` with the server-side reason
+    "Need to enable at least one authentication mode" (the gateway log names
+    KafkaClusterValidator.validateCreate). A bare `bad_request` names no field
+    to the caller, so the DTO rejects the combination locally instead.
+    """
+    with pytest.raises(pydantic.ValidationError, match="authentication"):
+        _valid_create(saslAuthen=False)
+    with pytest.raises(pydantic.ValidationError, match="authentication"):
+        _valid_create(saslAuthen=False, mtlsAuthen=False)
+    assert _valid_create().saslAuthen is True, "SASL alone is enough"
+    assert _valid_create(saslAuthen=False, mtlsAuthen=True).mtlsAuthen is True
+
+
 def test_create_always_sends_tags_even_when_empty():
     """Omitting `tags` makes the backend dereference null and answer a bare 500.
 
@@ -316,6 +362,62 @@ async def test_create_posts_and_defaults_to_iam_user(handler):
     assert isinstance(result, OrderData)
     assert respx.calls.last.request.headers["user-type"] == "IAM_USER"
     assert result.orders[0].resource_id == CLUSTER_ID
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_fills_project_id_from_the_profile(handler):
+    """The docstring promises the profile fills `vserverProjectId` -- make it true.
+
+    Without this the field was required, so a caller following the docstring
+    died on local validation before anything reached the gateway.
+    """
+    mock_iam(respx.mock)
+    respx.post(f"{KAFKA}/clusters").mock(return_value=httpx.Response(200, json=ORDER_RESPONSE))
+    await handler.create_kafka_cluster(_create_without_project(), "IAM_USER")
+    body = json.loads(respx.calls.last.request.read())
+    assert body["vserverProjectId"] == "pro-test-0001", "the profile's project_id"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_create_lets_a_caller_override_the_project(handler):
+    mock_iam(respx.mock)
+    respx.post(f"{KAFKA}/clusters").mock(return_value=httpx.Response(200, json=ORDER_RESPONSE))
+    await handler.create_kafka_cluster(
+        _valid_create(vserverProjectId="pro-other-0002"), "IAM_USER"
+    )
+    body = json.loads(respx.calls.last.request.read())
+    assert body["vserverProjectId"] == "pro-other-0002", "an explicit id beats the profile"
+
+
+@pytest.mark.asyncio
+async def test_create_dryrun_shows_the_filled_project(handler):
+    """A dry-run must preview the body that would be sent, project id included."""
+    result = await handler.create_kafka_cluster_dryrun(_create_without_project())
+    assert result.body["vserverProjectId"] == "pro-test-0001"
+
+
+@pytest.mark.asyncio
+async def test_create_names_the_fix_when_no_project_is_configured(tmp_path, monkeypatch):
+    """Neither a spec value nor a profile one: refuse locally, naming the fix.
+
+    The alternative is a body without the field, which the gateway answers
+    with its bare, field-less `in_valid`.
+    """
+    monkeypatch.delenv("GRN_PROJECT_ID", raising=False)
+    greenode_dir = tmp_path / ".greennode"
+    greenode_dir.mkdir()
+    (greenode_dir / "credentials").write_text(
+        "[default]\nclient_id = test-client-id\nclient_secret = test-client-secret\n"
+    )
+    # No project_id in the profile, unlike conftest's sample_config.
+    (greenode_dir / "config").write_text("[default]\nregion = HCM-3\noutput = json\n")
+    handler = _handler(greenode_dir, allow_write=True)
+    with pytest.raises(ValueError, match="project_id"):
+        await handler.create_kafka_cluster(_create_without_project(), "IAM_USER")
+    with pytest.raises(ValueError, match="project_id"):
+        await handler.create_kafka_cluster_dryrun(_create_without_project())
 
 
 @pytest.mark.asyncio

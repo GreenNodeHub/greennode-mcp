@@ -466,6 +466,8 @@ class RelationalInstanceHandler:
                 "Raises a BILLABLE order and changes the monthly cost.",
                 "The instance restarts, so connections drop.",
                 "packageId must be a flavour offered in this instance's zone.",
+                "packageId must DIFFER from the instance's current flavour: a same-flavour "
+                "resize is refused with a bare 'bad_request' (measured live 2026-10-13).",
             ],
         )
 
@@ -489,6 +491,8 @@ class RelationalInstanceHandler:
                 "Raises a BILLABLE order and changes the monthly cost.",
                 "Storage can only grow -- it cannot be shrunk afterwards.",
                 "The memory family has no equivalent operation.",
+                "volumeType is required on the wire: the API answers a body without it with a "
+                "bare 'in_valid' that names no field (measured live 2026-10-13).",
             ],
         )
 
@@ -698,6 +702,9 @@ class RelationalInstanceHandler:
         - `packageId` must be a flavour offered **in this instance's zone** —
           read `zone_id` from `get_relational_instance`, then
           `list_relational_flavors` with that zone.
+        - `packageId` must **differ** from the instance's current flavour: a
+          same-flavour resize is refused with a bare `bad_request` (measured
+          live 2026-10-13).
         - The instance restarts, so connections drop.
 
         ## Workflow
@@ -738,6 +745,10 @@ class RelationalInstanceHandler:
           user confirm: billable, and **storage cannot be shrunk afterwards**.
         - `volumeSize` must exceed the current size and stay within the range
           `list_relational_volume_types` reports for the instance's zone.
+        - `volumeType` is **required by the API** despite the spec leaving it
+          optional: a body without it is answered a bare `in_valid` naming no
+          field (measured live 2026-10-13). The DTO makes it required so the
+          mistake cannot reach the wire.
         - This operation exists only in the relational family.
 
         ## Workflow

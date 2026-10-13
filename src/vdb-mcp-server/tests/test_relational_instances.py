@@ -398,6 +398,14 @@ def test_dtos_reject_unknown_fields():
         ResizeRelationalStorageDto(volumeSize=40, volume_type="oops")
 
 
+def test_resize_storage_dto_requires_volume_type():
+    """Measured live 2026-10-13: a resize-storage body without `volumeType` is
+    answered `400 in_valid` naming no field, so the DTO blocks the omission
+    locally with a named error instead."""
+    with pytest.raises(pydantic.ValidationError, match="volumeType"):
+        ResizeRelationalStorageDto(volumeSize=60)
+
+
 def test_create_dto_enforces_the_minimum_volume_size():
     with pytest.raises(pydantic.ValidationError):
         CreateRelationalInstanceDto(
@@ -493,7 +501,8 @@ async def test_delete_dryrun_shows_the_nested_action_envelope(handler):
 async def test_resize_dryrun_uses_resourceType_not_resType(handler):
     """The two spellings are not interchangeable: resize uses `resourceType`."""
     result = await handler.resize_relational_instance_storage_dryrun(
-        instance_id="db-1111", spec=ResizeRelationalStorageDto(volumeSize=60)
+        instance_id="db-1111",
+        spec=ResizeRelationalStorageDto(volumeSize=60, volumeType="Gen2-NVMe2-IOPS3000"),
     )
     assert "resourceType" in result.body
     assert "resType" not in result.body
@@ -631,6 +640,9 @@ async def test_resize_storage_sends_resource_type_spelling(handler):
     body = json.loads(route.calls.last.request.content)
     assert body["resourceType"] == "dbaas"
     assert body["databaseInstances"][0]["config"]["volumeSize"] == 60
+    assert body["databaseInstances"][0]["config"]["volumeType"] == "Gen2-NVMe2-IOPS3000", (
+        "the API rejects the resize without it (measured live 2026-10-13)"
+    )
     assert route.calls.last.request.headers["user-type"] == "IAM_USER"
 
 

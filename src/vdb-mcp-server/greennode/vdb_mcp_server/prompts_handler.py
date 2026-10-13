@@ -34,6 +34,7 @@ GuideTopic = Literal[
     "configuration_group",
     "backups_and_storage",
     "troubleshooting",
+    "kafka",
 ]
 
 
@@ -60,6 +61,24 @@ path khác nhau, đôi khi cả HTTP method khác nhau, ở mỗi họ:
 
 Xác định người dùng đang nói về sản phẩm nào TRƯỚC khi đi tìm. "Không thấy" ở
 một họ không chứng minh được là không tồn tại ở họ khác.
+
+## Tên tham số KHÔNG mang sang giữa các họ
+
+Cùng một thao tác, mỗi họ đặt tên tham số theo cách riêng. Một agent đoán theo
+thói quen của họ khác sẽ vấp ngay câu "validation error" của schema — đó là
+thiết kế có chủ ý, nhưng tốt hơn nữa là gọi đúng ngay từ đầu:
+
+| Thao tác | Tham số đúng | Đừng đoán theo họ khác |
+|---|---|---|
+| Liệt kê replica (relational, memory) | `source_instance_id` | `instance_id` |
+| Gắn/gỡ config group (relational, memory) | `config_id` | `config_group_id` |
+| Gắn config group (PostgreSQL Cluster) | `config_group_id` | `config_id` — **ngược** với hai họ kia |
+| Gắn config group (Kafka) | `config_group_version_id` (`cgroupver-…`) | `config_group_id` |
+| Topic / user Kafka | `topic_id` / `user_id` | tên topic / tên user |
+| Resize cụm Kafka | `size`, `count` + `rebalance` — tham số trực tiếp | `spec:{...}` bọc bên trong |
+
+Quy tắc chung: **đọc schema của CHÍNH tool sắp gọi trước khi gọi**, đừng dựng
+tham số theo tool của họ khác. Việc gì dính tới Kafka — lấy guide `kafka`.
 
 ## ID của instance KHÔNG cho biết nó thuộc họ nào
 
@@ -153,17 +172,8 @@ trong `zones`.
   số broker của cụm. Đọc `broker_count` từ `get_kafka_cluster`.
 - **Hai id dễ nhầm nhất**: create nhận `flav-…` (không phải `id` số của flavor)
   và `vtype-…` (không phải `id` số, cũng không phải tên `type` của volume type).
-- **Quyền của user là DANH SÁCH hoặc CỜ, không bao giờ cả hai.** Khi cờ `*_all`
-  bật thì nền tảng **bỏ qua** danh sách — nên một user hiện `produce_all: true`
-  cạnh hai tên topic thực ra ghi được vào MỌI topic. Đọc cờ trước danh sách.
-- **Config group của Kafka có version và bất biến.** Cụm gắn vào một
-  **version** (`cgroupver-…`), không phải group (`cgroup-…`). Tạo group hay tạo
-  version **không đụng gì tới cụm đang chạy**; chỉ
-  `update_kafka_cluster_config_group` mới đụng, và nó **restart lần lượt từng
-  broker**. Chỉ `get_kafka_config_group_version` trả về settings — group detail
-  để trống.
-- **Security rule chỉ thấy được trong `get_kafka_cluster`**; không có endpoint
-  nào liệt kê chúng, và listing thì bỏ hẳn field này.
+- **Mọi thao tác Kafka khác có luật riêng cho từng tool** — topic, user, config
+  group, security rule, resize, tạo cụm. Lấy guide `kafka` trước khi bắt đầu.
 - **Credential của user là file ZIP chứa private key và mật khẩu**, không phải
   danh sách chuỗi như spec ghi. `get_kafka_user_credentials` ghi ra file và chỉ
   báo lại đường dẫn + tên các file bên trong; **tuyệt đối không đọc nội dung
@@ -192,7 +202,8 @@ _CREATE_INSTANCE = """\
 # Tạo instance vDB — luồng có hướng dẫn
 
 Áp dụng cho `create_relational_instance` và `create_memory_instance`. Cả hai đều
-tạo **order tốn tiền thật** và cấp phát bất đồng bộ.
+tạo **order tốn tiền thật** và cấp phát bất đồng bộ. Họ Kafka không áp dụng luồng
+này — tạo cụm Kafka có luật riêng, xem guide `kafka`.
 
 ## Trước khi hỏi bất cứ điều gì
 
@@ -338,6 +349,9 @@ _CONFIGURATION_GROUP = """\
 Configuration group là một tập tham số engine ghi đè, có tên, để các instance
 gắn vào. Tạo và sửa nó thì miễn phí; rủi ro nằm hoàn toàn ở chỗ nó tác động thế
 nào lên các database đang chạy.
+
+Config group của **Kafka** là mô hình khác hẳn — có version, bất biến, và lệnh
+gắn nhận `config_group_version_id` chứ không phải `config_id`. Xem guide `kafka`.
 
 ## Luật quan trọng nhất
 
@@ -532,6 +546,13 @@ payload để dò**. Hãy kiểm tra theo thứ tự sau:
    cùng đến từ một zone.
 3. **Chỉ relational:** phải có ít nhất một phần tử trong `databases`.
 4. **Chỉ MemoryStore:** `redisPasswordEnabled` phải bật nếu `publicAccess` bật.
+5. **Resize storage (relational):** thiếu `volumeType` — API đòi field này kể
+   cả khi schema gốc để optional; DTO đã bắt buộc, nên lỗi này chỉ xảy ra khi
+   gửi body thô (đo live 2026-10-13).
+6. **Resize flavour:** `packageId` **trùng** flavour hiện tại bị từ chối với
+   một `400 bad_request` trống (đo live 2026-10-13 trên cả relational lẫn
+   memory) — instance vẫn giữ nguyên `ACTIVE`, không có gì hỏng, chỉ cần chọn
+   flavour khác.
 
 ## `bad_request` khi tạo configuration group
 
@@ -580,6 +601,106 @@ mọi thứ không phải Redis, còn `get_relational_instance` thì nhận tấ
 """
 
 
+_KAFKA = """\
+# Kafka trong vDB — họ thứ tư, quy ước riêng
+
+Kafka dùng chung gateway và token với ba họ còn lại và gần như KHÔNG dùng chung
+quy ước nào khác. Trước khi gọi tool Kafka nào, đọc schema của CHÍNH tool đó —
+mọi tham số và body mang sang từ relational / memory / postgresql đều là phỏng
+đoán, và phỏng đoán ở họ này thường sai.
+
+## Kafka lấy id, không lấy tên
+
+- `get/update/delete_kafka_topic` nhận `topic_id` (`topic-…`);
+  `get/update/delete_kafka_user` nhận `user_id` (`user-…`). Không tool Kafka nào
+  nhận tên.
+- `list_kafka_topics` / `list_kafka_users` là chỗ đổi tên thành id. Tối đa 50
+  topic và 50 user mỗi cụm (`get_kafka_limits`).
+
+## Config group có VERSION — đếm đúng id mình cần
+
+- `update_kafka_cluster_config_group` nhận `config_group_version_id`
+  (`cgroupver-…`), **không** nhận `config_group_id` (`cgroup-…`). Cụm gắn vào
+  một version, không phải group.
+- `get_kafka_config_group_version` nhận nguyên vẹn `cgroupver-…` — không phải
+  số `"1"`. Version mới nhất đứng đầu danh sách.
+- `create_kafka_config_group` là tài nguyên cấp **project**: body không có
+  `cluster_id`; gồm `name`, `description` và `properties: [{key, value}]` —
+  version đầu tiên cũng cần `properties` không rỗng.
+- Group và version **bất biến**: đổi setting = tạo version mới rồi gắn lại.
+  Tạo group hay tạo version không đụng gì tới cụm đang chạy; chỉ lệnh gắn mới
+  đụng, và nó **restart lần lượt từng broker**. Chỉ
+  `get_kafka_config_group_version` trả về settings — group detail để trống.
+
+## Body PHẲNG hoặc không có body — không suy từ họ khác
+
+- `resize_kafka_cluster_storage`: `size` là tham số trực tiếp (20-5000 GB
+  **mỗi broker**), không bọc trong `spec:{storageSize}`.
+- `resize_kafka_cluster_brokers`: `count` + `rebalance` là tham số trực tiếp,
+  không bọc trong `spec:{brokerCount}`. `rebalance` không có default — phải nói
+  rõ, và nó hiện thành cặp trạng thái riêng ở cuối (`REBALANCING_OUT`).
+- `create_kafka_cluster_secrule`: spec gồm `remoteIp` + `port` phẳng — không
+  phải `rule:{portRangeMin, …}` như các họ khác.
+- Nhiều write Kafka nhận **query parameter**, không nhận body: gửi body sẽ bị
+  bỏ qua âm thầm.
+
+## Security rule chỉ thấy trong `get_kafka_cluster`
+
+- **KHÔNG có tool `list_kafka_cluster_secrules`** — không endpoint nào liệt kê
+  chúng, và listing bỏ hẳn field. `get_kafka_cluster` là nơi duy nhất đọc được.
+- Thêm / xoá **TỪNG rule một** — không thay cả tập như
+  `update_*_instance_secrules` của các họ khác.
+- Chỉ năm cổng được mở: 9092, 9094, 9096, 9194, 9196.
+- `delete_kafka_cluster_secrule` cần `secrule_id` thật từ `get_kafka_cluster` —
+  không có id đánh số kiểu "0".
+
+## Tạo cụm — luật bắt buộc mà spec không nói
+
+- `serverFlavorId` nhận `flav-…`, `kafkaStorageType` nhận `vtype-…` — không
+  phải `id` số, cũng không phải tên `type`.
+- **`configGroupVersionId` phải có mặt kể cả khi không gắn group**: chuỗi rỗng
+  `""` nghĩa là "không gắn"; bỏ field thì backend nổ ra một **500 trống** không
+  nêu tên field nào.
+- **Ít nhất một trong `mtlsAuthen` / `saslAuthen` phải bật.** Cả hai tắt thì
+  gateway trả `bad_request: Need to enable at least one authentication mode` —
+  không nêu tên field.
+- `vserverProjectId` tự điền từ profile; chỉ truyền khi muốn tạo vào project
+  khác.
+- Broker 3-10 (cần quorum nên sàn là **3**), storage 20-5000 GB mỗi broker.
+- Tạo cụm là **order tốn tiền theo từng broker** — chạy `create_kafka_cluster_dryrun`,
+  trình payload và nhận **xác nhận** của người dùng trước khi gọi bản thật.
+
+## Update topic là THAY TOÀN BỘ, và hai lỗi đều đổ lỗi nhầm
+
+- `partitions` + `replicas` **bắt buộc kể cả khi không đổi** — chỉ
+  `retentionSeconds` là tuỳ chọn. Đọc `get_kafka_topic` rồi gửi lại giá trị
+  hiện tại của mọi field không đổi.
+- Thiếu `replicas` → `Can't update replicas for topic`; thiếu `partitions` →
+  `Partition count needs to be between 1 and 2048` — **cả hai đều đổ lỗi cho
+  thứ đã gửi, không nói field nào thiếu**. Nhận ra lỗi này thay vì chia đôi
+  payload để dò.
+- Ví dụ chỉ đổi retention:
+  `{partitions: <hiện tại>, replicas: <hiện tại>, retentionSeconds: 86400}`.
+- `replicas` không được vượt số broker của cụm — đọc `broker_count` từ
+  `get_kafka_cluster`.
+
+## Quyền của user là DANH SÁCH hoặc CỜ, không bao giờ cả hai
+
+Khi cờ `*_all` bật thì nền tảng **bỏ qua** danh sách — một user hiện
+`produce_all: true` cạnh hai tên topic thực ra ghi được vào MỌI topic. Đọc cờ
+trước danh sách.
+
+## Một thao tác mỗi cụm — Kafka không nói ra
+
+- `400` ngay sau một write khác thường là **va chạm thời gian**, không phải
+  payload sai (Kafka không có câu "Cannot perform action ..." như các họ khác).
+  Chờ status ổn định rồi thử lại.
+- Mọi write Kafka trả **body rỗng** — poll `get_kafka_cluster` /
+  `get_kafka_topic` để xác nhận, và đọc history bằng
+  `list_kafka_cluster_histories`.
+"""
+
+
 _GUIDES: dict[str, str] = {
     "getting_started": _GETTING_STARTED,
     "create_instance": _CREATE_INSTANCE,
@@ -587,6 +708,7 @@ _GUIDES: dict[str, str] = {
     "configuration_group": _CONFIGURATION_GROUP,
     "backups_and_storage": _BACKUPS_AND_STORAGE,
     "troubleshooting": _TROUBLESHOOTING,
+    "kafka": _KAFKA,
 }
 
 
@@ -609,6 +731,7 @@ class PromptsHandler:
         self.mcp.prompt(name="vdb_configuration_group")(self.vdb_configuration_group)
         self.mcp.prompt(name="vdb_backups_and_storage")(self.vdb_backups_and_storage)
         self.mcp.prompt(name="vdb_troubleshooting")(self.vdb_troubleshooting)
+        self.mcp.prompt(name="vdb_kafka")(self.vdb_kafka)
 
         self.mcp.tool(name="get_vdb_guide", annotations=READ)(self.get_vdb_guide)
 
@@ -640,6 +763,9 @@ class PromptsHandler:
         - `troubleshooting` -- **read this whenever a call seems to have done
           nothing.** HTTP 200 is not success here, and the instance history is
           the only record of an asynchronous failure.
+        - `kafka` -- the fourth family's own conventions: ids not names,
+          versioned config groups, flat bodies, security rules only in the
+          cluster detail, and the create rules the spec does not state.
         """
         return _GUIDES[topic]
 
@@ -666,3 +792,7 @@ class PromptsHandler:
     async def vdb_troubleshooting(self) -> str:
         """Triage for vDB: why HTTP 200 is not success, and where failures are recorded."""
         return _TROUBLESHOOTING
+
+    async def vdb_kafka(self) -> str:
+        """Kafka's own conventions: ids not names, versioned config groups, flat bodies."""
+        return _KAFKA

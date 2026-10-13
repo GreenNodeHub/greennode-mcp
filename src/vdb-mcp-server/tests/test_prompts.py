@@ -24,6 +24,7 @@ TOPICS = (
     "configuration_group",
     "backups_and_storage",
     "troubleshooting",
+    "kafka",
 )
 
 
@@ -173,8 +174,20 @@ async def test_troubleshooting_leads_with_http_200_not_meaning_success(handler):
 
 
 @pytest.mark.asyncio
+async def test_troubleshooting_in_valid_list_names_the_two_resize_rules(handler):
+    """The two resize rules measured live 2026-10-13 belong in the in_valid checklist."""
+    text = await handler.get_vdb_guide("troubleshooting")
+    flat = " ".join(text.split())
+    assert "thiếu `volumeType`" in flat
+    assert "Resize flavour" in flat and "trùng" in flat
+    assert "bad_request" in flat
+    assert "ACTIVE" in flat and "chọn flavour khác" in flat
+    assert "2026-10-13" in text
+
+
+@pytest.mark.asyncio
 async def test_every_guide_that_describes_a_write_points_at_the_confirm_gate(handler):
-    for topic in ("create_instance", "restore_backup", "configuration_group"):
+    for topic in ("create_instance", "restore_backup", "configuration_group", "kafka"):
         text = await handler.get_vdb_guide(topic)
         assert "xác nhận" in text.lower(), topic
 
@@ -191,3 +204,79 @@ async def test_no_guide_promises_a_region_parameter(handler):
 async def test_guides_never_tell_the_agent_to_reboot_on_its_own(handler):
     text = await handler.get_vdb_guide("configuration_group")
     assert "Không bao giờ tự ý reboot một database" in text
+
+
+# --------------------------------------------------------------------------
+# the QC wrong-inference traps (2026-10-13): agents guess parameter names and
+# body shapes from other families' habits before reading the tool schema
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_getting_started_carries_the_cross_family_parameter_names(handler):
+    """The QC regression's biggest pattern: same operation, different parameter
+    name per family. The guide every agent reads first must carry the table."""
+    text = await handler.get_vdb_guide("getting_started")
+    assert "Tên tham số KHÔNG mang sang giữa các họ" in text
+    for name in (
+        "source_instance_id",
+        "config_id",
+        "config_group_id",
+        "config_group_version_id",
+        "topic_id",
+        "user_id",
+    ):
+        assert name in text, name
+
+
+@pytest.mark.asyncio
+async def test_getting_started_points_kafka_flows_at_the_kafka_guide(handler):
+    text = await handler.get_vdb_guide("getting_started")
+    assert "guide `kafka`" in text
+
+
+@pytest.mark.asyncio
+async def test_kafka_guide_takes_ids_not_names(handler):
+    text = await handler.get_vdb_guide("kafka")
+    assert "topic_id" in text and "user_id" in text
+    assert "cgroupver-" in text, "the version id, not the group id and not a number"
+    assert "config_group_version_id" in text
+
+
+@pytest.mark.asyncio
+async def test_kafka_guide_documents_the_flat_bodies(handler):
+    """Kafka resizes take direct parameters and the secrule spec is flat -- the
+    QC agent wrapped all three in spec:{} like the other families."""
+    text = await handler.get_vdb_guide("kafka")
+    for name in ("remoteIp", "size", "count", "rebalance"):
+        assert name in text, name
+
+
+@pytest.mark.asyncio
+async def test_kafka_guide_says_secrules_live_only_in_the_cluster_detail(handler):
+    text = await handler.get_vdb_guide("kafka")
+    assert "list_kafka_cluster_secrules" in text, "the guide must name the missing tool"
+    assert "get_kafka_cluster" in text
+
+
+@pytest.mark.asyncio
+async def test_kafka_guide_carries_the_create_must_be_present_rules(handler):
+    """The 2026-10-13 measured create rules, so the next agent does not rediscover
+    them through a bare 500 and a nameless 400."""
+    text = await handler.get_vdb_guide("kafka")
+    for name in (
+        "configGroupVersionId",
+        "mtlsAuthen",
+        "saslAuthen",
+        "vserverProjectId",
+    ):
+        assert name in text, name
+
+
+@pytest.mark.asyncio
+async def test_kafka_guide_quotes_the_two_misleading_update_errors(handler):
+    """update_kafka_topic blames a field the caller never sent; the guide must
+    quote both errors verbatim so they are recognised, not bisected."""
+    text = await handler.get_vdb_guide("kafka")
+    assert "Can't update replicas for topic" in text
+    assert "Partition count needs to be between 1 and 2048" in text

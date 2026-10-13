@@ -226,6 +226,24 @@ class KafkaClusterHandler:
     # dry run
     # ------------------------------------------------------------------
 
+    def _with_project_id(self, spec: CreateKafkaClusterDto) -> CreateKafkaClusterDto:
+        """Return *spec* with `vserverProjectId` filled from the profile when omitted.
+
+        A caller-supplied id wins. With neither — the spec omits the field and
+        the profile carries no ``project_id`` — the order cannot name a
+        project, so it is refused here with a message naming the fix rather
+        than sent to be rejected as the gateway's bare, field-less ``in_valid``.
+        """
+        if spec.vserverProjectId is not None:
+            return spec
+        if not self.config.project_id:
+            raise ValueError(
+                "vserverProjectId was not supplied and the configured profile has no "
+                "project_id. Pass vserverProjectId ('pro-…') or set project_id in "
+                "~/.greennode/config (or the GRN_PROJECT_ID environment variable)."
+            )
+        return spec.model_copy(update={"vserverProjectId": self.config.project_id})
+
     async def create_kafka_cluster_dryrun(
         self,
         spec: CreateKafkaClusterDto = Field(..., description="The cluster to order"),
@@ -236,6 +254,7 @@ class KafkaClusterHandler:
         the storage range, all of them published by `get_kafka_limits` — and
         sends nothing.
         """
+        spec = self._with_project_id(spec)
         return DryRunData(
             tool="create_kafka_cluster",
             method="POST",
@@ -250,6 +269,8 @@ class KafkaClusterHandler:
                 "serverFlavorId must be a flavour's 'flav-…' id and kafkaStorageType a volume "
                 "type's 'vtype-…' id -- neither catalogue lists those first.",
                 "configGroupVersionId must be a VERSION ('cgroupver-…'), never a group.",
+                "mtlsAuthen / saslAuthen: at least one must be true -- the gateway refuses "
+                "both off with a bare bad_request naming no field.",
             ],
         )
 
@@ -282,13 +303,19 @@ class KafkaClusterHandler:
         - `kafkaStorageType` takes a volume type's **`vtype-…`** id from
           `list_kafka_volume_types`, not its integer `id` and not its `type`
           name.
+        - `mtlsAuthen` / `saslAuthen`: **at least one must be true**. The
+          gateway's own validator refuses both off — measured live, a bare
+          `bad_request: Need to enable at least one authentication mode` that
+          names no field — so the DTO rejects the combination locally.
         - `configGroupVersionId`, if given, is a **version** (`cgroupver-…`)
           from `list_kafka_config_groups`, never a group id.
         - `kafkaVersion` must be one of the versions `get_kafka_limits`
           reports.
         - Kafka has **no zone**: placement is the network and subnet alone.
         - `vserverProjectId` is filled from the configured profile when left
-          out; pass it only to override.
+          out; pass it only to override. With neither set — the spec omits it
+          and the profile has no `project_id` — the tool refuses locally with
+          a message naming the fix.
 
         ## Workflow
 
@@ -304,6 +331,7 @@ class KafkaClusterHandler:
            cluster.
         """
         require_write(self.allow_write)
+        spec = self._with_project_id(spec)
         body = spec.model_dump(exclude_none=True)
         orders = await self._order("POST", BASE, user_type, json=body)
         return OrderData(orders=orders, instance_name=spec.name, next_step=ORDER_NEXT_STEP)

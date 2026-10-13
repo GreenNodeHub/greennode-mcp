@@ -206,6 +206,16 @@ class KafkaTopicHandler:
         4. This tool, then poll `get_kafka_topic` — the response here is an
            **empty body**, not the updated topic, and the topic goes back
            through a transitional status before the change is live.
+
+        Example — change only the retention, on a topic currently at
+        6 partitions / 3 replicas:
+
+        ```python
+        UpdateKafkaTopicDto(partitions=6, replicas=3, retentionSeconds=86400)
+        ```
+
+        The current `partitions` and `replicas` go back unchanged; leaving
+        either out is what produces the two misleading errors above.
         """
         require_write(self.allow_write)
         validate_id(cluster_id, "cluster_id")

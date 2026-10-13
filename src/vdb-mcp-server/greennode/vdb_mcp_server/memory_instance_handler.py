@@ -490,6 +490,8 @@ class MemoryInstanceHandler:
                 "The instance restarts, so connections drop and an in-memory dataset without "
                 "persistence is lost.",
                 "packageId must be a flavour offered in this instance's zone.",
+                "packageId must DIFFER from the instance's current flavour: a same-flavour "
+                "resize is refused with a bare 'bad_request' (measured live 2026-10-13).",
                 "A smaller flavour means less RAM: confirm the dataset still fits.",
             ],
         )
@@ -712,6 +714,9 @@ class MemoryInstanceHandler:
         - `packageId` must be a flavour offered **in this instance's zone** —
           read `zone_id` from `get_memory_instance`, then `list_memory_flavors`
           with that zone.
+        - `packageId` must **differ** from the instance's current flavour: a
+          same-flavour resize is refused with a bare `bad_request` (measured
+          live 2026-10-13).
         - The instance restarts, so connections drop and an unpersisted dataset
           is lost.
         - Check the target flavour's RAM against the current dataset before

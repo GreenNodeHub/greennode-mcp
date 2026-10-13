@@ -133,8 +133,8 @@ are always available and always read-only.
 | `start_relational_instance` | **write** | Start a stopped instance |
 | `stop_relational_instance` | **write** | Stop a running instance |
 | `reboot_relational_instance` | **write** | Reboot an instance |
-| `resize_relational_instance` | **write** | Change flavour. Billable, restarts the instance |
-| `resize_relational_instance_storage` | **write** | Grow storage. Billable, cannot be shrunk back |
+| `resize_relational_instance` | **write** | Change flavour. Billable, restarts the instance; target flavour must differ from the current one |
+| `resize_relational_instance_storage` | **write** | Grow storage. Billable, cannot be shrunk back; `volumeType` required by the API |
 | `create_relational_instance_replicas` | **write** | Order a read replica. Billable |
 | `detach_relational_instance_replica` | **write** | Promote a replica to standalone |
 | `update_relational_instance_setting` | **write** | Password, public access, automatic backup |
@@ -164,7 +164,7 @@ tool and there is no `resize_memory_instance_storage`.
 | `start_memory_instance` | **write** | Start a stopped instance |
 | `stop_memory_instance` | **write** | Stop a running instance |
 | `reboot_memory_instance` | **write** | Reboot an instance |
-| `resize_memory_instance` | **write** | Change flavour. Billable, restarts the instance |
+| `resize_memory_instance` | **write** | Change flavour. Billable, restarts the instance; target flavour must differ from the current one |
 | `create_memory_instance_replicas` | **write** | Order a read replica. Billable |
 | `detach_memory_instance_replica` | **write** | Promote a replica to standalone |
 | `update_memory_instance_setting` | **write** | Master password, public access, automatic backup |
@@ -559,7 +559,7 @@ here transfers from another family:
 | `get_kafka_cluster` | read | One cluster — the **only** source of its security rules |
 | `list_kafka_cluster_histories` | read | What was done and how it turned out; the only record of a failure |
 | `create_kafka_cluster_dryrun` | read | Preview the order a create would place |
-| `create_kafka_cluster` | **write** | Order a cluster. Billable, **per broker**, minimum 3 |
+| `create_kafka_cluster` | **write** | Order a cluster. Billable, **per broker**, minimum 3. `vserverProjectId` from the profile; **at least one auth mode required**; `configGroupVersionId` sent as `""` when no group |
 | `resize_kafka_cluster_brokers` | **destructive** | Change broker count; shrinking destroys brokers |
 | `resize_kafka_cluster_storage` | **write** | Change storage per broker. Billable across every broker |
 | `update_kafka_cluster_storage_type` | **write** | Move to a different storage type. Billable |
@@ -712,12 +712,13 @@ Cluster tools work the other way round from the same endpoint; see below.
 
 | Prompt / topic | What it covers |
 |---|---|
-| `getting_started` | The four families, why an instance id does not identify one, tool routing |
+| `getting_started` | The four families, why an instance id does not identify one, the parameter names that do **not** carry across families, tool routing |
 | `create_instance` | Question order, the same-zone rule, per-family password rules, confirm gate |
 | `restore_backup` | Why a restore builds a **second** instance rather than rolling anything back |
 | `configuration_group` | What a change does to attached instances, and `RESTART_REQUIRED` |
 | `backups_and_storage` | Taking and deleting backups; the free allowance that is not a constant |
 | `troubleshooting` | **Why HTTP 200 is not success**, and where async failures are recorded |
+| `kafka` | Kafka's own conventions: ids not names, versioned config groups, flat bodies, secrules only in `get_kafka_cluster`, the create rules the spec does not state |
 
 Each is an MCP prompt (`vdb_getting_started`, `vdb_create_instance`, …) and is
 also returned by the read-only `get_vdb_guide` tool, so an agent that never

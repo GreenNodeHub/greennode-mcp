@@ -110,6 +110,38 @@ Path parameter names differ too (`instanceId` / `dbInstanceId` /
 `replicaSourceId`). Share helpers (unwrap, paging, projection); never share a
 path builder.
 
+### Parameter naming differences across families
+
+The QC regression of 2026-10-13
+(`docs/api-docs-local/vdb_mcp_wrong_inferences.xlsx`, 21 cases) found the same
+failure shape eight times over: an agent infers a tool's argument name from
+another family's equivalent instead of reading the tool's schema. The schemas
+already reject every wrong name at the door — `extra="forbid"`, `validate_id`,
+required `Field(...)` args — so the mistakes never reach the API. The defence
+that was missing was guidance: `prompts_handler.py`'s `getting_started` now
+carries the table below and the `kafka` guide carries the Kafka rows in flow
+context. The point of recording the table here: **when adding a tool, do not
+name an argument after another family's equivalent for the same operation** —
+mirror the upstream API's own spelling, and the schema stays the second line
+of defence rather than the only one.
+
+| Operation | Tool argument | Not |
+|---|---|---|
+| List replicas (relational, memory) | `source_instance_id` | `instance_id` |
+| Attach config group (relational, memory) | `config_id` | `config_group_id` |
+| Attach config group (PostgreSQL Cluster) | `config_group_id` — the **inverse** of its relational/memory twins, mirroring the endpoint field | `config_id` |
+| Attach config group (Kafka) | `config_group_version_id` (`cgroupver-…`) | `config_group_id` |
+| Kafka topic / user get-update-delete | `topic_id` / `user_id` — Kafka tools take no names anywhere | `topic_name` / `user_name` |
+| Kafka config-group version read | `config_group_version_id` (`cgroupver-…`) | `version` (`"1"`) |
+| Resize Kafka storage / brokers | flat `size` / `count` + `rebalance`, sent as query parameters | `spec:{storageSize}` / `spec:{brokerCount}` |
+| Create Kafka secrule | flat `{remoteIp, port}` | `rule:{portRangeMin, …}` (the relational/memory secrule shape) |
+
+Two more wrong-inference classes the same regression logged, both already
+structural: **Kafka config groups are project-level** (`create_kafka_config_group`
+takes no cluster id, `extra="forbid"` rejects one), and **there is no
+`list_kafka_cluster_secrules`** — the rules are only in `get_kafka_cluster`'s
+detail, and the create/delete docstrings say so.
+
 **An instance ID does NOT identify its family, and the two get-by-id endpoints
 are not equally strict.** Verified live 2026-09-10:
 
@@ -618,6 +650,16 @@ registered with the `READ` annotation.
 It appears only in response bodies. Unlike vServer (`/v2/{projectID}/...`)
 there is nothing to inject, so `VdbClient` has no `project_id()` helper.
 
+**Except the Kafka create body**, which does carry `vserverProjectId`.
+`CreateKafkaClusterDto` makes it optional and the handler fills it from the
+configured profile (`project_id` in `~/.greennode/config` / `GRN_PROJECT_ID`),
+an explicit value winning — the docstrings had promised this from the start,
+but until 2026-10-13 the field was required, so a caller following them died
+on local validation. With neither a spec value nor a profile one, both
+`create_kafka_cluster` and its dry-run refuse locally with a message naming
+the fix — the same "must be present anyway" trap the other Kafka create fields
+sit in, so a dropped field here would be another nameless gateway refusal.
+
 ### No `enum` anywhere in the spec
 
 None of the 158 schemas declares an enum: status, datastore type, volume type
@@ -648,6 +690,25 @@ cannot be bisected by reading the error. When it appears, check the password
 first, then that `packageId`, `volumeType` and `locateZoneId` all belong to the
 same zone. This is also why every DTO sets `extra="forbid"` and validates as
 much as possible locally.
+
+**Resize storage (relational) demands `volumeType`, though the spec marks it
+optional (measured live 2026-10-13).** A resize-storage order without the field
+answers `400 in_valid` — the nameless refusal again — and the same body with a
+zone-valid `volumeType` is accepted. The spec's `optional` was the
+`exclude_none=True` trap in another shape: a `None` default drops the field off
+the wire entirely. `ResizeRelationalStorageDto.volumeType` is therefore a
+required `str` (the same "must be present anyway" class as the Kafka create's
+`tags` and `configGroupVersionId`), and a test pins the field onto the wire.
+
+**A same-flavour resize is refused — in BOTH families (measured live
+2026-10-13).** Resizing to the `packageId` the instance already runs on answers
+`400 bad_request`, and the instance stays `ACTIVE` — nothing broke, the request
+was simply a no-op the API refuses. Measured on relational (MySQL) and memory
+(Redis) independently; both tools' docstrings and dry-runs now say the target
+flavour must differ. (The control resize to a *different* flavour was accepted
+but then failed platform-side with `INTERNAL_ERROR` on both probes — the
+payload was fine, the platform was not; per the `failed` status rule, not
+retried.)
 
 **Volume types are zone-suffixed and flavour ids are per-zone.** `HCM03-1A` has
 `Gen2-NVMe2-IOPS3000`, `HCM03-1B` has `Gen2-NVMe2-IOPS3000-HCM03-1B`, and
@@ -1112,6 +1173,31 @@ server does not implement, and the second whose schema omits it entirely (after
 the memory configuration create's `deployType`). Treat "the schema says these
 are all the fields" as a hypothesis here, exactly like "optional, default X".
 
+🐛 **`configGroupVersionId` is the same bug, found the same way (2026-10-13).**
+Omitting the field answers the identical bare `500`, and the gateway log names
+the cause: `Cannot invoke "String.isEmpty()" because the return value of
+ClusterCreateRequest.getConfigGroupVersionId() is null`. The empty string is
+the wire vocabulary for "no config group" — the 2026-09-14 create carried
+`configGroupVersionId: ""` and succeeded, which is why §4.76's fix worked while
+a body with both `tags` and an absent `configGroupVersionId` still 500s.
+`CreateKafkaClusterDto.configGroupVersionId` therefore defaults to `""`, not
+`None`, with a test pinning it onto the wire. **This is the third
+"must be present anyway" field in the package and the second in this one
+endpoint** — for a Kafka create, check every optional field before trusting
+`exclude_none`.
+
+**`mtlsAuthen` / `saslAuthen`: at least one must be true (2026-10-13).** Both
+default to `false` in the schema, and both-off is refused by the gateway's own
+`KafkaClusterValidator` — `400 bad_request: Need to enable at least one
+authentication mode` (gateway log), a bare message naming no field to the
+caller. The DTO rejects the combination locally with
+`KAFKA_AUTH_MODE_REQUIRED_MESSAGE`, the same shape as the memory family's
+`publicAccess`-requires-`redisPasswordEnabled` check. Note the two failed
+attempts this produced before the rule was known: absent
+`configGroupVersionId` + both flags off reads as *one* opaque failure but is
+*two* independent ones — isolate variables one at a time, and read the gateway
+log before concluding "platform outage" (the lesson of §4.76, repeated).
+
 **Kafka has THREE status vocabularies.** The 48 the platform team supplied are
 the *cluster*'s; topics and users each have their own enum, also supplied by
 the Kafka team and recorded in `../api-docs-local/vdb-status-notes.txt`:
@@ -1204,16 +1290,16 @@ relational resizes do, so polling the cluster is the only confirmation.
 | `kafka_topic_handler.py` | 5 tools for topics |
 | `kafka_user_handler.py` | 7 tools for users, permissions and the credential archive |
 | `kafka_config_handler.py` | 6 tools for versioned configuration groups |
-| `prompts_handler.py` | 6 guidance topics as MCP prompts **and** as the `get_vdb_guide` tool |
+| `prompts_handler.py` | 7 guidance topics as MCP prompts **and** as the `get_vdb_guide` tool |
 | `statuses.py` | The four status vocabularies plus `classify()` / `describe()` |
 | `models/` | `relational.py`, `memory.py`, `postgresql.py`, `kafka.py`, `requests.py`, `catalog.py`, `_common.py`; `__init__.py` re-exports every name |
 | `guards.py` | `require_write` and `require_sensitive_access` — second line of defence behind `--allow-write` / `--allow-sensitive-data-access` |
 
 ## Guidance lives in prompts, not in docstrings
 
-`prompts_handler.py` carries the six flows (`getting_started`,
+`prompts_handler.py` carries the seven flows (`getting_started`,
 `create_instance`, `restore_backup`, `configuration_group`,
-`backups_and_storage`, `troubleshooting`). Two things about it are deliberate:
+`backups_and_storage`, `kafka`, `troubleshooting`). Two things about it are deliberate:
 
 - **Each topic is served both as an MCP prompt and through the `get_vdb_guide`
   tool.** Prompts have to be loaded by the user and agents routinely run

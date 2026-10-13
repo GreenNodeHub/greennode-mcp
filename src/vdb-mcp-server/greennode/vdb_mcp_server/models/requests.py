@@ -228,11 +228,23 @@ class ResizeRelationalStorageDto(_Dto):
 
     Storage can only grow. There is no relational equivalent in the memory
     family at all.
+
+    `volumeType` is required on the wire even though the spec leaves it
+    optional: measured live 2026-10-13, a body without it (the field drops off
+    under exclude_none) is answered `400 in_valid` naming no field, while the
+    same body carrying it raises the order. The same "must be present anyway"
+    shape as the Kafka create's `tags` and `configGroupVersionId`.
     """
 
     volumeSize: int = Field(..., ge=20, description="New storage size in GB; must be larger")
-    volumeType: str | None = Field(
-        None, description="New volume type; must be one offered in the instance's zone"
+    volumeType: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "New volume type; must be one offered in the instance's zone. Required: the API "
+            "rejects the resize without it as a bare 'in_valid' (measured live 2026-10-13), "
+            "and it names no field, so the omission cannot be diagnosed from the error."
+        ),
     )
     poc: bool = Field(False, description="Proof-of-concept (trial) pricing")
 
@@ -1213,6 +1225,17 @@ range the caller would otherwise have to infer: 5-50 characters for a cluster,
 5-249 for a topic, 5-50 for a configuration group and for a user.
 """
 
+KAFKA_AUTH_MODE_REQUIRED_MESSAGE = (
+    "At least one authentication mode is required: enable mtlsAuthen or saslAuthen. The "
+    "gateway's own validator refuses both off, answering a bare 'bad_request: Need to enable "
+    "at least one authentication mode' that names no field -- measured live 2026-10-13."
+)
+"""Why the create DTO rejects mtlsAuthen and saslAuthen both false.
+
+Neither field is required by the OpenAPI schema and both default to false, so
+a faithful reading of the schema produces a body the gateway always refuses.
+"""
+
 
 def _check_name(value: str, pattern: re.Pattern[str], what: str, rule: str) -> str:
     if not pattern.fullmatch(value or ""):
@@ -1232,7 +1255,13 @@ class CreateKafkaClusterDto(_Dto):
       its integer `id` and not its `type` name.
 
     `configGroupVersionId` takes a **version** (``cgroupver-…``), never a group
-    (``cgroup-…``): a cluster is attached to one version of a group.
+    (``cgroup-…``): a cluster is attached to one version of a group. The empty
+    string means "no group" -- and like ``tags``, the field must be **present
+    even then**: the backend calls ``getConfigGroupVersionId().isEmpty()``
+    while validating, so an absent field is a null dereference and a bare 500
+    (gateway log, measured live 2026-10-13). That is why the field defaults to
+    ``""`` rather than ``None``: ``exclude_none`` would drop a ``None`` and
+    bring the crash back.
 
     🐛 **``tags`` must be present or the whole request fails with a bare
     ``500``.** Kafka was designed to let users tag a cluster with a
@@ -1275,19 +1304,37 @@ class CreateKafkaClusterDto(_Dto):
         le=KAFKA_STORAGE_MAX_GB,
         description="Storage per broker in GB; 20-5000. Billed per broker.",
     )
-    vserverProjectId: str = Field(
-        ...,
+    vserverProjectId: str | None = Field(
+        None,
         description=(
-            "vServer project id. The handler fills this from the configured profile, so a "
-            "caller normally leaves it out."
+            "vServer project id. Optional: the handler fills it from the configured profile "
+            "(project_id in ~/.greennode/config, or GRN_PROJECT_ID) when left out. Pass it "
+            "only to order into a project other than the profile's."
         ),
     )
     networkId: str = Field(..., description="Network 'net-…' id")
     subnetId: str = Field(..., description="Subnet 'sub-…' id inside that network")
-    mtlsAuthen: bool = Field(False, description="Enable mTLS authentication")
-    saslAuthen: bool = Field(False, description="Enable SASL authentication")
-    configGroupVersionId: str | None = Field(
-        None, description="Configuration group VERSION 'cgroupver-…' id to apply"
+    mtlsAuthen: bool = Field(
+        False,
+        description=(
+            "Enable mTLS authentication. At least one of mtlsAuthen / saslAuthen must be "
+            "true -- the gateway refuses both off."
+        ),
+    )
+    saslAuthen: bool = Field(
+        False,
+        description=(
+            "Enable SASL authentication. At least one of mtlsAuthen / saslAuthen must be "
+            "true -- the gateway refuses both off."
+        ),
+    )
+    configGroupVersionId: str = Field(
+        "",
+        description=(
+            "Configuration group VERSION ('cgroupver-…') id to apply. MUST be sent even "
+            "when no group is wanted: the empty string means 'none', and omitting the field "
+            "makes the backend dereference null and answer a bare 500."
+        ),
     )
     encryptionVolume: bool = Field(False, description="Encrypt the brokers' volumes")
 
@@ -1297,6 +1344,12 @@ class CreateKafkaClusterDto(_Dto):
         return _check_name(
             value, KAFKA_CLUSTER_NAME_PATTERN, "cluster name", "5-50 chars, letters, digits, '-'"
         )
+
+    @model_validator(mode="after")
+    def _authentication_mode_required(self) -> "CreateKafkaClusterDto":
+        if not (self.mtlsAuthen or self.saslAuthen):
+            raise ValueError(KAFKA_AUTH_MODE_REQUIRED_MESSAGE)
+        return self
 
 
 class CreateKafkaTopicDto(_Dto):
