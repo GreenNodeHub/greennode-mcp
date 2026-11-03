@@ -282,6 +282,23 @@ async def test_a_flag_and_a_list_are_both_surfaced_so_the_wider_one_is_visible(u
     assert user.produce_topics == ["orders"]
 
 
+@pytest.mark.asyncio
+@respx.mock
+async def test_an_empty_topic_or_user_body_is_reported_as_not_found(topics, users):
+    """A blank model would read as a real resource with every field empty."""
+    mock_iam(respx.mock)
+    respx.get(f"{KAFKA}/clusters/{CLUSTER_ID}/topics/{TOPIC_ID}").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    respx.get(f"{KAFKA}/clusters/{CLUSTER_ID}/users/{USER_ID}").mock(
+        return_value=httpx.Response(200, content=b"")
+    )
+    with pytest.raises(ValueError, match="No topic"):
+        await topics.get_kafka_topic(CLUSTER_ID, TOPIC_ID)
+    with pytest.raises(ValueError, match="No user"):
+        await users.get_kafka_user(CLUSTER_ID, USER_ID)
+
+
 def test_a_user_dto_refuses_a_flag_and_a_list_together():
     with pytest.raises(pydantic.ValidationError):
         CreateKafkaUserDto(name="app-user", produceAll=True, produceTopicNames=["orders"])
@@ -373,6 +390,39 @@ async def test_a_non_zip_body_is_still_saved_and_reported(users, tmp_path):
     result = await users.get_kafka_user_credentials(CLUSTER_ID, USER_ID, str(destination))
     assert result.entries == []
     assert result.size_bytes == len(b"not a zip at all")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_the_credential_archive_never_overwrites_an_existing_file(users, tmp_path):
+    """A caller-chosen path must not be able to clobber a file that is already there."""
+    mock_iam(respx.mock)
+    route = respx.get(f"{KAFKA}/clusters/{CLUSTER_ID}/users/{USER_ID}/authen-creds").mock(
+        return_value=httpx.Response(200, content=_zip_bytes())
+    )
+    destination = tmp_path / "user.zip"
+    destination.write_bytes(b"keep me")
+    with pytest.raises(ValueError, match="already exists"):
+        await users.get_kafka_user_credentials(CLUSTER_ID, USER_ID, str(destination))
+    assert destination.read_bytes() == b"keep me"
+    assert not route.called, "a refused path must not even fetch the keys"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("save_to", "message"),
+    [("creds/user.zip", "absolute"), ("/tmp/vdb-test-creds/user.txt", r"\.zip")],
+)
+async def test_the_credential_archive_needs_an_absolute_zip_path(users, save_to, message):
+    with pytest.raises(ValueError, match=message):
+        await users.get_kafka_user_credentials(CLUSTER_ID, USER_ID, save_to)
+
+
+@pytest.mark.asyncio
+async def test_the_credential_tool_is_not_annotated_read_only(users):
+    """It writes a file, so a client must not auto-approve it as a read."""
+    tools = {t.name: t for t in await users.mcp.list_tools()}
+    assert tools["get_kafka_user_credentials"].annotations.read_only_hint is False
 
 
 # --------------------------------------------------------------------------

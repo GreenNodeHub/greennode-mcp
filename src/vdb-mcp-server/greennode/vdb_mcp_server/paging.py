@@ -116,6 +116,8 @@ def build_page_params(page: int, page_size: int) -> dict[str, int]:
     """
     if page < 1:
         raise ValueError(f"page must be 1-based (got {page}); the first page is 1, not 0")
+    if page_size < 1:
+        raise ValueError(f"page_size must be at least 1 (got {page_size})")
     return {"pageNumber": page, "pageSize": min(page_size, MAX_PAGE_SIZE)}
 
 

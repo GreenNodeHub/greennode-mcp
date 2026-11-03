@@ -333,6 +333,27 @@ async def test_an_unknown_engine_pair_is_flagged_not_reported_as_no_parameters(h
     assert result.unknown_engine is True
 
 
+@respx.mock
+@pytest.mark.asyncio
+async def test_params_cache_keys_on_the_spelling_that_was_sent(handler):
+    """datastoreType is case-sensitive on this API, so 'mysql' must not be served 'MySQL'."""
+    mock_iam(respx.mock)
+    route = respx.get(f"{RELATIONAL}/v1/configurations/params").mock(
+        return_value=httpx.Response(200, json=envelope(PARAMS))
+    )
+    for spelling in ("MySQL", "mysql"):
+        await handler.list_relational_configuration_params(
+            datastore_type=spelling,
+            datastore_version="8.0",
+            deploy_type=None,
+            name=None,
+            restart_required=None,
+            refresh=False,
+        )
+    sent = [call.request.url.params["datastoreType"] for call in route.calls]
+    assert sent == ["MySQL", "mysql"]
+
+
 @pytest.mark.asyncio
 async def test_an_empty_version_is_rejected_before_the_call(handler):
     with pytest.raises(ValueError, match="datastore_version"):

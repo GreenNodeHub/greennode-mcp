@@ -564,10 +564,12 @@ class KafkaLimits(BaseModel):
             max_topic_retention_hours=_int_or_none(data.get("maxTopicRetentionHours")),
             min_topic_retention_bytes=_int_or_none(data.get("minTopicRetentionBytes")),
             max_topic_retention_bytes=_int_or_none(data.get("maxTopicRetentionBytes")),
+            # Coerced like every other number here: a port list encoded as
+            # strings must not come back empty.
             security_rule_ports=[
-                p
-                for p in _json_or_default(data.get("secGroupRulePorts"), [])
-                if isinstance(p, int)
+                port
+                for port in map(_int_or_none, _json_or_default(data.get("secGroupRulePorts"), []))
+                if port is not None
             ],
             cluster_name_regex=data.get("clusterNameRegex") or "",
             topic_name_regex=data.get("topicNameRegex") or "",

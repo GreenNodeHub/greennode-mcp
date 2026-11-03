@@ -52,7 +52,7 @@ is read-only and calls no API. Fetch the topic **before** asking the user
 anything:
 
 - `getting_started`, `create_instance`, `restore_backup`,
-  `configuration_group`, `backups_and_storage`, `troubleshooting`.
+  `configuration_group`, `backups_and_storage`, `troubleshooting`, `kafka`.
 
 Read `troubleshooting` whenever a call looks like it did nothing — HTTP 200 is
 not success in this API. The same text is available as MCP prompts

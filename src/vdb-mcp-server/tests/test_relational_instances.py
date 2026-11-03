@@ -19,6 +19,7 @@ from greennode.vdb_mcp_server.models import (
     CreateRelationalInstanceDto,
     DeleteRelationalInstanceDto,
     DryRunData,
+    RelationalDatabaseDto,
     RelationalInstance,
     RelationalInstanceListData,
     RelationalUserDto,
@@ -266,6 +267,19 @@ async def test_projection_drops_billing_fields(handler):
         assert dropped not in dumped
 
 
+@respx.mock
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [envelope({}), envelope(None)])
+async def test_get_instance_reports_an_empty_payload_as_not_found(handler, payload):
+    """A 200 with nothing in it must not become an instance whose every field is ""."""
+    mock_iam(respx.mock)
+    respx.get(f"{RELATIONAL}/v1/database-instances/id/db-1111").mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+    with pytest.raises(ValueError, match="No instance with id 'db-1111'"):
+        await handler.get_relational_instance(instance_id="db-1111")
+
+
 @pytest.mark.asyncio
 async def test_reads_validate_the_instance_id(handler):
     """Every id reaching a URL goes through validate_id -- no path traversal."""
@@ -417,6 +431,7 @@ def test_create_dto_enforces_the_minimum_volume_size():
             volumeSize=10,
             netIds=["sub-a"],
             locateZoneId="HCM03-1A",
+            databases=[RelationalDatabaseDto(name="appdb")],
         )
 
 
@@ -431,6 +446,25 @@ def test_create_dto_requires_at_least_one_subnet():
             volumeSize=20,
             netIds=[],
             locateZoneId="HCM03-1A",
+            databases=[RelationalDatabaseDto(name="appdb")],
+        )
+
+
+@pytest.mark.parametrize("databases", [[], None])
+def test_create_dto_requires_at_least_one_database(databases):
+    """The spec says optional; the API answers an empty list with a bare 'in_valid'."""
+    extra = {} if databases is None else {"databases": databases}
+    with pytest.raises(pydantic.ValidationError, match="databases"):
+        CreateRelationalInstanceDto(
+            name="x",
+            datastoreType="mysql",
+            datastoreVersion="8.0",
+            packageId="103",
+            volumeType="Gen2-NVMe2-IOPS3000",
+            volumeSize=20,
+            netIds=["sub-a"],
+            locateZoneId="HCM03-1A",
+            **extra,
         )
 
 
@@ -449,6 +483,7 @@ def _create_spec(zone="HCM03-1A", volume_type="Gen2-NVMe2-IOPS3000"):
         volumeSize=20,
         netIds=["sub-aaaa"],
         locateZoneId=zone,
+        databases=[RelationalDatabaseDto(name="appdb")],
         user=RelationalUserDto(name="mcpadmin", password="McpTest2026aA"),
     )
 
@@ -506,6 +541,7 @@ async def test_resize_dryrun_uses_resourceType_not_resType(handler):
     )
     assert "resourceType" in result.body
     assert "resType" not in result.body
+    assert result.body["action"] == "resize", "the path says resize-storage, the action does not"
 
 
 # --------------------------------------------------------------------------
@@ -639,11 +675,30 @@ async def test_resize_storage_sends_resource_type_spelling(handler):
     )
     body = json.loads(route.calls.last.request.content)
     assert body["resourceType"] == "dbaas"
+    assert body["action"] == "resize"
     assert body["databaseInstances"][0]["config"]["volumeSize"] == 60
     assert body["databaseInstances"][0]["config"]["volumeType"] == "Gen2-NVMe2-IOPS3000", (
         "the API rejects the resize without it (measured live 2026-10-13)"
     )
     assert route.calls.last.request.headers["user-type"] == "IAM_USER"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_resize_storage_dryrun_shows_the_body_the_real_call_sends(handler):
+    """The user approves a billable order from the preview, so the two must not drift."""
+    mock_iam(respx.mock)
+    route = respx.post(f"{RELATIONAL}/v1/database-instances/db-1111/resize-storage").mock(
+        return_value=httpx.Response(200, json=ORDER_RESPONSE)
+    )
+    spec = ResizeRelationalStorageDto(volumeSize=60, volumeType="Gen2-NVMe2-IOPS3000")
+    preview = await handler.resize_relational_instance_storage_dryrun(
+        instance_id="db-1111", spec=spec
+    )
+    await handler.resize_relational_instance_storage(
+        instance_id="db-1111", spec=spec, user_type="IAM_USER"
+    )
+    assert json.loads(route.calls.last.request.content) == preview.body
 
 
 @respx.mock
@@ -822,6 +877,7 @@ def test_engine_names_are_normalised_to_the_canonical_spelling(given, expected):
         volumeSize=20,
         netIds=["sub-a"],
         locateZoneId="HCM03-1A",
+        databases=[RelationalDatabaseDto(name="appdb")],
     )
     assert spec.datastoreType == expected
 
@@ -837,6 +893,7 @@ def test_unknown_engine_passes_through_rather_than_being_rejected():
         volumeSize=20,
         netIds=["sub-a"],
         locateZoneId="HCM03-1A",
+        databases=[RelationalDatabaseDto(name="appdb")],
     )
     assert spec.datastoreType == "brand-new-engine"
 

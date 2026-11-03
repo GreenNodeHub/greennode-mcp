@@ -169,10 +169,12 @@ class MemoryConfigHandler:
             return as_list(await self._get(f"{BASE}/params", params))
 
         # The engine pair is part of the key: caching on the tool name alone
-        # would serve Redis 7.2's parameters for a Redis 4.0 question.
+        # would serve Redis 7.2's parameters for a Redis 4.0 question. The key
+        # holds exactly what is sent, not a case-folded copy, so two spellings
+        # never share an answer.
         return await self.cache.get_or_fetch(
             "list_memory_configuration_params",
-            (datastore_type.lower(), str(datastore_version)),
+            (datastore_type, str(datastore_version)),
             fetch,
             refresh=refresh,
         )

@@ -199,7 +199,12 @@ class CreateRelationalInstanceDto(_Dto):
     locateZoneId: str = Field(..., description="Availability zone from list_relational_zones")
     user: RelationalUserDto | None = Field(None, description="Admin user to create")
     databases: list[RelationalDatabaseDto] = Field(
-        default_factory=list, description="Databases to create"
+        ...,
+        min_length=1,
+        description=(
+            "Databases to create -- at least one. The spec marks this optional, but the API "
+            "rejects an empty list with a bare 'in_valid'."
+        ),
     )
     configId: str | None = Field(None, description="Configuration group ID to attach")
     publicAccess: bool = Field(False, description="Expose the instance publicly")

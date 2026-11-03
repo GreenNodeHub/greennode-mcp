@@ -164,6 +164,13 @@ def _instance_envelope(instance_id: str, action: str, config: dict | None = None
     }
 
 
+NOT_FOUND_MESSAGE = (
+    "No instance with id '{instance_id}'. This lookup resolves relational, MemoryStore and "
+    "PostgreSQL Cluster ids alike, so the id exists in none of them -- "
+    "list_relational_instances and list_memory_instances show what does."
+)
+
+
 def _order_envelope(instance_id: str, action: str, config: dict) -> dict:
     """Build the action envelope used by the resize endpoints.
 
@@ -357,7 +364,11 @@ class RelationalInstanceHandler:
         validate_id(instance_id, "instance_id")
         raw = await self._get(f"{BASE}/id/{instance_id}")
         payload = unwrap_wrapped(raw)
-        return RelationalInstance.from_api(payload if isinstance(payload, dict) else {})
+        if not isinstance(payload, dict) or not payload.get("id"):
+            # Same guard as get_memory_instance: a 200 with an empty payload
+            # would otherwise build an instance whose every field is "".
+            raise ValueError(NOT_FOUND_MESSAGE.format(instance_id=instance_id))
+        return RelationalInstance.from_api(payload)
 
     async def list_relational_instance_histories(
         self,
@@ -484,9 +495,7 @@ class RelationalInstanceHandler:
             path=f"{BASE}/{instance_id}/resize-storage",
             service=VDB_RELATIONAL_SERVICE,
             user_type=DEFAULT_USER_TYPE,
-            body=_order_envelope(
-                instance_id, "resize-storage", spec.model_dump(exclude_none=True)
-            ),
+            body=_order_envelope(instance_id, ACTION_RESIZE, spec.model_dump(exclude_none=True)),
             warnings=[
                 "Raises a BILLABLE order and changes the monthly cost.",
                 "Storage can only grow -- it cannot be shrunk afterwards.",

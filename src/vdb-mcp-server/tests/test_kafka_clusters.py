@@ -258,6 +258,16 @@ async def test_histories_are_the_record_of_what_happened(handler):
 
 
 @pytest.mark.asyncio
+@respx.mock
+async def test_an_empty_cluster_body_is_reported_as_not_found(handler):
+    """A blank model would read as a real cluster with every field empty."""
+    mock_iam(respx.mock)
+    respx.get(f"{KAFKA}/clusters/{CLUSTER_ID}").mock(return_value=httpx.Response(200, json={}))
+    with pytest.raises(ValueError, match="No Kafka cluster"):
+        await handler.get_kafka_cluster(CLUSTER_ID)
+
+
+@pytest.mark.asyncio
 async def test_reads_reject_a_traversing_id(handler):
     with pytest.raises(ValueError):
         await handler.get_kafka_cluster("../../etc/passwd")

@@ -172,6 +172,12 @@ def test_build_page_params_rejects_page_zero():
         build_page_params(0, 20)
 
 
+@pytest.mark.parametrize("page_size", [0, -5])
+def test_build_page_params_rejects_a_non_positive_page_size(page_size):
+    with pytest.raises(ValueError, match="page_size"):
+        build_page_params(1, page_size)
+
+
 def test_build_page_params_caps_page_size_at_the_api_maximum():
     assert build_page_params(1, 5000)["pageSize"] == MAX_PAGE_SIZE
 

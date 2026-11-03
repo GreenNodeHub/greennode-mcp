@@ -209,7 +209,7 @@ what the spec's `description` and `example` say — not what the path says:
 | `/reboot` | `reboot` |
 | `/detach-replica` | **`detach_replica`** — underscore, not hyphen |
 | `/delete` | `delete` |
-| `/resize-instance`, `/resize-storage` | `resize`, and the key is `resourceType` not `resType` |
+| `/resize-instance`, `/resize-storage` | `resize` (not `resize-storage`), and the key is `resourceType` not `resType` |
 
 `resType` / `resourceType` is always the literal **`dbaas`** — *except on a
 backup restore*, which is the one endpoint that changes both halves at once:
@@ -579,7 +579,11 @@ status describes the call, not the deletion, so `BackupDeleteData` sets
 Similarly, `GET /backups/detail/{id}` answers **200 with an empty payload** for
 a backup that does not exist rather than a 404. `get_relational_backup` raises
 instead of returning a model whose every field is `""` — which an agent cannot
-distinguish from a real backup.
+distinguish from a real backup. The same guard (a payload with no `id` raises
+"not found") sits on the instance, configuration and backup gets of both
+families and on the Kafka cluster, topic and user gets.
+`create_kafka_user` deliberately does **not** — the user may well have been
+created, and raising there would invite a retry that creates a duplicate.
 
 ### Creating a backup is not an order flow
 
@@ -595,7 +599,9 @@ the same as a create and needs the same zone-consistent discovery chain.
 ### Status vocabulary — complete, and NOT classifiable by casing
 
 `statuses.py` holds all four published vocabularies, supplied by the GreenNode
-team and kept verbatim in `docs/api-docs-local/vdb-status-notes.txt`: 21 values for relational/MemoryStore instances, 6 for backups, 11 for
+team as their source enums and copied there verbatim — `statuses.py` is the
+in-repo source of truth, since the original notes are platform source and are
+not committed: 21 values for relational/MemoryStore instances, 6 for backups, 11 for
 PostgreSQL Cluster, 48 for Kafka.
 
 Casing looks like a signal and is not. The transitional relational states are
@@ -718,7 +724,8 @@ must take `packageId` and `volumeType` from the **same zone** as
 `locateZoneId`; mixing them yields `in_valid`.
 
 **`databases` is required in practice.** The spec marks it optional, but
-creating with `databases: []` is rejected as `in_valid`.
+creating with `databases: []` is rejected as `in_valid`, so
+`CreateRelationalInstanceDto.databases` is required with `min_length=1`.
 
 **Unknown fields are ignored, not rejected — so `extra="forbid"` is doing real
 work.** Verified live on the memory create: a body carrying the relational-only
@@ -1136,7 +1143,11 @@ combination rather than letting a stored permission end up wider than it reads.
 it through `call` raises `UnicodeDecodeError` on the first non-UTF-8 byte,
 which is how the real shape was found. `call_bytes` reads it, the tool writes
 it to a caller-named path, and only its size and entry names come back —
-gated behind `--allow-sensitive-data-access`.
+gated behind `--allow-sensitive-data-access`. The path is agent-supplied, so
+`_credential_destination` accepts only a **new**, absolute `.zip` path (checked
+before the download; the write itself is an exclusive create), and the tool is
+registered `WRITE`, not `READ` — by effect it creates a file, and a client that
+auto-approves read-only tools must not auto-approve that.
 
 **Configuration groups are versioned and immutable**, and three measured
 details contradict the obvious reading:
@@ -1200,7 +1211,7 @@ log before concluding "platform outage" (the lesson of §4.76, repeated).
 
 **Kafka has THREE status vocabularies.** The 48 the platform team supplied are
 the *cluster*'s; topics and users each have their own enum, also supplied by
-the Kafka team and recorded in `../api-docs-local/vdb-status-notes.txt`:
+the Kafka team as their `TopicStatus` / `UserStatus` enums:
 `KAFKA_TOPIC_STATUSES` (11) and `KAFKA_USER_STATUSES` (9). Two differences are
 not guessable — a **user has no `WAITING_*` state at all**, and it has two of
 its own for credential rotation (`DELETING_OLD_CREDENTIALS`,

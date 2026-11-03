@@ -193,10 +193,13 @@ class RelationalConfigHandler:
             return as_list(await self._get(f"{BASE}/params", params))
 
         # The engine pair is part of the key: caching on the tool name alone
-        # would serve MySQL 8.0's parameters for a PostgreSQL 15 question.
+        # would serve MySQL 8.0's parameters for a PostgreSQL 15 question. The
+        # key holds exactly what is sent -- not case-folded -- because this
+        # API is case-sensitive on datastoreType elsewhere, so two spellings
+        # must not share an answer.
         return await self.cache.get_or_fetch(
             "list_relational_configuration_params",
-            (datastore_type.lower(), str(datastore_version), deploy_type or ""),
+            (datastore_type, str(datastore_version), deploy_type or ""),
             fetch,
             refresh=refresh,
         )

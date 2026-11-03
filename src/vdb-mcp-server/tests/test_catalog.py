@@ -16,6 +16,7 @@ from greennode.vdb_mcp_server.discovery_cache import DiscoveryCache
 from greennode.vdb_mcp_server.models import (
     DatastoreListData,
     FlavorListData,
+    KafkaLimits,
     SubnetListData,
     VolumeTypeListData,
 )
@@ -741,6 +742,14 @@ async def test_kafka_limits_survive_one_malformed_field(handler):
     limits = await handler.get_kafka_limits(refresh=False)
     assert limits.security_rule_ports == []
     assert limits.min_brokers == 3
+
+
+def test_kafka_ports_encoded_as_strings_are_coerced_not_dropped():
+    """Every other number in this catalogue is a string; the ports may be too."""
+    limits = KafkaLimits.from_api(
+        {**KAFKA_CONFIGS, "secGroupRulePorts": '["9092", " 9094 ", 9096, "bogus"]'}
+    )
+    assert limits.security_rule_ports == [9092, 9094, 9096]
 
 
 @pytest.mark.asyncio

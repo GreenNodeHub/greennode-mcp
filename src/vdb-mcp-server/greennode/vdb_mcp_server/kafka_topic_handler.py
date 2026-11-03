@@ -112,7 +112,13 @@ class KafkaTopicHandler:
         validate_id(cluster_id, "cluster_id")
         validate_id(topic_id, "topic_id")
         raw = await self._call("GET", f"{BASE}/{cluster_id}/topics/{topic_id}")
-        return KafkaTopic.from_api(unwrap_wrapped(raw) or {})
+        payload = unwrap_wrapped(raw)
+        if not isinstance(payload, dict) or not payload.get("id"):
+            raise ValueError(
+                f"No topic with id {topic_id!r} on cluster {cluster_id!r}; "
+                "list_kafka_topics shows what exists."
+            )
+        return KafkaTopic.from_api(payload)
 
     # ------------------------------------------------------------------
     # writes

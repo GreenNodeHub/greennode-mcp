@@ -574,7 +574,7 @@ here transfers from another family:
 | `update_kafka_topic` | **write** | **Replaces** the topic: `partitions` and `replicas` are required even when unchanged |
 | `delete_kafka_topic` | **destructive** | Delete a topic and every message in it |
 | `list_kafka_users` / `get_kafka_user` | read | Users and their per-topic permissions |
-| `get_kafka_user_credentials` | read | Download the credential archive. **Needs `--allow-sensitive-data-access`** |
+| `get_kafka_user_credentials` | read | Download the credential archive to a new absolute `.zip` path (never overwrites). **Needs `--allow-sensitive-data-access`**; annotated as a write because it creates a file |
 | `create_kafka_user` | **write** | Create a user with permissions. Free, but asynchronous |
 | `update_kafka_user` | **write** | **Replace** the whole permission set |
 | `update_kafka_user_credentials` | **destructive** | Re-issue credentials; the old ones stop working at once |
@@ -645,7 +645,10 @@ the OpenAPI document says, `authen-creds` answers with
 `application/octet-stream`: an archive of mTLS keystores, certificates and
 their passwords. `get_kafka_user_credentials` therefore writes it to a path you
 give and reports only its size and the names inside, and it is registered only
-when the server runs with `--allow-sensitive-data-access`.
+when the server runs with `--allow-sensitive-data-access`. The path must be
+absolute, end in `.zip` and not exist yet — the tool refuses to overwrite a
+file — and the tool is annotated as a write, not a read, so clients do not
+auto-approve it.
 
 ### Reading a status
 

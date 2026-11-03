@@ -62,6 +62,27 @@ DELETE_NEXT_STEP = (
 )
 
 
+def _credential_destination(save_to: str) -> Path:
+    """Resolve where the credential archive may be written, or refuse.
+
+    The path comes from the agent, so it is constrained to what the tool is
+    for: a new ``.zip`` at an absolute location. Refusing an existing file is
+    the important half -- without it a confused or injected call could
+    replace any file the server process can write.
+    """
+    destination = Path(save_to).expanduser()
+    if not destination.is_absolute():
+        raise ValueError(f"save_to must be an absolute path (got {save_to!r})")
+    if destination.suffix.lower() != ".zip":
+        raise ValueError(f"save_to must name a .zip file (got {save_to!r})")
+    if destination.exists():
+        raise ValueError(
+            f"{str(destination)!r} already exists and will not be overwritten; "
+            "ask the user for a new file name"
+        )
+    return destination
+
+
 class KafkaUserHandler:
     """Register and serve the Kafka user tools."""
 
@@ -86,8 +107,10 @@ class KafkaUserHandler:
 
         # Registered only with the sensitive flag: the tool writes private keys
         # to disk, so a server that cannot do that should not advertise it.
+        # WRITE, not READ: the API call reads, but the tool's effect is a new
+        # file, and a client must not auto-approve that as read-only.
         if self.allow_sensitive_data_access:
-            self.mcp.tool(name="get_kafka_user_credentials", annotations=READ)(
+            self.mcp.tool(name="get_kafka_user_credentials", annotations=WRITE)(
                 self.get_kafka_user_credentials
             )
 
@@ -156,7 +179,13 @@ class KafkaUserHandler:
         validate_id(cluster_id, "cluster_id")
         validate_id(user_id, "user_id")
         raw = await self._call("GET", f"{BASE}/{cluster_id}/users/{user_id}")
-        return KafkaUser.from_api(unwrap_wrapped(raw) or {})
+        payload = unwrap_wrapped(raw)
+        if not isinstance(payload, dict) or not payload.get("id"):
+            raise ValueError(
+                f"No user with id {user_id!r} on cluster {cluster_id!r}; "
+                "list_kafka_users shows what exists."
+            )
+        return KafkaUser.from_api(payload)
 
     async def get_kafka_user_credentials(
         self,
@@ -165,8 +194,8 @@ class KafkaUserHandler:
         save_to: str = Field(
             ...,
             description=(
-                "Absolute path of the .zip file to write. The archive is never returned "
-                "through the conversation, only saved."
+                "Absolute path of a NEW .zip file to write; an existing file is never "
+                "overwritten. The archive is never returned through the conversation, only saved."
             ),
         ),
     ) -> KafkaCredentialBundleData:
@@ -176,7 +205,9 @@ class KafkaUserHandler:
         **ZIP archive of private keys, certificates and their passwords** — not
         the list of strings the OpenAPI document describes. The archive is
         written to `save_to` and this tool reports only its size and the names
-        inside it.
+        inside it. `save_to` must be an absolute path ending in `.zip` that does
+        not exist yet — the tool refuses to overwrite a file, so ask the user
+        for a fresh path rather than reusing one.
 
         Hand the user the path and say what it contains. Do not open the file,
         do not summarise its contents, and never put a key or password into the
@@ -189,14 +220,17 @@ class KafkaUserHandler:
         require_sensitive_access(self.allow_sensitive_data_access)
         validate_id(cluster_id, "cluster_id")
         validate_id(user_id, "user_id")
+        # Checked before the download, so a bad path never fetches a key.
+        destination = _credential_destination(save_to)
         raw = await self.client.call_bytes(
             "GET",
             f"{BASE}/{cluster_id}/users/{user_id}/authen-creds",
             service=VDB_KAFKA_SERVICE,
         )
-        destination = Path(save_to).expanduser()
         destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(raw)
+        # "x" mode: the existence check above can race, the exclusive create cannot.
+        with destination.open("xb") as handle:
+            handle.write(raw)
 
         try:
             with zipfile.ZipFile(io.BytesIO(raw)) as archive:

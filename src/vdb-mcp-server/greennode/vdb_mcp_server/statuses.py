@@ -1,10 +1,11 @@
 """The status vocabulary of each vDB family, and what each status means to act on.
 
 The API declares no ``enum`` anywhere and has no endpoint that lists statuses,
-so these tuples come from the platform's own source, supplied by the GreenNode
-team on 2026-09-08 and kept verbatim in
-``docs/api-docs-local/vdb-status-notes.txt``. Diff against that file when
-touching this one. :func:`classify` still answers ``unknown`` for anything
+so these tuples come from the platform's own source enums, supplied by the
+GreenNode vDB team on 2026-09-08 and copied here verbatim. **This file is the
+in-repo source of truth**: the original notes are platform source and are not
+committed, so a change here should come from the vDB team's current enum, not
+from an observed response. :func:`classify` still answers ``unknown`` for anything
 outside them, and callers must treat that as "cannot tell" rather than as a
 failure -- the platform can add a state before this file learns about it.
 
@@ -181,8 +182,7 @@ KAFKA_TOPIC_STATUSES: tuple[str, ...] = (
 )
 """Statuses of a Kafka **topic** -- its own enum, not the cluster's.
 
-Supplied by the GreenNode Kafka team (``TopicStatus`` in
-``../api-docs-local/vdb-status-notes.txt``). Before it existed, a freshly
+Supplied by the GreenNode Kafka team (their ``TopicStatus`` enum). Before it existed, a freshly
 created topic's ``WAITING_CREATING`` classified as ``unknown``: the 48-value
 cluster vocabulary does not contain it.
 """
@@ -200,8 +200,7 @@ KAFKA_USER_STATUSES: tuple[str, ...] = (
 )
 """Statuses of a Kafka **user** -- a third enum again, not the topic's.
 
-Supplied by the GreenNode Kafka team (``UserStatus`` in
-``../api-docs-local/vdb-status-notes.txt``). Two differences from
+Supplied by the GreenNode Kafka team (their ``UserStatus`` enum). Two differences from
 :data:`KAFKA_TOPIC_STATUSES` matter and neither is guessable:
 
 * a user has **no** ``WAITING_*`` state at all -- it goes straight to

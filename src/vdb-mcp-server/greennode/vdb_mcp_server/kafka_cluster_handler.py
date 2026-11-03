@@ -200,7 +200,12 @@ class KafkaClusterHandler:
         """
         validate_id(cluster_id, "cluster_id")
         raw = await self._call("GET", f"{BASE}/{cluster_id}")
-        return KafkaCluster.from_api(unwrap_wrapped(raw) or {})
+        payload = unwrap_wrapped(raw)
+        if not isinstance(payload, dict) or not payload.get("id"):
+            raise ValueError(
+                f"No Kafka cluster with id {cluster_id!r}; list_kafka_clusters shows what exists."
+            )
+        return KafkaCluster.from_api(payload)
 
     async def list_kafka_cluster_histories(
         self,
