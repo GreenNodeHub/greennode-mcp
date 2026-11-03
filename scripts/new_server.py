@@ -102,6 +102,14 @@ def register_release_please(product: str) -> None:
             "bump-minor-pre-major": True,
             "bump-patch-for-minor-pre-major": False,
             "changelog-path": "CHANGELOG.md",
+            # The template's __init__.py carries an x-release-please-version
+            # marker; without this entry it is never bumped.
+            "extra-files": [
+                {
+                    "type": "generic",
+                    "path": f"greennode/{product.replace('-', '_')}_mcp_server/__init__.py",
+                }
+            ],
         }
         cfg_file.write_text(json.dumps(cfg, indent=2) + "\n")
 

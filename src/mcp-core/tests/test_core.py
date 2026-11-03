@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import httpx
+import json as json_module
 import pytest
 import respx
 from greennode.mcp_core import (
@@ -120,6 +121,86 @@ async def test_base_client_sends_user_agent_when_configured():
     plain = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
     await plain.get("/v1/things")
     assert route.calls.last.request.headers["user-agent"].startswith("python-httpx/")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_sends_extra_headers():
+    """Per-call headers reach the wire, and are absent when not asked for.
+
+    Some gateways take a request-scoped header that changes the meaning of the
+    call rather than the identity behind it -- vDB's ``user-type`` selects the
+    billing flow for order endpoints.
+    """
+    _mock_iam(respx.mock)
+    route = respx.post("https://api.example.test/v1/orders").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+
+    await client._request("POST", "/v1/orders", headers={"user-type": "IAM_USER"})
+    assert route.calls.last.request.headers["user-type"] == "IAM_USER"
+
+    await client._request("POST", "/v1/orders")
+    assert "user-type" not in route.calls.last.request.headers
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_keeps_extra_headers_across_token_refresh():
+    """The refresh retry must carry the same extra headers as the first try.
+
+    The retry is a separate ``_request`` call, so a header dropped there turns
+    into an endpoint that works until the token drifts and then silently
+    changes behaviour -- the hardest class of bug to attribute.
+    """
+    _mock_iam(respx.mock)
+    route = respx.post("https://api.example.test/v1/orders").mock(
+        side_effect=[
+            httpx.Response(401, json={"message": "expired"}),
+            httpx.Response(200, json={"ok": True}),
+        ]
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+
+    assert await client._request("POST", "/v1/orders", headers={"user-type": "IAM_USER"}) == {
+        "ok": True
+    }
+    assert route.call_count == 2
+    assert [c.request.headers["user-type"] for c in route.calls] == ["IAM_USER", "IAM_USER"]
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_extra_headers_cannot_override_authorization():
+    """Caller headers are additive -- they must never spoof the bearer token."""
+    _mock_iam(respx.mock)
+    route = respx.get("https://api.example.test/v1/things").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()), user_agent="acme-mcp/1.0")
+
+    await client._request(
+        "GET",
+        "/v1/things",
+        headers={"Authorization": "Bearer attacker", "User-Agent": "spoof/1.0"},
+    )
+    assert route.calls.last.request.headers["Authorization"] == "Bearer tok"
+    assert route.calls.last.request.headers["user-agent"] == "acme-mcp/1.0"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_base_client_delete_can_carry_a_body():
+    """A few gateways expect a body on DELETE -- vDB deletes by id array."""
+    _mock_iam(respx.mock)
+    route = respx.delete("https://api.example.test/v1/backups/delete").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    client = BaseClient(_FakeConfig(), TokenManager(_FakeConfig()))
+
+    await client.delete("/v1/backups/delete", json=["bk-1", "bk-2"])
+    assert json_module.loads(route.calls.last.request.content) == ["bk-1", "bk-2"]
 
 
 @respx.mock

@@ -44,6 +44,7 @@ ALLOWED_VERBS = {
     "enable",
     "disable",
     "rollback",
+    "restore",
     "ping",
 }
 
@@ -66,6 +67,7 @@ WRITE_PREFIXES = (
     "enable_",
     "disable_",
     "rollback_",
+    "restore_",
     "ping_",
 )
 
