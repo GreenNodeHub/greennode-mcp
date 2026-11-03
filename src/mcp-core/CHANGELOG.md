@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/GreenNodeHub/greennode-mcp/compare/mcp-core-v0.5.1...mcp-core-v0.6.0) (2026-11-03)
+
+
+### Features
+
+* **vdb:** add vdb-mcp-server for managed databases ([edf7b87](https://github.com/GreenNodeHub/greennode-mcp/commit/edf7b8732765a7ca621a5a89d77bd99a5b0b77b1))
+
 ## [0.5.1](https://github.com/GreenNodeHub/greennode-mcp/compare/mcp-core-v0.5.0...mcp-core-v0.5.1) (2026-08-26)
 
 
