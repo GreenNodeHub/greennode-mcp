@@ -4,10 +4,10 @@ Product-specific guidance for `src/vdb-mcp-server`. Monorepo-wide conventions
 (tool naming, DTOs, TDD, branch/release flow) live in the **repo-root
 CLAUDE.md** — read that first.
 
-The living build plan, its progress checklist and the session log are in
-**`docs/superpowers/vdb-mcp-server-plan.md`** — read that before starting work
-on this package. This file records what the API does; the plan records what is
-built, what is left, and why the decisions were made.
+This file records what the API does and why the code is shaped the way it is.
+The build plan and session log the package was developed from were working
+notes kept outside the repo (`docs/superpowers/` is gitignored), so do not go
+looking for them — anything a maintainer needs from them belongs here.
 
 ## Product overview
 
@@ -1360,7 +1360,9 @@ Two conventions worth knowing before writing a handler here:
 
 ### Live probe
 
-`docs/superpowers/vdb_probe.py` exercises the real API **read-only** through
-`VdbClient`, so it checks this package's plumbing at the same time. Output
-lands in `docs/superpowers/vdb-probe-out/`, gitignored because it contains real
-account data.
+The live measurements recorded in this file were taken with a read-only probe
+script driving `VdbClient`. It is not committed — it lived under the gitignored
+`docs/superpowers/`, beside output containing real account data. To check
+behaviour against the real API, use MCP Inspector (see README → Development)
+with the server running **without** `--allow-write`, so every call stays a
+read.

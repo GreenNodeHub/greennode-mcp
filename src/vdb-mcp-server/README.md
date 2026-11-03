@@ -5,9 +5,7 @@ databases: relational engines (MySQL, MariaDB, standalone PostgreSQL),
 MemoryStore (Redis), PostgreSQL Clusters and Kafka.
 
 > **All four families are implemented** — relational, MemoryStore,
-> PostgreSQL Cluster and Kafka. The build plan, progress checklist and session
-> log live in
-> [`docs/superpowers/vdb-mcp-server-plan.md`](../../docs/superpowers/vdb-mcp-server-plan.md).
+> PostgreSQL Cluster and Kafka.
 
 ## Configuration
 
@@ -748,12 +746,8 @@ Manual testing with MCP Inspector:
 npx @modelcontextprotocol/inspector uv run vdb-mcp-server
 ```
 
-Against the real API, `docs/superpowers/vdb_probe.py` performs a **read-only**
-probe of every family through `VdbClient`:
-
-```bash
-uv run python docs/superpowers/vdb_probe.py
-```
+To exercise the real API safely, start the server without `--allow-write`:
+only read tools are registered then, so nothing can be changed.
 
 See [`CLAUDE.md`](CLAUDE.md) for the API quirks this package has to work
 around — response envelopes, the mixed relational listing, the order flow, and

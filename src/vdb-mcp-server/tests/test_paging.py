@@ -1,7 +1,8 @@
 """Tests for the vDB envelope/paging helpers.
 
-The shapes below are the ones recorded in docs/superpowers/vdb-pr0-spike.md and
-confirmed against the live API on 2026-08-12 and re-probed 2026-09-08.
+The shapes below were measured against the live API on 2026-08-12 and
+re-probed 2026-09-08; the package CLAUDE.md ("Envelopes and list shapes")
+records them.
 """
 
 from __future__ import annotations
