@@ -112,8 +112,8 @@ path builder.
 
 ### Parameter naming differences across families
 
-The QC regression of 2026-10-13
-(`docs/api-docs-local/vdb_mcp_wrong_inferences.xlsx`, 21 cases) found the same
+The QC regression of 2026-10-13 (21 cases; the case sheet is a QC artifact
+kept outside the repo — the table below is what it established) found the same
 failure shape eight times over: an agent infers a tool's argument name from
 another family's equivalent instead of reading the tool's schema. The schemas
 already reject every wrong name at the door — `extra="forbid"`, `validate_id`,
@@ -224,9 +224,12 @@ the result array comes back empty — never present that as success.
 
 The values live in `ActionDbInstanceRequest.action.description`
 (`"Allowed values: start, stop, reboot, detach_replica"`) and its `example`.
-There is no `enum`. **Read the raw schema in `docs/api-docs-local/vdb-api-docs.json`
-when building any write payload** — `vdb-api-map.md` is a lookup table, and its
-generator only started preserving `description`/`example` after this bit me.
+There is no `enum`. **Read the raw schema's `description` and `example` when
+building any write payload** — not a summary of it, since a lookup table that
+drops those two fields drops exactly where these values live. The vDB OpenAPI
+document is not committed to this repo; get the current copy from the vDB
+team, and treat this file's measured notes as overriding it wherever the two
+disagree.
 
 ### Backups: the listing and the detail describe the same row differently
 
