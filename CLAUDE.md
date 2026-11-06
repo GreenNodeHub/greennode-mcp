@@ -4,6 +4,9 @@ Monorepo-wide conventions for all GreenNode MCP servers. **Product-specific
 guidance lives in each package's own CLAUDE.md** (e.g.
 `src/vks-mcp-server/CLAUDE.md`) — read the one for the package you're touching.
 
+Operational context (incidents, invariants, farms, the Redmine task workflow) lives in the **vks-harness**
+repo (`knowledge/`, `AGENTS.md`). Management farms are read-only for agents.
+
 ## Project overview
 
 MCP (Model Context Protocol) servers for GreenNode products, giving AI
