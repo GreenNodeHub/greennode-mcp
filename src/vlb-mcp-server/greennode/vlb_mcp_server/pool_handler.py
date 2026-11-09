@@ -304,8 +304,20 @@ class PoolHandler:
                 "read the current value from get_pool and resend it."
             ),
         ),
-        stickiness: bool | None = Field(None, description="Pin a client to one backend."),
-        tls_encryption: bool | None = Field(None, description="Encrypt traffic to the backends."),
+        stickiness: bool | None = Field(
+            None,
+            description=(
+                "Pin a client to one backend. HTTP pools only — leave unset on a "
+                "TCP/UDP/PROXY pool, or the gateway rejects the call."
+            ),
+        ),
+        tls_encryption: bool | None = Field(
+            None,
+            description=(
+                "Encrypt traffic to the backends. HTTP pools only — leave unset on a "
+                "TCP/UDP/PROXY pool, or the gateway rejects the call."
+            ),
+        ),
         region: Region = Field("HCM-3", description="Region ('HCM-3' or 'HAN')."),
     ) -> str:
         """Update a pool's algorithm, stickiness and TLS setting.
@@ -543,9 +555,9 @@ class PoolHandler:
         - The pool must already have a health monitor; one cannot be added to a
           pool created without it.
         - Only the fields you pass change. This reads the pool first and carries
-          its algorithm, stickiness, TLS setting and the untouched probe values
-          forward, because the underlying `PUT .../pools/{poolId}` requires them
-          and would otherwise reset them.
+          its algorithm, the untouched probe values and — on an HTTP pool only —
+          its stickiness and TLS setting forward, because the underlying
+          `PUT .../pools/{poolId}` requires them and would otherwise reset them.
 
         ## Workflow
         - The result is the configuration that was SENT, not a fresh read: the
@@ -591,10 +603,15 @@ class PoolHandler:
             domainName=domain_name or current.domain_name or None,
             httpVersion=http_version or current.http_version or None,
         )
+        # The gateway requires `stickiness` and `tlsEncryption` on an HTTP pool
+        # and rejects them on any other protocol — even as `false`, which is
+        # what the pool read gives back for a TCP pool. Sending them
+        # unconditionally broke this tool for every non-HTTP pool.
+        is_http = pool.protocol.upper() == "HTTP"
         payload = UpdatePoolDto(
             algorithm=pool.algorithm,
-            stickiness=pool.stickiness,
-            tlsEncryption=pool.tls_encryption,
+            stickiness=pool.stickiness if is_http else None,
+            tlsEncryption=pool.tls_encryption if is_http else None,
             healthMonitor=monitor,
         ).model_dump(exclude_none=True)
         await self.client.put(f"{path}/{pool_id}", region=region, json=payload)

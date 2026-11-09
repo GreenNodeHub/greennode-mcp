@@ -638,6 +638,94 @@ async def test_update_health_monitor_reads_the_monitor_from_its_own_endpoint(poo
 
 @respx.mock
 @pytest.mark.asyncio
+@pytest.mark.parametrize("protocol", ["TCP", "UDP", "PROXY"])
+@pytest.mark.parametrize("flag", [False, None])
+async def test_update_health_monitor_on_a_non_http_pool_omits_stickiness(pools_rw, protocol, flag):
+    """The QC regression: changing `interval` on a TCP pool answered
+    `400 "Stickiness cannot be specified for non-HTTP pools"`.
+
+    The pool read turns a missing flag into `False`, and `exclude_none` keeps
+    `False`, so the PUT carried `stickiness: false, tlsEncryption: false`. The
+    gateway forbids both fields on any non-HTTP pool, even when false. Only
+    the live tests on HTTP pools had covered this tool.
+    """
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(
+        return_value=httpx.Response(
+            200,
+            json=data_env(
+                {**SAMPLE_POOL, "protocol": protocol, "stickiness": flag, "tlsEncryption": flag}
+            ),
+        )
+    )
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(
+            200,
+            json=data_env(
+                {
+                    "healthCheckProtocol": "PING-UDP" if protocol == "UDP" else "TCP",
+                    "healthyThreshold": 3,
+                    "unhealthyThreshold": 3,
+                    "timeout": 5,
+                    "interval": 30,
+                }
+            ),
+        )
+    )
+    put_route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+
+    await pools_rw.update_pool_health_monitor(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        interval=15,
+        health_check_path=None,
+        health_check_method=None,
+        healthy_threshold=None,
+        unhealthy_threshold=None,
+        timeout=None,
+        success_code=None,
+        domain_name=None,
+        http_version=None,
+        region="HCM-3",
+    )
+    sent = json.loads(put_route.calls[0].request.content)
+    assert "stickiness" not in sent
+    assert "tlsEncryption" not in sent
+    assert sent["healthMonitor"]["interval"] == 15
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_health_monitor_on_an_http_pool_still_sends_stickiness(pools_rw):
+    """The other half of the rule: an HTTP pool must carry both flags."""
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200, json=data_env(SAMPLE_POOL)))
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env(HM))
+    )
+    put_route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+
+    await pools_rw.update_pool_health_monitor(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        interval=15,
+        health_check_path=None,
+        health_check_method=None,
+        healthy_threshold=None,
+        unhealthy_threshold=None,
+        timeout=None,
+        success_code=None,
+        domain_name=None,
+        http_version=None,
+        region="HCM-3",
+    )
+    sent = json.loads(put_route.calls[0].request.content)
+    assert sent["stickiness"] is False
+    assert sent["tlsEncryption"] is False
+
+
+@respx.mock
+@pytest.mark.asyncio
 async def test_a_member_without_a_weight_is_not_left_drained(pools_rw):
     """weight=0 is legal and means "take no traffic" — so it cannot be the default.
 

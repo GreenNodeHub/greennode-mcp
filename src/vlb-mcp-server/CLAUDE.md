@@ -550,7 +550,7 @@ trusted a field the spec declares and the service never fills in.**
 
 | Checked | Result |
 |---|---|
-| `update_pool_health_monitor` | **Was dead for every pool.** It read the probe from `GET /pools/{poolId}`'s nested `healthMonitor`, which the live API never populates, and so raised "Pool <id> has no health monitor" for pools that plainly had one. Now reads `GET /pools/{poolId}/healthMonitor` alongside the pool. The carry-forward itself was correct all along: changing only `interval` moved `interval` and nothing else, across all 13 observed fields. |
+| `update_pool_health_monitor` | **Was dead for every pool.** It read the probe from `GET /pools/{poolId}`'s nested `healthMonitor`, which the live API never populates, and so raised "Pool <id> has no health monitor" for pools that plainly had one. Now reads `GET /pools/{poolId}/healthMonitor` alongside the pool. The carry-forward was correct **on an HTTP pool**: changing only `interval` moved `interval` and nothing else, across all 13 observed fields. On a TCP/UDP/PROXY pool it was still broken (found by QC, 2026-11): the pool read turns a missing flag into `False`, `exclude_none` keeps `False`, so the PUT carried `stickiness`/`tlsEncryption` and the gateway answered `400 "Stickiness cannot be specified for non-HTTP pools"`. Both flags are now sent only for an HTTP pool. |
 | `update_pool` | **Was broken for any HTTP/HTTPS probe** — see the `PUT /pools/{poolId}` row above. Now resends the current monitor. |
 | `create_pool` with `members` inline | Works; the members exist as soon as the pool does. |
 | `attach_pool_members` | Adds without dropping; re-sending one with a new weight replaces just that member. |
