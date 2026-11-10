@@ -10,7 +10,7 @@ copying config/auth/HTTP plumbing:
 - cache:      DiscoveryCache — short-lived per-tool TTL cache with refresh bypass
 """
 
-from greennode.mcp_core.auth import IAM_TOKEN_URL, TokenManager
+from greennode.mcp_core.auth import IAM_TOKEN_URL, IAM_TOKEN_URL_ENV, TokenManager
 from greennode.mcp_core.cache import DEFAULT_MAXSIZE, DiscoveryCache
 from greennode.mcp_core.config import ProfileSettings, load_profile, resolve_config_dir
 from greennode.mcp_core.http import BaseClient
@@ -21,6 +21,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "IAM_TOKEN_URL",
+    "IAM_TOKEN_URL_ENV",
     "TokenManager",
     "DEFAULT_MAXSIZE",
     "DiscoveryCache",

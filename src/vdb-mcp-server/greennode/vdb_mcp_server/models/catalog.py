@@ -114,9 +114,23 @@ class FlavorOption(BaseModel):
         ),
     )
     name: str = Field("", description="Flavour name, e.g. 'db.s-general-2x4'")
+    is_default: bool = Field(
+        False,
+        description=(
+            "Whether this is the zone's default flavour. Published by the Redis Cluster "
+            "catalogue; empty (false) for the families that do not say."
+        ),
+    )
     description: str = Field("", description="Flavour description")
     vcpus: int | None = Field(None, description="vCPU count")
     ram_gb: int | None = Field(None, description="RAM in GB")
+    network_performance: str = Field(
+        "",
+        description=(
+            "Network performance class, e.g. 'high'. Published by the Redis Cluster "
+            "catalogue; empty for the families that do not say."
+        ),
+    )
     default_volume_size_gb: int | None = Field(None, description="Default volume size in GB")
     default_volume_type: str = Field("", description="Default volume type")
     zone_id: str = Field("", description="Availability zone, e.g. 'HCM03-1A'")
@@ -141,9 +155,11 @@ class FlavorOption(BaseModel):
             id=str(data.get("id") or ""),
             flavor_id=str(data.get("flavorId") or ""),
             name=data.get("name") or "",
+            is_default=bool(data.get("isDefault")),
             description=data.get("description") or "",
             vcpus=data.get("vcpus"),
             ram_gb=data.get("ram"),
+            network_performance=data.get("networkPerformance") or "",
             default_volume_size_gb=data.get("volumeSize"),
             default_volume_type=data.get("volumeType") or "",
             zone_id=str(data.get("locateZoneId") or ""),

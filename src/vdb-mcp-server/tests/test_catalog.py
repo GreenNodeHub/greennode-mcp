@@ -142,6 +142,9 @@ async def test_every_catalogue_tool_is_registered(handler):
             assert f"list_{family}_{noun}" in tools
     assert "list_relational_zones" in tools
     assert "list_memory_zones" not in tools, "the memory family has no zones endpoint"
+    for noun in ("datastores", "flavors", "volume_types"):
+        assert f"list_redis_{noun}" in tools
+    assert "list_redis_engines" not in tools, "the Redis Cluster catalogue has no engines endpoint"
 
 
 @pytest.mark.asyncio
@@ -673,6 +676,166 @@ async def test_postgresql_flavors_are_keyed_per_multi_zone_flag_in_the_cache(han
     single = await handler.list_postgresql_flavors(zone_id=None, multi_zone=False, refresh=False)
     multi = await handler.list_postgresql_flavors(zone_id=None, multi_zone=True, refresh=False)
     assert single.items[0].id != multi.items[0].id
+
+
+# --------------------------------------------------------------------------
+# Redis Cluster catalogue
+# --------------------------------------------------------------------------
+
+# Flavour ids are prefixed `rdp-` and volume-type ids `rdst-`, not the
+# relational catalogue's per-zone integers -- measured live on staging
+# (2026-11-04), so the fixtures copy that vocabulary.
+REDIS_FLAVOR_ID_HCM03_1A = "rdp-51e30a6d-bc9e-4ffb-843f-11e950de12e8"
+REDIS_FLAVOR_ID_HCM03_1B = "rdp-8cf01d92-4a97-4a6d-8cd4-36ed37f1b65d"
+REDIS_VOLUME_TYPE_ID = "rdst-63e28e83-165c-4a6d-8cd4-36ed37f1b65d"
+
+
+def _redis_flavor(flavor_id=REDIS_FLAVOR_ID_HCM03_1A, zone="HCM03-1A"):
+    return {
+        "id": flavor_id,
+        "name": "redis.s-general-2x4",
+        "isDefault": True,
+        "description": "Instance types for common workloads",
+        "networkPerformance": "Up to 1 Gbps",
+        "packageSku": "redis.s-general-2x4",
+        "cesSku": "ces.redis.s-general-2x4",
+        "ram": 4,
+        "vcpus": 2,
+        "platformType": "code-s2",
+        "order": 1,
+        "status": "ACTIVE",
+        "locateZoneId": zone,
+        "zoneUUID": "5D55DD40-5D93-11F1-B7ED-0800200C9A66",
+        "backupSize": 50,
+    }
+
+
+def _redis_volume_type(type_id=REDIS_VOLUME_TYPE_ID, zone="HCM03-1A"):
+    return {
+        "id": type_id,
+        "name": "SSD-Redis-IOPS3000",
+        "type": "SSD-Redis-IOPS3000",
+        "volumeTypeSku": "SSD-Redis-IOPS3000.dbaas",
+        "order": 1,
+        "status": "ACTIVE",
+        "minVolumeSize": 20,
+        "maxVolumeSize": 3000,
+        "zoneId": zone,
+        "iops": 3000,
+        "description": "SSD storage for Redis Cluster",
+        "volumeTypeZoneId": "63D9E33A-34F3-11EE-BE56-0242AC120002",
+    }
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redis_datastores_are_the_versions_a_create_takes(handler):
+    """One engine, so the rows carry versions only -- a create's datastoreVersion.
+
+    The versions are v-prefixed full semver (measured live on staging,
+    2026-11-10: 'v7.2.13' / 'v7.0.15'), and `type` is lowercase on the wire
+    where the cluster row says 'Redis'.
+    """
+    mock_iam(respx.mock)
+    respx.get(f"{MEMORY}/v1/redis-cluster/datastore").mock(
+        return_value=httpx.Response(
+            200,
+            json=envelope(
+                [
+                    {
+                        "versionName": "Redis 7.2.13",
+                        "version": "v7.2.13",
+                        "name": "Redis",
+                        "type": "redis",
+                        "licenseName": "Community Edition",
+                        "licenseDesc": "",
+                    }
+                ]
+            ),
+        )
+    )
+    result = await handler.list_redis_datastores(refresh=False)
+    assert result.count == 1
+    assert result.items[0].version == "v7.2.13"
+    assert result.items[0].type == "redis"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redis_flavors_need_no_engine_or_version(handler):
+    """Like the PostgreSQL Cluster catalogue: one engine, so it can be called bare."""
+    mock_iam(respx.mock)
+    route = respx.get(f"{MEMORY}/v1/redis-cluster/flavors").mock(
+        return_value=httpx.Response(200, json=envelope([_redis_flavor()]))
+    )
+    result = await handler.list_redis_flavors(zone_id=None, refresh=False)
+    assert result.count == 1
+    row = result.items[0]
+    assert row.id == REDIS_FLAVOR_ID_HCM03_1A
+    assert row.zone_id == "HCM03-1A"
+    assert row.is_default is True
+    assert row.network_performance == "Up to 1 Gbps"
+    assert "type" not in route.calls.last.request.url.params
+    assert "version" not in route.calls.last.request.url.params
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redis_flavors_pass_the_zone_and_are_keyed_per_zone_in_the_cache(handler):
+    """The id is per zone, so the cache key must carry the zone it was read for."""
+    mock_iam(respx.mock)
+
+    def respond(request):
+        zone = request.url.params.get("zoneId", "HCM03-1A")
+        flavor_id = REDIS_FLAVOR_ID_HCM03_1A if zone == "HCM03-1A" else REDIS_FLAVOR_ID_HCM03_1B
+        return httpx.Response(200, json=envelope([_redis_flavor(flavor_id, zone)]))
+
+    respx.get(f"{MEMORY}/v1/redis-cluster/flavors").mock(side_effect=respond)
+    first = await handler.list_redis_flavors(zone_id="HCM03-1A", refresh=False)
+    second = await handler.list_redis_flavors(zone_id="HCM03-1B", refresh=False)
+    assert first.items[0].id != second.items[0].id
+    assert second.items[0].zone_id == "HCM03-1B"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redis_volume_types_are_a_bare_array(handler):
+    """The memory family's twin on the same service nests its rows; this one does not.
+
+    A handler that reached for the memory family's `unwrap_nested_list` would
+    report an empty catalogue here -- the silent failure `paging.py` warns about.
+    """
+    mock_iam(respx.mock)
+    respx.get(f"{MEMORY}/v1/redis-cluster/volume-types").mock(
+        return_value=httpx.Response(200, json=envelope([_redis_volume_type()]))
+    )
+    result = await handler.list_redis_volume_types(zone_id=None, refresh=False)
+    assert result.count == 1
+    row = result.items[0]
+    assert row.id == REDIS_VOLUME_TYPE_ID
+    assert (row.min_volume_size, row.max_volume_size) == (20, 3000)
+    assert row.iops == 3000
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redis_catalogue_paths_are_not_the_memory_familys(handler):
+    """Redis Cluster shares the memory SERVICE, not its paths: its controller
+    mounts at /v1/redis-cluster. respx fails any request to an unmocked route,
+    so these three calls passing is the path separation itself."""
+    mock_iam(respx.mock)
+    respx.get(f"{MEMORY}/v1/redis-cluster/datastore").mock(
+        return_value=httpx.Response(200, json=envelope([]))
+    )
+    respx.get(f"{MEMORY}/v1/redis-cluster/flavors").mock(
+        return_value=httpx.Response(200, json=envelope([]))
+    )
+    respx.get(f"{MEMORY}/v1/redis-cluster/volume-types").mock(
+        return_value=httpx.Response(200, json=envelope([]))
+    )
+    await handler.list_redis_datastores(refresh=False)
+    await handler.list_redis_flavors(zone_id=None, refresh=False)
+    await handler.list_redis_volume_types(zone_id=None, refresh=False)
 
 
 # --------------------------------------------------------------------------

@@ -1,8 +1,9 @@
 """Tests for the status vocabularies and their classification.
 
-The vocabularies come from the platform's own source (supplied 2026-09-08), so
-the job of these tests is to prove every published value is accounted for and
-that the classification does not fall back on the casing of the value.
+The vocabularies come from the platform's own source (supplied 2026-09-08; the
+vBackup restore-point walk measured on the wire), so the job of these tests is
+to prove every published value is accounted for and that the classification
+does not fall back on the casing of the value.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from greennode.vdb_mcp_server.statuses import (
     KAFKA_TOPIC_STATUSES,
     KAFKA_USER_STATUSES,
     POSTGRESQL_CLUSTER_STATUSES,
+    REDIS_CLUSTER_STATUSES,
+    VBACKUP_RESTORE_POINT_STATUSES,
     classify,
     describe,
     is_failure,
@@ -26,7 +29,9 @@ ALL_VOCABULARIES = (
     ("relational/memory instance", DB_PORTAL_STATUSES),
     ("backup", BACKUP_STATUSES),
     ("postgresql cluster", POSTGRESQL_CLUSTER_STATUSES),
+    ("redis cluster", REDIS_CLUSTER_STATUSES),
     ("kafka cluster", KAFKA_CLUSTER_STATUSES),
+    ("vbackup restore point", VBACKUP_RESTORE_POINT_STATUSES),
 )
 
 
@@ -153,3 +158,77 @@ def test_topic_and_user_terminal_states_are_settled_not_transitional():
     for status in ("ACTIVE", "DELETED"):
         assert classify(status) == "settled", status
     assert classify("ERROR") == "failed"
+
+
+# --------------------------------------------------------------------------
+# Redis Cluster -- a fifth vocabulary, from the vsr-api DBStatus enum
+# --------------------------------------------------------------------------
+
+
+def test_redis_cluster_vocabulary_is_the_dbstatus_enum_verbatim():
+    """Supplied by the GreenNode team from the vsr-api ``DBStatus`` enum.
+
+    It reads like the relational/memory 21 and is not a subset of it: ``NEW``
+    and ``TRASH`` exist only here, and this ``DELETING`` is uppercase where
+    the relational transition is the lowercase ``deleting``.
+    """
+    assert REDIS_CLUSTER_STATUSES == (
+        "NEW",
+        "BUILDING",
+        "BUILD",
+        "ACTIVE",
+        "EXPIRED",
+        "ERROR",
+        "REBOOT",
+        "INTERNAL_ERROR",
+        "BACKUP",
+        "SHUTDOWN",
+        "DELETING",
+        "RESIZE",
+        "RESTART_REQUIRED",
+        "BLOCKED",
+        "FAILED",
+        "TRASH",
+    )
+
+
+def test_trash_is_a_settled_soft_delete():
+    """``TRASH`` is the terminal soft-delete state, not a deletion in flight.
+
+    A cluster in TRASH has already been deleted and is awaiting retention
+    cleanup: nothing is in progress to poll for, so it is settled -- but it is
+    not ``DELETED``-gone either, so say "soft-deleted" rather than "deleted".
+    """
+    assert classify("TRASH") == "settled"
+    assert is_transitional("TRASH") is False
+    assert is_failure("TRASH") is False
+
+
+# --------------------------------------------------------------------------
+# vBackup restore points -- a measured vocabulary, not a team enum
+# --------------------------------------------------------------------------
+
+
+def test_vbackup_restore_point_walk_is_transitional_then_settled():
+    """Measured on the wire: ``BACKING_UP`` → ``UPLOADING`` → ``ACTIVE``.
+
+    The first two are work in flight -- poll again, and wait for ``ACTIVE``
+    before restoring. ``BACKING_UP`` measured stuck for days on a wedged
+    pipeline (2026-11-06) still classifies transitional: the status alone
+    cannot tell progressing from stuck, only ``updated`` next to it can.
+    """
+    assert VBACKUP_RESTORE_POINT_STATUSES == ("BACKING_UP", "UPLOADING", "ACTIVE")
+    assert classify("BACKING_UP") == "transitional"
+    assert classify("UPLOADING") == "transitional"
+    assert classify("ACTIVE") == "settled"
+    assert "Poll" in describe("BACKING_UP")
+
+
+def test_backing_up_is_a_restore_point_status_not_a_cluster_status():
+    """``BACKING_UP`` was seen live on restore-point rows (2026-11-06).
+
+    It is absent from the vsr-api ``DBStatus`` enum the cluster vocabulary
+    copies verbatim, so it belongs to the vBackup vocabulary alone.
+    """
+    assert "BACKING_UP" in VBACKUP_RESTORE_POINT_STATUSES
+    assert "BACKING_UP" not in REDIS_CLUSTER_STATUSES

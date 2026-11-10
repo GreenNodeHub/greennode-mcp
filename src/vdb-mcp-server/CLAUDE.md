@@ -11,14 +11,16 @@ looking for them — anything a maintainer needs from them belongs here.
 
 ## Product overview
 
-MCP server for GreenNode vDB — managed databases. vDB is **four APIs behind
-one gateway**, sharing nothing but the IAM token:
+MCP server for GreenNode vDB — managed databases. vDB is **five families
+behind one gateway**, sharing nothing but the IAM token (and, for Redis
+Cluster, the memory service's host):
 
 | Family | Service constant | Path style | Operations |
 |---|---|---|---|
 | Relational (MySQL, MariaDB, standalone PostgreSQL) | `VDB_RELATIONAL_SERVICE` | `/v1/**` | 45 |
 | MemoryStore (Redis) | `VDB_MEMORY_SERVICE` | `/v1/**` | 43 |
 | PostgreSQL Cluster | `VDB_POSTGRESQL_SERVICE` | `/v1/**` | 14 |
+| Redis Cluster | `VDB_MEMORY_SERVICE` (shared host — `/v1/redis-cluster`) | `/v1/**` | 16 |
 | Kafka | `VDB_KAFKA_SERVICE` | unversioned (`/clusters`) | 36 |
 
 Tools are prefixed by family and are **not** interchangeable — see "Do not
@@ -30,6 +32,17 @@ One gateway, `https://vdb-gateway.vngcloud.vn`, **not region-scoped**: it
 serves every region and resolves the project from the token. `REGIONS` maps
 both `HCM-3` and `HAN` to the same URLs so `BaseClient.get_base_url` keeps
 working, and **no tool exposes a `region` argument** (a test enforces this).
+
+`GRN_VDB_GATEWAY_URL` (`GATEWAY_URL_ENV` in `config.py`) overrides the gateway
+host for every service for that run — the way to live-probe a family against
+staging before it reaches production. `load_config` builds the URL table from
+it per run; `REGIONS` itself stays pinned to production, so an unset variable
+can never leak a test host into an import. The IAM token endpoint is overridden
+separately by `mcp-core`'s `GRN_IAM_TOKEN_URL`, and the two overrides go
+together: the production IAM answers staging service accounts with `401
+AUTHENTICATION_FAILED` (measured 2026-11-04), and the obvious staging IAM host
+guess resolves to an unroutable private IP, so the working pair is an internal
+detail — take both hosts from the team's internal notes, not from this file.
 
 The family prefix lives in the base URL, so handler paths omit it:
 `GET /vdb-relational/v1/database-instances` is called as
@@ -47,13 +60,14 @@ for the wrong one **fails silently**:
 | Helper | Endpoints | Shape |
 |---|---|---|
 | `unwrap_wrapped` | all wrapped | `{code,message,data}` → `data`; an unwrapped payload passes through |
-| `as_list` | 81 | `data` is a plain array |
-| `unwrap_nested_list` | 5 | items at `data.data[]` |
+| `as_list` | 81 + the Redis Cluster family's (catalogues, backup reads, order/action results) | `data` is a plain array |
+| `unwrap_nested_list` | 6 | items at `data.data[]` |
 | `unwrap_content_list` | 6 | items at `data.content[]` |
 
-`unwrap_nested_list` covers two unrelated groups: the two
-`GET /database-instances` listings (with `pageObject`) **and the three
-`volume-types` catalogues** (no `pageObject`, just `{projectId, data[]}`).
+`unwrap_nested_list` covers three unrelated groups: the two
+`GET /database-instances` listings and the Redis Cluster listing (all with
+`pageObject`) **and the three `volume-types` catalogues** (no `pageObject`,
+just `{projectId, data[]}`).
 Using `as_list` on a volume-types response returns an empty list with no
 error — an empty catalogue that looks like a valid answer.
 
@@ -66,7 +80,7 @@ field of that name, and vDB has them.
 `pageNumber` + `pageSize`, and **`pageNumber` is 1-based** (like vServer,
 unlike vks). `pageObject.number` echoes the requested page, so it is 1-based
 too — never use it as a zero-based offset. `pageObject.maxSize` is 100, the
-ceiling for `pageSize`. Only 8 endpoints paginate.
+ceiling for `pageSize`. Only 9 endpoints paginate.
 
 ### Filters are flat query parameters
 
@@ -130,6 +144,7 @@ of defence rather than the only one.
 | List replicas (relational, memory) | `source_instance_id` | `instance_id` |
 | Attach config group (relational, memory) | `config_id` | `config_group_id` |
 | Attach config group (PostgreSQL Cluster) | `config_group_id` — the **inverse** of its relational/memory twins, mirroring the endpoint field | `config_id` |
+| Attach config group (Redis Cluster) | `config_group_id` on the update tool — but the family's own **create** takes `configId`: both spellings live in one family | `config_id` on the update |
 | Attach config group (Kafka) | `config_group_version_id` (`cgroupver-…`) | `config_group_id` |
 | Kafka topic / user get-update-delete | `topic_id` / `user_id` — Kafka tools take no names anywhere | `topic_name` / `user_name` |
 | Kafka config-group version read | `config_group_version_id` (`cgroupver-…`) | `version` (`"1"`) |
@@ -152,10 +167,14 @@ are not equally strict.** Verified live 2026-09-10:
 | a PostgreSQL Cluster `pg-` id | **returns it** | `404 not_found` |
 
 MemoryStore instances carry the **same `db-` prefix** as relational ones
-(`db-5a4d26f1-…` is Redis), so the prefix discriminates nothing except `pg-`.
-The relational get-by-id is effectively family-agnostic and hands back a Redis
-instance or a cluster without complaint, which is how a relational-only
-operation such as `resize-storage` ends up aimed at a resource that has none.
+(`db-5a4d26f1-…` is Redis), so `db-` discriminates nothing. Only `pg-`
+(PostgreSQL Cluster), `rd-` (Redis Cluster — measured live on staging,
+2026-11-06, its flavour ids `rdp-…` and volume-type ids `rdst-…` carry the
+same prefix) and Kafka's own ids name their family.
+The relational get-by-id is effectively family-agnostic and hands back a
+MemoryStore instance or a PostgreSQL Cluster without complaint, which is how a
+relational-only operation such as `resize-storage` ends up aimed at a resource
+that has none.
 `get_relational_instance`'s docstring says so, and `get_memory_instance` is the
 lookup that actually proves a family. Read `datastore_type`, never the prefix.
 
@@ -568,8 +587,8 @@ update tool's "no restart expected" message still tells the caller that the
 instance status is what decides.
 
 **Page ceilings differ per endpoint.** `pageObject.maxSize` is 100 for instance
-listings, 50 for backups and **30** for configurations. A larger `pageSize` is
-still honoured, so it reads as advisory.
+listings, 50 for backups and **30** for configurations and the Redis Cluster
+listing. A larger `pageSize` is still honoured, so it reads as advisory.
 
 ### Deleting a backup: HTTP 200 is not deletion
 
@@ -601,11 +620,12 @@ the same as a create and needs the same zone-consistent discovery chain.
 
 ### Status vocabulary — complete, and NOT classifiable by casing
 
-`statuses.py` holds all four published vocabularies, supplied by the GreenNode
-team as their source enums and copied there verbatim — `statuses.py` is the
-in-repo source of truth, since the original notes are platform source and are
-not committed: 21 values for relational/MemoryStore instances, 6 for backups, 11 for
-PostgreSQL Cluster, 48 for Kafka.
+`statuses.py` holds every published vocabulary and is the in-repo source of
+truth, since the original notes are platform source and are not committed:
+21 values for relational/MemoryStore instances, 6 for backups, 11 for
+PostgreSQL Cluster, 16 for Redis Cluster, 48 for Kafka, and the measured
+vBackup restore-point walk (`BACKING_UP` → `UPLOADING` → `ACTIVE`) — the one
+vocabulary measured on the wire rather than supplied as a team enum.
 
 Casing looks like a signal and is not. The transitional relational states are
 lowercase (`stopping`, `deleting`) and the settled ones uppercase (`ACTIVE`) —
@@ -622,7 +642,7 @@ same for `SHUTDOWN` (stopped) and `stopping` (stopping).
 |---|---|---|
 | `failed` (`ERROR`, `INTERNAL_ERROR`, `FAILED`, `BILLING_ERROR`) | Platform-side failure | Report the id, zone and request so the platform team can look. Do **not** retry as if the payload were wrong. |
 | `transitional` | An operation is running | Poll again; do not report a result or start another operation |
-| `settled` (`ACTIVE`, `COMPLETED`, `DELETED`, `SHUTDOWN`) | Nothing in flight | Safe to report |
+| `settled` (`ACTIVE`, `COMPLETED`, `DELETED`, `SHUTDOWN`, `TRASH`) | Nothing in flight | Safe to report |
 | `attention` (`RESTART_REQUIRED`, `BLOCKED`, `EXPIRED`, `EXPIRING`, `WAIT_BILLING`, `WARNING_CONFIG_GROUP`) | Stable but unusable as-is | Say what decision the user has to make; do not act for them |
 
 An unlisted status returns `unknown`, which means "cannot tell" — never a
@@ -632,7 +652,7 @@ vocabularies stay documentation rather than a closed `Literal[...]`.
 Instance responses carry `status_kind` and `status_guidance` alongside the raw
 `status`, so a caller does not have to infer meaning from a bare string.
 
-### Six endpoints take a JSON **array** as the request body
+### Seven endpoints take a JSON **array** as the request body
 
 Not an object — the DTO must be a `list[...]`:
 `DELETE /vdb-relational/v1/backups/{backupId}/delete`,
@@ -643,7 +663,8 @@ id in its path and can only ever delete one**),
 `POST /vdb-memory/v1/configurations/delete` (**a `POST` here, a `DELETE` with a
 body there; the element field is `id` in both**),
 `PUT /vdb-relational/v1/database-instances/{instanceId}/secrules`,
-`PUT /vdb-memory/v1/database-instances/{dbInstanceId}/secrules`.
+`PUT /vdb-memory/v1/database-instances/{dbInstanceId}/secrules`,
+`PUT /vdb-memory/v1/redis-cluster/{dbInstanceId}/secrules`.
 
 `BaseClient.delete()` accepts `json` for the two DELETE cases.
 
@@ -1086,9 +1107,200 @@ answers a wrong-but-plausible question with an empty list instead of an error.
   enriches an update warning, so a cluster group's restart list is read from
   the cluster catalogue rather than the single-node one.
 
+### The Redis Cluster family (read from gateway source; live-probed on staging 2026-11-04/05/06)
+
+A **clustered** Redis — the fifth family, and the first to share another
+family's **service**: its controller mounts at `/v1/redis-cluster` on
+`VDB_MEMORY_SERVICE`, so the family boundary is a path, not a host. Its ids
+are `rd-`-prefixed (measured live: flavours `rdp-…`, volume types `rdst-…`),
+so the prefix **does** name this family — the shared-prefix trap is the `db-`
+ids relational and MemoryStore alone carry. Everything in this section was
+verified against the gateway controller (`DBRedisClusterController`,
+`DBRedisBackupController`) and the Redis Cluster OpenAPI document. Every
+**read** tool was then probed live against the staging gateway (2026-11-04,
+read-only: all answered 200 — the three catalogue reads, the cluster listing
+and detail, the borrowed secrules read serving a Redis Cluster id, restore
+points, backups, locations and policies), and the **writes** were sent too,
+on a throwaway cluster (2026-11-04/05): create (round 1 landed without the
+backup fields — see the paragraph after this one), settings password,
+config-group attach/detach, secrules replace and both
+resize axes all landed — the probe caught two DTO bugs before merge (secrules
+wants the **full entity**, the resize nodes axis wants `deploymentMode`) —
+while the platform refused three with shapes worth knowing: settings
+`backupAuto` on a config-less cluster (`400` — backup is create-time-only),
+`backup-now` on one (`500 internal_error`, the config-less shape — on a
+configured cluster it answers `success` and the point lands within 30s; that
+same `500` has a second shape, on a configured cluster with a wedged backup
+pipeline, measured 2026-11-06 — see the backup paragraph below),
+and delete (`403 IAM_PERMISSION_DENIED` — a policy denial from
+the backend, not a payload error; see the delete paragraph below). Where a
+rule below was **inferred** from the sibling families rather than measured
+even in source, it says so.
+
+One leg of that deserves its own note: the throwaway's create (round 1)
+dropped the backup fields to a local probe bug, so it landed config-less —
+which is what made the create-time-only rule measurable at all — and the
+backup leg's **success** shape was then measured on a Portal-created
+configured cluster (2026-11-05): `backup-now` answered `success` and the
+restore point landed within 30s.
+
+**Its listing is its own, and unlike the PostgreSQL Cluster family's it is
+not derived.** Every row is a Redis Cluster — no mixed listing, no prefix
+filtering. But pagination is **mandatory** there (`pageNumber` and `pageSize`
+are required `@RequestParam`s, both always sent), and there is **no filter of
+any kind**: narrow a result by reading the rows, which is why
+`list_redis_clusters` takes no name/status argument at all.
+
+**The secrules read is borrowed, per-operation like the pg family's.** The
+controller has the `PUT /{dbInstanceId}/secrules` but no GET;
+`list_redis_cluster_secrules` reads the memory family's instance endpoint
+(`/v1/database-instances/{id}/secrules`, same service), which serves a Redis
+Cluster id — the same per-operation borrowing pattern, not a blanket rule.
+
+**The secrules PUT binds the full entity, not its published schema.** The
+OpenAPI document publishes `UpdateSecurityGroupRuleDetail` (id + port range +
+CIDR only) for this body, but the controller binds
+`List<SecurityGroupRuleEntity>` — `direction`/`etherType`/`protocol` included —
+and a row without the three answers `400 bad_request` (measured on staging,
+2026-11-04: the slim row failed, the full row on the same cluster answered 200
+and inserted). The DTO carries all six fields, plain strings rather than
+`Literal`s — the closed sets live in the vsr-api backend.
+
+**The create posts to the controller root** (`POST /v1/redis-cluster`), not to
+a `/payment` path like the relational and memory creates — but it is the same
+billable order flow: `user-type` header, `WrapContent<List<OrderResponse>>`,
+`IAM_USER` default. The resize, like the PostgreSQL one, is a **PUT** with the
+id filled from the path (`request.setId(clusterId)` — the body carries no id),
+and its `type` axis set is `VOLUME-SIZE` / `VOLUME-TYPE` / `NUMBER-OF-NODES` /
+**`FLAVOR`** — an axis the pg resize lacks.
+
+**An accepted resize order does not unsettle the cluster at once** (measured on
+staging, 2026-11-04): the PUT answers 200 with the order raised, but a poll
+issued immediately still reports the old shape while the cluster reads
+ACTIVE/settled — the RESIZE state surfaces late. So "wait until settled" is not
+a resize barrier: wait until the **resized field itself** changes. A second
+edit sent in that window — even with the cluster reading settled — collides
+with the in-flight order and answers `400 bad_request` (measured between two
+back-to-back resizes; the second was refused while the first still had not
+surfaced).
+
+**The nodes axis carries two rules the published schema does not state**
+(measured on staging, 2026-11-05). It requires `deploymentMode` — a field the
+resize schema does not even list — read it from the row's `deployment_mode`
+(`deploy_type` reads empty on this family; the vsr-api detail does not echo
+it there). And it moves **one node per resize**: +1 was accepted, +2 with the
+same otherwise-correct shape answered `400 bad_request`, within the absolute
+3-10 bounds the Portal enforces (`MIN_REDIS_NODE_COUNT`/`MAX_REDIS_NODE_COUNT`).
+The Portal also always sends `numberOfReplicas` as one less than the new node
+count (`nodes - 1`), which matches every shape observed so far (3 nodes =
+1 master + 2 replicas). The FLAVOR axis needed none of this — it was accepted
+with `type` + `packageId` alone, though the Portal sends `deploymentMode`
+there too.
+
+**The delete envelope has no `engineGroup`**, and the controller validates the
+shape itself: exactly one `databaseInstances` entry whose `instancesId` equals
+the path id case-insensitively, else `400 Invalid request` / `Invalid access
+resource`. The values inside (`action: "delete"`, `resType: "dbaas"`) are the
+same non-derivable constants as everywhere else. The delete then rides the
+**generic Trove path**, not a Redis one: the gateway (which itself adds no
+permission check anywhere on the path — its IAM interceptor only reads the
+portal-user-id header and gates maintenance) forwards it as
+`PUT {vsrApiUrl}/v2/trv/{projectId}/instances/{id}/delete`, and the backend
+authorizes the delete action with IAM. Measured on staging (2026-11-05): the
+delete answered `403 IAM_PERMISSION_DENIED` (`"IAM denied action"`, a string
+that appears nowhere in the gateway source) on credentials whose every other
+write had passed — a policy denial, surfaced as-is by the shared client (it
+is not a token-refresh case), so a caller hitting it needs the action granted
+or a console delete, not a re-shaped request.
+
+**Naming is inverted inside this one family.** The create takes `configId`
+("see GET /vdb-memory/v1/configurations"); the config-group **update** takes
+`configGroupId` on the same family's controller — the pg spelling, in the
+family whose create uses the relational spelling. The `""`-detaches claim is
+the same disproven spec claim the siblings carry, so the tool keeps `""` as
+its vocabulary and translates to `null` — **measured on this endpoint**
+(staging, 2026-11-04: the attach answered 200 and the group appeared in the
+detail; the null detach answered 200 and `configGroupId` emptied). Two
+timings came with it: the field **lags a read or two** behind the settled
+state, and the one-edit-at-a-time rule is real — a detach sent a second after
+the attach, before its BUILDING even surfaced, was accepted with 200 and then
+failed asynchronously, leaving the group attached.
+
+**The catalogues answer bare arrays** (`WrapContent<List<...>>` → `as_list`),
+where the memory family's volume types nest theirs (`{projectId, data[]}` →
+`unwrap_nested_list`). A handler that reached for the memory family's helper
+would report an empty catalogue, silently — a test pins this. Flavour and
+volume-type ids are **prefixed, not bare UUIDs** (measured live on staging,
+2026-11-04: flavours `rdp-…`, volume types `rdst-…`) and not the relational
+family's per-zone integers; `packageId`/`volumeTypeId` are per-zone like
+everywhere else, and `zoneId` on the two catalogues is optional, defaulting
+server-side to HCM03-1A. There is no engine or version argument anywhere — one
+engine. Versions are **`v`-prefixed full semver** (measured live, 2026-11-10:
+the datastores catalogue lists `v7.2.13` / `v7.0.15`, and the row and every
+restore point echo the same string in `datastoreVersion`/`engineVersion`) — a
+different format from the memory family's bare `7.2`, so a create takes the
+catalogue string verbatim.
+The family has **no zones and no subnets of its own**: zones come from
+`list_relational_zones`, subnets from `list_memory_subnets`, config groups
+from `list_memory_configurations` (the memory family's tool, unchanged).
+
+**Its backups are vBackup resources** behind `/v1/backups` — **plural**, where
+the PostgreSQL Cluster family's tree is `/v1/backup` — sharing the memory
+family's backups tree, separated by the `backup-vdb` sub-path. Same
+`BackupDatabase`/`BackupPoint` classes the pg family reads, so the models
+subclass the pg projections rather than duplicate them. A "backup"
+(`bk-db-...`) is a standing configuration, a restore point (`bk-db-pt-...`) is
+the copy, `backup-now` answers the bare string `"success"`, and restoring is
+a `create_redis_cluster` carrying `backupPointId` — no restore endpoint, no
+delete, exactly the pg family's shape.
+
+**Backup configuration is create-time-only** (measured on staging, 2026-11-04
+and 2026-11-05). A cluster created without `backupPolicyId`/`backupLocationId`
+has no backup configuration at all — `get_redis_cluster_backup` returns its
+**empty row** (`id=""`), not an error — and nothing can attach one later: the
+settings request model carries no policy/location fields, and switching the
+schedule on on a config-less cluster answers `400 bad_request`, whether
+`backupAuto` rides alone or with `backupDuration`/`backupTime`. Enable backups
+in the create or not at all on that cluster. `backup-now` on the same
+config-less cluster answers **`500 internal_error`** — a platform-fault shape,
+not a caller error, which the shared `BaseClient` retries as a generic 5xx
+before surfacing — so the tools tell the caller to read the backup row first
+instead of interpreting that error. On a **configured** cluster the same
+call answers `success` and the new restore point appears in
+`list_redis_restore_points` within about half a minute (measured on staging,
+2026-11-05 and again 2026-11-06: one new `ACTIVE` point within ~30-40s). But
+the `500` has a **second** shape, measured 2026-11-06: on a configured
+cluster whose backup pipeline was wedged — two restore points sitting in
+`BACKING_UP` since 2026-11-03/04 — `backup-now` answered `500 internal_error`
+on every attempt while a healthy sibling succeeded within the minute. So a
+`500` on a configured cluster is a platform fault to report to the vDB team,
+not the config-less shape and not a payload to reshape. (The stuck points are
+why `BACKING_UP` classifies transitional but its docstring says to read
+`updated` before calling a point stuck.)
+
+**`deploymentMode` decides the create's shape**: `non-sharding` sizes on
+`numberOfNodes`, `sharding` on `numberOfShards`, `numberOfReplicas` rides with
+both (per shard or per master node). The DTO rejects a body sized on both —
+the real validation lives in the vsr-api backend, whose messages this package
+never sees, so the local rules are the only named errors a caller gets.
+`numberOfNodes` counts **every** node, replicas included (measured on staging,
+2026-11-04: `numberOfNodes=3` with `numberOfReplicas` omitted built 1 master +
+2 replicas) — so the per-node bill scales with the whole row count, not the
+master count.
+
+**`TRASH` is the terminal soft-delete state** (classified `settled`): a row
+reading TRASH is a deleted cluster, not a running one. The vocabulary is 16
+values, supplied from the vsr-api `DBStatus` enum and re-checked against its
+source (2026-11-06 — `BACKING_UP`, seen live on restore-point rows, is a
+vBackup value and not in it).
+
+Skipped deliberately, with pg-family precedent: `POST
+/temporal-start-dummy-worker` (an ops helper), `GET /volume-types/{id}` (the
+listing already carries every row), and any restore tool (restore = create).
+
 ### The Kafka family (measured 2026-09-14)
 
-Kafka shares the gateway and the token with the other three families and almost
+Kafka shares the gateway and the token with the other four families and almost
 nothing else.
 
 **Paths carry no `/v1`.** `/clusters`, `/config-groups`, `/database/configs`.
@@ -1285,11 +1497,11 @@ relational resizes do, so polling the cluster is the only confirmation.
 | File | Purpose |
 |------|---------|
 | `server.py` | MCPServer entry point, handler registration, CLI flags, `SERVER_INSTRUCTIONS` |
-| `config.py` | `VdbConfig` + the four service endpoints (one host, no region axis) |
+| `config.py` | `VdbConfig` + the four service endpoints (one host, no region axis; Redis Cluster shares `VDB_MEMORY_SERVICE`) |
 | `client.py` | `VdbClient.call(method, path, service=..., user_type=...)` |
 | `paging.py` | The four unwrap helpers plus `build_page_params` / `build_filter_params` |
 | `discovery_cache.py` | Per-tool TTLs, and `UNCACHED_TOOLS` recording what is deliberately never cached |
-| `catalog_handler.py` | 25 catalogue tools: 9 relational, 8 memory, 3 PostgreSQL Cluster, 5 Kafka |
+| `catalog_handler.py` | 28 catalogue tools: 9 relational, 8 memory, 3 PostgreSQL Cluster, 3 Redis Cluster, 5 Kafka |
 | `relational_instance_handler.py` | 22 tools for relational instances (5 read, 5 dry-run, 12 write) |
 | `relational_backup_handler.py` | 8 tools for relational backups (4 read, 1 dry-run, 3 write) |
 | `relational_config_handler.py` | 6 tools for relational configuration groups (3 read, 3 write) |
@@ -1300,13 +1512,15 @@ relational resizes do, so polling the cluster is the only confirmation.
 | `memory_storage_handler.py` | 7 tools for MemoryStore backup storage (2 read, 2 dry-run, 3 write) |
 | `postgresql_cluster_handler.py` | 17 tools for PostgreSQL Clusters (5 read, 2 dry-run, 6 write, 2 destructive); the reads are **derived** from the relational listing; Multi-AZ via `netIds` |
 | `postgresql_backup_handler.py` | 6 tools for cluster backups, which are vBackup resources rather than vDB ones |
+| `redis_cluster_handler.py` | 12 tools for Redis Clusters (3 read, 3 dry-run, 4 write, 2 destructive); the family's own listing, a borrowed secrules read, and the `configId`/`configGroupId` inverse naming |
+| `redis_backup_handler.py` | 6 tools for Redis Cluster backups (5 read, 1 write) — vBackup resources under `/v1/backups`, plus the cached locations and policies |
 | `kafka_cluster_handler.py` | 14 tools for Kafka clusters, including the firewall rules (added and removed one at a time) |
 | `kafka_topic_handler.py` | 5 tools for topics |
 | `kafka_user_handler.py` | 7 tools for users, permissions and the credential archive |
 | `kafka_config_handler.py` | 6 tools for versioned configuration groups |
 | `prompts_handler.py` | 7 guidance topics as MCP prompts **and** as the `get_vdb_guide` tool |
-| `statuses.py` | The four status vocabularies plus `classify()` / `describe()` |
-| `models/` | `relational.py`, `memory.py`, `postgresql.py`, `kafka.py`, `requests.py`, `catalog.py`, `_common.py`; `__init__.py` re-exports every name |
+| `statuses.py` | Every status vocabulary (instance, backup, cluster, Kafka's three, the vBackup restore-point walk) plus `classify()` / `describe()` |
+| `models/` | `relational.py`, `memory.py`, `postgresql.py`, `redis_cluster.py`, `kafka.py`, `requests.py`, `catalog.py`, `_common.py`; `__init__.py` re-exports every name |
 | `guards.py` | `require_write` and `require_sensitive_access` — second line of defence behind `--allow-write` / `--allow-sensitive-data-access` |
 
 ## Guidance lives in prompts, not in docstrings
@@ -1365,4 +1579,5 @@ script driving `VdbClient`. It is not committed — it lived under the gitignore
 `docs/superpowers/`, beside output containing real account data. To check
 behaviour against the real API, use MCP Inspector (see README → Development)
 with the server running **without** `--allow-write`, so every call stays a
-read.
+read. To probe the staging gateway instead of production, set both
+`GRN_VDB_GATEWAY_URL` and `GRN_IAM_TOKEN_URL` (see Configuration above).

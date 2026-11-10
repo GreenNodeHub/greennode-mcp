@@ -20,6 +20,8 @@ from greennode.vdb_mcp_server.memory_storage_handler import MemoryStorageHandler
 from greennode.vdb_mcp_server.postgresql_backup_handler import PostgresqlBackupHandler
 from greennode.vdb_mcp_server.postgresql_cluster_handler import PostgresqlClusterHandler
 from greennode.vdb_mcp_server.prompts_handler import PromptsHandler
+from greennode.vdb_mcp_server.redis_backup_handler import RedisBackupHandler
+from greennode.vdb_mcp_server.redis_cluster_handler import RedisClusterHandler
 from greennode.vdb_mcp_server.relational_backup_handler import RelationalBackupHandler
 from greennode.vdb_mcp_server.relational_config_handler import RelationalConfigHandler
 from greennode.vdb_mcp_server.relational_instance_handler import RelationalInstanceHandler
@@ -36,8 +38,8 @@ SERVER_INSTRUCTIONS = """
 # GreenNode vDB MCP Server
 
 MCP Server for GreenNode vDB — managed databases: relational engines (MySQL,
-MariaDB, standalone PostgreSQL), MemoryStore (Redis), PostgreSQL Clusters and
-Kafka.
+MariaDB, standalone PostgreSQL), MemoryStore (Redis), PostgreSQL Clusters,
+Redis Clusters and Kafka.
 
 ## IMPORTANT: Operating mode
 
@@ -58,26 +60,29 @@ Read `troubleshooting` whenever a call looks like it did nothing — HTTP 200 is
 not success in this API. The same text is available as MCP prompts
 (`vdb_getting_started`, `vdb_create_instance`, …) for users who load prompts.
 
-## Four product families, four separate tool sets
+## Five product families, five separate tool sets
 
-vDB is four APIs behind one gateway. Tools are prefixed by family —
-`*_relational_*`, `*_memory_*`, `*_postgresql_*`, `*_kafka_*` — and they are
-NOT interchangeable: the same business operation uses a different path and
-often a different HTTP method in each family, and some operations exist in only
-one of them. Establish which product the user means before searching. "Not
-found" in one family is not evidence of absence in another.
+vDB is five APIs behind one gateway. Tools are prefixed by family —
+`*_relational_*`, `*_memory_*`, `*_postgresql_*`, `*_redis_*`, `*_kafka_*` —
+and they are NOT interchangeable: the same business operation uses a
+different path and often a different HTTP method in each family, and some
+operations exist in only one of them. Establish which product the user means
+before searching. "Not found" in one family is not evidence of absence in
+another.
 
 ## An instance ID does NOT tell you its family
 
-`db-` is used by **both** relational instances and MemoryStore (Redis) ones —
-verified live. Only `pg-` (PostgreSQL Cluster) and Kafka's own ids are
-distinctive. So never infer the family from an id, and never conclude a
-resource is missing because one family's tool did not find it.
+`db-` is used by **two** families — relational instances and MemoryStore
+(Redis) — measured live for both. Only `pg-` (PostgreSQL Cluster), `rd-`
+(Redis Cluster) and Kafka's own ids are distinctive. So never infer the family
+from a `db-` id, and never conclude a resource is missing because one
+family's tool did not find it.
 
 Worse, the two get-by-id endpoints disagree about how strict they are:
 
 - `get_memory_instance` is **family-strict**: it answers "not found" for a
-  relational or cluster id, so a result from it proves the instance is Redis.
+  relational or PostgreSQL Cluster id, so a result from it proves the
+  instance is MemoryStore Redis.
 - `get_relational_instance` is **not**: it resolves ids from every family and
   will hand back a Redis instance or a PostgreSQL Cluster without complaint.
   Always check `datastore_type` on what comes back before treating it as a
@@ -145,6 +150,39 @@ Do not generalise that into "the relational API works for clusters": measured,
 an empty array, because cluster backups are vBackup resources with their own
 tools (`list_postgresql_restore_points`, and the locations and policies).
 Reboot is the family's only lifecycle action — there is no start and no stop.
+
+## The Redis Cluster family shares the memory service
+
+Redis Clusters are a **clustered** Redis, separate from MemoryStore's
+single-node one, living behind the same `/vdb-memory` host — the family is
+separated by **path** (`/v1/redis-cluster`), not by host. Its `rd-` ids are
+distinctive, and its catalogue ids carry the same prefix — flavours `rdp-…`,
+volume types `rdst-…` — all measured live on staging. Everything below was
+read from the gateway controller and its OpenAPI document, then measured live
+in staging — the listing, the backup reads and the backup-now write flow:
+
+- The listing is the family's **own**: every row a Redis Cluster, **no filter
+  of any kind**, and pagination is mandatory — `pageNumber`/`pageSize` are
+  always sent. Narrow a result by reading the rows.
+- The secrules **read** is borrowed from the memory instance endpoint (the
+  cluster controller has the PUT but no GET). The create posts to the
+  controller root — no `/payment` prefix, unlike the relational and memory
+  creates — but it is the same billable order flow. The delete envelope
+  carries **no** `engineGroup` and the controller insists on exactly one
+  entry whose id repeats the path.
+- Naming is inverted **inside** the family: the create takes `configId`, the
+  config-group update takes `configGroupId`. Configuration groups come from
+  `list_memory_configurations`; zones from `list_relational_zones`; subnets
+  from `list_memory_subnets` (all shared catalogues — the family has no
+  catalogues of its own beyond engines, flavours and volume types, which are
+  **bare arrays** keyed by zone, their ids prefixed: flavours `rdp-…`,
+  volume types `rdst-…`).
+- Its backups are **vBackup** resources like the PostgreSQL Cluster family's,
+  under `/v1/backups` (plural): a "backup" is a standing configuration
+  (`bk-db-...`), a restore point (`bk-db-pt-...`) is the actual copy, and
+  restoring is a `create_redis_cluster` carrying `backupPointId` — it builds
+  a new cluster and never touches the source.
+- `TRASH` is the terminal soft-delete state, not a cluster still running.
 
 ## No region parameter
 
@@ -277,6 +315,8 @@ def register_handlers(
     MemoryStorageHandler(mcp, config, client, cache, allow_write=allow_write)
     PostgresqlClusterHandler(mcp, config, client, allow_write=allow_write)
     PostgresqlBackupHandler(mcp, config, client, cache, allow_write=allow_write)
+    RedisClusterHandler(mcp, config, client, allow_write=allow_write)
+    RedisBackupHandler(mcp, config, client, cache, allow_write=allow_write)
     KafkaClusterHandler(mcp, config, client, allow_write=allow_write)
     KafkaTopicHandler(mcp, config, client, allow_write=allow_write)
     KafkaUserHandler(

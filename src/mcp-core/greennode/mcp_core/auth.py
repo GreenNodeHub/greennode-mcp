@@ -5,11 +5,22 @@ from __future__ import annotations
 import asyncio
 import base64
 import httpx
+import os
 import time
 from typing import Protocol
 
 
 IAM_TOKEN_URL = "https://iamapis.vngcloud.vn/accounts-api/v1/auth/token"
+"""The production IAM token endpoint."""
+
+IAM_TOKEN_URL_ENV = "GRN_IAM_TOKEN_URL"
+"""Environment variable overriding the IAM token endpoint.
+
+Point it at a non-production IAM when live-probing a staging gateway whose
+service accounts the production IAM does not know. Unset, the production
+endpoint above answers. Product servers pair it with their own gateway
+override (vdb: ``GRN_VDB_GATEWAY_URL``).
+"""
 
 DEFAULT_TIMEOUT = 30  # seconds
 
@@ -25,10 +36,14 @@ class TokenManager:
     Works with any config object exposing ``client_id`` and ``client_secret``.
     Note: the GreenNode IAM API uses camelCase fields (``grantType``, ``accessToken``,
     ``expiresIn``) — not the snake_case OAuth2 standard.
+
+    The token endpoint is ``token_url`` when given, else ``GRN_IAM_TOKEN_URL``
+    (see ``IAM_TOKEN_URL_ENV``), else the production ``IAM_TOKEN_URL``.
     """
 
-    def __init__(self, config: _HasClientCredentials) -> None:
+    def __init__(self, config: _HasClientCredentials, token_url: str | None = None) -> None:
         self._config = config
+        self._token_url = token_url or os.environ.get(IAM_TOKEN_URL_ENV) or IAM_TOKEN_URL
         self._access_token = None
         self._expires_at = 0
         self._lock = asyncio.Lock()
@@ -54,7 +69,7 @@ class TokenManager:
 
         try:
             async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
-                response = await client.post(IAM_TOKEN_URL, json=body, headers=headers)
+                response = await client.post(self._token_url, json=body, headers=headers)
         except httpx.ConnectError as exc:
             raise RuntimeError(f"Cannot connect to IAM API: {exc}") from exc
 

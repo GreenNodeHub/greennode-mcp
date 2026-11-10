@@ -46,21 +46,25 @@ tự nhiên; trợ lý tự khám phá tài nguyên sẵn có, đề xuất defa
 nhận trước khi tạo hoặc thay đổi bất cứ thứ gì. Bạn KHÔNG cần biết ID tài
 nguyên thô.
 
-## Bốn họ sau một gateway
+## Năm họ sau một gateway
 
-vDB là bốn API riêng biệt dùng chung một gateway và một token. Tool được đặt
+vDB là năm họ tool dùng chung một gateway và một token. Tool được đặt
 tiền tố theo họ và **không** thay thế cho nhau — cùng một thao tác thường có
 path khác nhau, đôi khi cả HTTP method khác nhau, ở mỗi họ:
 
 | Họ | Engine | Tiền tố tool |
 |---|---|---|
 | Relational | MySQL, MariaDB, PostgreSQL đơn lẻ | `*_relational_*` |
-| MemoryStore | Redis | `*_memory_*` |
+| MemoryStore | Redis đơn node | `*_memory_*` |
 | PostgreSQL Cluster | PostgreSQL dạng cụm | `*_postgresql_*` |
+| Redis Cluster | Redis dạng cụm (sharding) | `*_redis_*` |
 | Kafka | Kafka | `*_kafka_*` |
 
-Xác định người dùng đang nói về sản phẩm nào TRƯỚC khi đi tìm. "Không thấy" ở
-một họ không chứng minh được là không tồn tại ở họ khác.
+Redis Cluster **dùng chung service `/vdb-memory`** với MemoryStore — ngăn cách
+bằng path (`/v1/redis-cluster`), không phải bằng host — nhưng id `rd-` của nó
+là đặc trưng riêng. Xác định người dùng đang nói về sản phẩm nào
+TRƯỚC khi đi tìm. "Không thấy" ở một họ không chứng minh được là không tồn tại
+ở họ khác.
 
 ## Tên tham số KHÔNG mang sang giữa các họ
 
@@ -73,6 +77,7 @@ thiết kế có chủ ý, nhưng tốt hơn nữa là gọi đúng ngay từ đ
 | Liệt kê replica (relational, memory) | `source_instance_id` | `instance_id` |
 | Gắn/gỡ config group (relational, memory) | `config_id` | `config_group_id` |
 | Gắn config group (PostgreSQL Cluster) | `config_group_id` | `config_id` — **ngược** với hai họ kia |
+| Gắn config group (Redis Cluster) | `config_group_id` — như PostgreSQL Cluster; riêng tool **create** của họ này lại là `configId` | `config_id` |
 | Gắn config group (Kafka) | `config_group_version_id` (`cgroupver-…`) | `config_group_id` |
 | Topic / user Kafka | `topic_id` / `user_id` | tên topic / tên user |
 | Resize cụm Kafka | `size`, `count` + `rebalance` — tham số trực tiếp | `spec:{...}` bọc bên trong |
@@ -82,12 +87,12 @@ tham số theo tool của họ khác. Việc gì dính tới Kafka — lấy gui
 
 ## ID của instance KHÔNG cho biết nó thuộc họ nào
 
-Tiền tố `db-` được dùng bởi **cả** relational lẫn MemoryStore. Chỉ `pg-`
-(PostgreSQL Cluster) là đặc trưng. Vì vậy:
+Tiền tố `db-` được dùng bởi **hai** họ: relational và MemoryStore. Riêng `pg-`
+(PostgreSQL Cluster) và `rd-` (Redis Cluster) là đặc trưng. Vì vậy:
 
-- Không bao giờ suy ra họ từ id.
+- Không bao giờ suy ra họ từ id `db-`.
 - `get_memory_instance` kiểm tra chặt theo họ: nó trả về kết quả tức là instance
-  đó đúng là Redis. `get_postgresql_cluster` cũng chặt, nhưng là do **tool tự
+  đó đúng là Redis MemoryStore. `get_postgresql_cluster` cũng chặt, nhưng là do **tool tự
   kiểm tra tiền tố** chứ không phải do API — endpoint nó gọi là của họ
   relational và nhận mọi loại id.
 - `get_relational_instance` thì **không**: nó trả về cả instance Redis lẫn cụm
@@ -133,6 +138,10 @@ chung với `greennode-cli` (`grn configure` ghi ra hai file này). Biến môi 
   `list_postgresql_cluster_histories`, và các tool backup
   `list_postgresql_restore_points` / `list_postgresql_backup_locations` /
   `list_postgresql_backup_policies`.
+- Cụm Redis: `list_redis_clusters` / `get_redis_cluster` (listing **riêng** của
+  họ, không phái sinh), `list_redis_cluster_secrules`, và các tool backup
+  `list_redis_restore_points` / `list_redis_backup_locations` /
+  `list_redis_backup_policies`.
 
 ## Họ PostgreSQL Cluster không có endpoint list, cũng không có get
 
@@ -158,6 +167,32 @@ dựng node bằng flavor và volume type **của chính zone đó**, nên cả 
 mặt ở mọi zone được chọn — HCM03-1C hiện chưa có volume type NVMe nên chưa
 chọn được cho Multi-AZ. Sau khi tạo, `get_postgresql_cluster` báo từng zone
 trong `zones`.
+
+## Họ Redis Cluster: chia nhau path với MemoryStore
+
+Không phải MemoryStore dạng cụm — là họ riêng, đằng sau **cùng service**
+`/vdb-memory`. Id `rd-` của cụm là đặc trưng riêng (catalogue cũng mang tiền tố
+này: flavor `rdp-…`, volume type `rdst-…`). Vài điều không đoán được từ bên
+ngoài — đọc từ source gateway rồi live-probe trên staging (listing, các phần
+đọc backup và luồng backup-now):
+
+- Listing là của riêng họ: **không có filter gì hết** (đọc từng dòng để thu
+  hẹp), và phân trang là bắt buộc — luôn gửi `pageNumber`/`pageSize`.
+- Đọc security rule **mượn** endpoint instance của họ memory; còn create thì
+  POST thẳng vào gốc controller (không có `/payment` như hai họ kia) nhưng vẫn
+  là order flow tính tiền như thường, `user_type` vẫn mặc định `IAM_USER`.
+- **Chữ đảo ngược trong cùng một họ**: tool create nhận `configId`, tool cập
+  nhật config group lại nhận `configGroupId`. Config group lấy từ
+  `list_memory_configurations`; zone từ `list_relational_zones`; subnet từ
+  `list_memory_subnets`.
+- Xoá dùng envelope `{action, resType}` nhưng **không có** `engineGroup`, và
+  controller chỉ nhận đúng MỘT entry lặp đúng id trên path.
+- Backup là tài nguyên **vBackup** giống hệt họ PostgreSQL Cluster, dưới
+  `/v1/backups` (số nhiều): "backup" là cấu hình đứng (`bk-db-…`), restore
+  point (`bk-db-pt-…`) mới là bản sao — restore là `create_redis_cluster`
+  mang `backupPointId`, dựng cụm **mới**, không đụng cụm nguồn.
+- Status `TRASH` là trạng thái soft-delete cuối cùng — không phải cụm còn
+  đang chạy.
 
 ## Kafka khác mọi họ còn lại — đừng mang quy ước nào sang
 
@@ -602,9 +637,9 @@ mọi thứ không phải Redis, còn `get_relational_instance` thì nhận tấ
 
 
 _KAFKA = """\
-# Kafka trong vDB — họ thứ tư, quy ước riêng
+# Kafka trong vDB — họ thứ năm, quy ước riêng
 
-Kafka dùng chung gateway và token với ba họ còn lại và gần như KHÔNG dùng chung
+Kafka dùng chung gateway và token với bốn họ còn lại và gần như KHÔNG dùng chung
 quy ước nào khác. Trước khi gọi tool Kafka nào, đọc schema của CHÍNH tool đó —
 mọi tham số và body mang sang từ relational / memory / postgresql đều là phỏng
 đoán, và phỏng đoán ở họ này thường sai.
@@ -749,7 +784,7 @@ class PromptsHandler:
 
         Topics:
 
-        - `getting_started` -- what vDB is, the four families, why an instance id
+        - `getting_started` -- what vDB is, the five families, why an instance id
           does not identify its family, tool routing.
         - `create_instance` -- the discovery chain, the same-zone rule, the
           per-family password rules, the confirm gate.
@@ -770,7 +805,7 @@ class PromptsHandler:
         return _GUIDES[topic]
 
     async def vdb_getting_started(self) -> str:
-        """Onboarding for vDB: the four families, auth, read-only mode, tool routing."""
+        """Onboarding for vDB: the five families, auth, read-only mode, tool routing."""
         return _GETTING_STARTED
 
     async def vdb_create_instance(self) -> str:

@@ -17,6 +17,7 @@ from greennode.mcp_core import (
     validate_id,
     validate_path_segment,
 )
+from greennode.mcp_core.auth import IAM_TOKEN_URL_ENV
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +92,41 @@ def _mock_iam(mock):
     mock.post(IAM_TOKEN_URL).mock(
         return_value=httpx.Response(200, json={"accessToken": "tok", "expiresIn": 1800})
     )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_token_manager_env_override_routes_the_token_request(monkeypatch):
+    """GRN_IAM_TOKEN_URL sends the token exchange to another IAM.
+
+    This is how a staging gateway whose service accounts the production IAM
+    does not know gets probed: respx refuses any unmocked URL, so the request
+    reaching the staging mock — and the production one never being hit — is
+    proven by the call itself, not by an assertion.
+    """
+    stg_token_url = "https://stg-iam.example.test/accounts-api/v1/auth/token"
+    monkeypatch.setenv(IAM_TOKEN_URL_ENV, stg_token_url)
+    stg_route = respx.post(stg_token_url).mock(
+        return_value=httpx.Response(200, json={"accessToken": "stg-tok", "expiresIn": 1800})
+    )
+    manager = TokenManager(_FakeConfig())
+    assert await manager.get_token() == "stg-tok"
+    assert stg_route.calls.last.request.headers["Authorization"].startswith("Basic ")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_token_manager_explicit_url_wins_over_the_env(monkeypatch):
+    monkeypatch.setenv(
+        IAM_TOKEN_URL_ENV, "https://env-iam.example.test/accounts-api/v1/auth/token"
+    )
+    explicit_url = "https://explicit-iam.example.test/accounts-api/v1/auth/token"
+    route = respx.post(explicit_url).mock(
+        return_value=httpx.Response(200, json={"accessToken": "explicit-tok", "expiresIn": 1800})
+    )
+    manager = TokenManager(_FakeConfig(), token_url=explicit_url)
+    assert await manager.get_token() == "explicit-tok"
+    assert route.called
 
 
 @respx.mock

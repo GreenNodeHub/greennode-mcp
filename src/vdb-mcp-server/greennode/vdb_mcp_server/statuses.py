@@ -2,7 +2,9 @@
 
 The API declares no ``enum`` anywhere and has no endpoint that lists statuses,
 so these tuples come from the platform's own source enums, supplied by the
-GreenNode vDB team on 2026-09-08 and copied here verbatim. **This file is the
+GreenNode vDB team (2026-09-08; the Redis Cluster vocabulary on 2026-11-04)
+and copied here verbatim — the one measured exception is
+:data:`VBACKUP_RESTORE_POINT_STATUSES`. **This file is the
 in-repo source of truth**: the original notes are platform source and are not
 committed, so a change here should come from the vDB team's current enum, not
 from an observed response. :func:`classify` still answers ``unknown`` for anything
@@ -74,6 +76,56 @@ POSTGRESQL_CLUSTER_STATUSES: tuple[str, ...] = (
     "RESTART_REQUIRED",
 )
 """Statuses a **PostgreSQL Cluster** can report."""
+
+REDIS_CLUSTER_STATUSES: tuple[str, ...] = (
+    "NEW",
+    "BUILDING",
+    "BUILD",
+    "ACTIVE",
+    "EXPIRED",
+    "ERROR",
+    "REBOOT",
+    "INTERNAL_ERROR",
+    "BACKUP",
+    "SHUTDOWN",
+    "DELETING",
+    "RESIZE",
+    "RESTART_REQUIRED",
+    "BLOCKED",
+    "FAILED",
+    "TRASH",
+)
+"""Statuses a **Redis Cluster** can report.
+
+Supplied by the GreenNode team from the vsr-api ``DBStatus`` enum (the backend
+behind the redis-cluster controller), 2026-11-04. It reads like the
+relational/MemoryStore 21 and is not a subset of it: ``NEW`` and ``TRASH``
+exist only here, and this ``DELETING`` is uppercase where the relational
+transition into deletion is the lowercase ``deleting``.
+
+``TRASH`` is the terminal **soft-delete** state: the cluster has been deleted
+and is awaiting retention cleanup. Nothing is in flight to poll for, so it is
+settled -- but it is not gone the way ``DELETED`` means gone either, so a tool
+should say "soft-deleted" rather than "deleted".
+"""
+
+VBACKUP_RESTORE_POINT_STATUSES: tuple[str, ...] = (
+    "BACKING_UP",
+    "UPLOADING",
+    "ACTIVE",
+)
+"""Statuses a **vBackup restore point** can report.
+
+The measured vocabulary, not a team enum: the vbackup MCP package measured the
+walk ``BACKING_UP`` → ``UPLOADING`` → ``ACTIVE`` (a 20 GB boot disk takes
+minutes, not seconds), and the vDB Redis Cluster probe measured it again on
+staging (2026-11-06: a new point ``ACTIVE`` within ~40s of ``success``).
+``BACKING_UP`` can also mean *stuck* — the same probe saw two points sitting
+in it for days on a wedged backup pipeline — and the status alone cannot tell
+progressing from stuck: read ``updated`` next to it before calling a point
+stuck. Both non-settled values classify as transitional, so the guidance is
+"poll again", and a restore must wait for ``ACTIVE``.
+"""
 
 KAFKA_CLUSTER_STATUSES: tuple[str, ...] = (
     "ERROR",
@@ -150,10 +202,13 @@ SETTLED_STATUSES = frozenset(
         "COMPLETED",
         "DELETED",
         "SHUTDOWN",
+        "TRASH",
     }
 )
 """Nothing is in flight. ``SHUTDOWN`` is a stopped instance -- stable, and still billed
-for storage, so it is settled rather than needing attention."""
+for storage, so it is settled rather than needing attention. ``TRASH`` is a soft-deleted
+Redis Cluster awaiting retention cleanup: already deleted as far as the user is
+concerned, so settled, not a deletion in progress."""
 
 ATTENTION_STATUSES = frozenset(
     {
@@ -234,6 +289,9 @@ TRANSITIONAL_STATUSES = frozenset(
         # postgresql cluster
         "DELETING",
         "REBOOTING",
+        # vbackup restore points (postgresql + redis cluster families)
+        "BACKING_UP",
+        "UPLOADING",
     }
     # Every remaining Kafka status names an operation in flight -- creating,
     # deleting, updating, scaling, rebalancing, waiting to do one of those.

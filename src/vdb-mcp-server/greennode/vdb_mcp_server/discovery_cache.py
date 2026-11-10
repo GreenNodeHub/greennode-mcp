@@ -27,6 +27,11 @@ TTL_CONFIG: dict[str, int] = {
     "list_postgresql_datastores": 3600,
     "list_postgresql_flavors": 3600,
     "list_postgresql_volume_types": 3600,
+    # The Redis Cluster catalogue, on the memory service but behind its own
+    # controller.
+    "list_redis_datastores": 3600,
+    "list_redis_flavors": 3600,
+    "list_redis_volume_types": 3600,
     # Kafka's catalogue, including the limits endpoint -- which is a catalogue
     # of the platform's own validation rules, not of anything the account owns.
     "get_kafka_limits": 3600,
@@ -56,6 +61,8 @@ TTL_CONFIG: dict[str, int] = {
     # the per-cluster backup reads are uncached.
     "list_postgresql_backup_locations": 600,
     "list_postgresql_backup_policies": 600,
+    "list_redis_backup_locations": 600,
+    "list_redis_backup_policies": 600,
 }
 
 UNCACHED_TOOLS = (
@@ -95,6 +102,19 @@ UNCACHED_TOOLS = (
     "list_postgresql_backups",
     "get_postgresql_cluster_backup",
     "list_postgresql_restore_points",
+    # The Redis Cluster family: same reasoning as the families above. Its
+    # listing is its own rather than borrowed, but it answers the same
+    # "what exists right now" -- and the secrules read is the pre-write step
+    # of a replace, where a stale rule set would drop live rules.
+    "list_redis_clusters",
+    "get_redis_cluster",
+    "list_redis_cluster_secrules",
+    # Its backups are vBackup resources, same as the PostgreSQL Cluster
+    # family's: every read here answers "what has run", never "what is on
+    # offer" -- the locations and policies above are the catalogue half.
+    "list_redis_backups",
+    "get_redis_cluster_backup",
+    "list_redis_restore_points",
     # Kafka: everything that answers "what exists right now". Its writes are
     # asynchronous and answer with a bare string, so a cached read would be
     # the only thing a caller had to go on -- and it would be stale.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from greennode.mcp_core.config import load_profile
 from pathlib import Path
@@ -14,8 +15,17 @@ Region = Literal["HCM-3", "HAN"]
 vDB tools deliberately expose no ``region`` parameter -- see ``REGIONS`` below.
 """
 
+GATEWAY_URL_ENV = "GRN_VDB_GATEWAY_URL"
+"""Environment variable overriding the gateway host for every service.
+
+Point it at a non-production gateway to live-probe a family against staging
+before it reaches production. Unset, every call goes to the production
+gateway below: the module constants never read the environment, so a stray
+variable cannot leak a test host into a production run's URL table.
+"""
+
 VDB_GATEWAY = "https://vdb-gateway.vngcloud.vn"
-"""The single vDB gateway host.
+"""The single vDB gateway host (the production default).
 
 Unlike vServer or vBackup there is **no per-region host**: one gateway answers
 for the whole account and resolves the project from the token. Verified in
@@ -24,6 +34,9 @@ through the same two prefixes.
 
 Note the OpenAPI document spells this `https:/vdb-gateway.vngcloud.vn` with a
 single slash. That is a typo in the spec, not an endpoint.
+
+Override for staging or local testing via ``GRN_VDB_GATEWAY_URL`` — see
+``GATEWAY_URL_ENV``.
 """
 
 VDB_RELATIONAL_SERVICE = "vdb-relational"
@@ -47,27 +60,30 @@ VDB_KAFKA_SERVICE = "vdb-kafka"
 different response shapes -- it shares no response handling with the others."""
 
 
-REGIONS: dict[str, dict[str, str]] = {
-    "HCM-3": {
-        VDB_RELATIONAL_SERVICE: f"{VDB_GATEWAY}/{VDB_RELATIONAL_SERVICE}",
-        VDB_MEMORY_SERVICE: f"{VDB_GATEWAY}/{VDB_MEMORY_SERVICE}",
-        VDB_POSTGRESQL_SERVICE: f"{VDB_GATEWAY}/{VDB_POSTGRESQL_SERVICE}",
-        VDB_KAFKA_SERVICE: f"{VDB_GATEWAY}/{VDB_KAFKA_SERVICE}",
-    },
-    "HAN": {
-        VDB_RELATIONAL_SERVICE: f"{VDB_GATEWAY}/{VDB_RELATIONAL_SERVICE}",
-        VDB_MEMORY_SERVICE: f"{VDB_GATEWAY}/{VDB_MEMORY_SERVICE}",
-        VDB_POSTGRESQL_SERVICE: f"{VDB_GATEWAY}/{VDB_POSTGRESQL_SERVICE}",
-        VDB_KAFKA_SERVICE: f"{VDB_GATEWAY}/{VDB_KAFKA_SERVICE}",
-    },
-}
-"""Both region keys map to the same URLs on purpose.
+VDB_SERVICES = (
+    VDB_RELATIONAL_SERVICE,
+    VDB_MEMORY_SERVICE,
+    VDB_POSTGRESQL_SERVICE,
+    VDB_KAFKA_SERVICE,
+)
+"""Every vDB service prefix the one gateway fans out to."""
 
-``BaseClient`` resolves every call through ``get_base_url(region, service)``, so
-the region axis has to exist; for vDB it simply has no effect. Keeping the
-mapping (rather than dropping the argument) means a future region-scoped vDB
-host is a data change here and nothing else.
-"""
+
+def _regions_for(gateway: str) -> dict[str, dict[str, str]]:
+    """Map both region keys onto the same per-service URLs on *gateway*.
+
+    ``BaseClient`` resolves every call through ``get_base_url(region, service)``,
+    so the region axis has to exist; for vDB it simply has no effect (see the
+    ``Region`` literal above). Both region keys therefore resolve to the same
+    URL on purpose. Building the table here means a future region-scoped vDB
+    host is a data change in this one function and nothing else.
+    """
+    per_region = {service: f"{gateway}/{service}" for service in VDB_SERVICES}
+    return {region: dict(per_region) for region in ("HCM-3", "HAN")}
+
+
+REGIONS = _regions_for(VDB_GATEWAY)
+"""The production URL table — see :func:`_regions_for`."""
 
 
 @dataclass
@@ -92,12 +108,18 @@ class VdbConfig:
 
 
 def load_config(config_dir: Path) -> VdbConfig:
-    """Load configuration from *config_dir* (credentials shared with greennode-cli)."""
+    """Load configuration from *config_dir* (credentials shared with greennode-cli).
+
+    ``GRN_VDB_GATEWAY_URL`` (see ``GATEWAY_URL_ENV``) overrides the gateway
+    host for every service; a trailing slash is trimmed. Unset, the production
+    gateway answers.
+    """
     profile = load_profile(config_dir)
+    gateway = os.environ.get(GATEWAY_URL_ENV, "").rstrip("/") or VDB_GATEWAY
     return VdbConfig(
         client_id=profile.client_id,
         client_secret=profile.client_secret,
         default_region=profile.region,
-        regions=REGIONS,
+        regions=_regions_for(gateway),
         project_id=profile.project_id,
     )

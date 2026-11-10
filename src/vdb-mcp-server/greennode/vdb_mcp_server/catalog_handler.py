@@ -101,6 +101,22 @@ MEMORY_PATHS = {
     "subnets": "/v1/database/networks/subnets",
 }
 
+REDIS_PATHS = {
+    "datastores": "/v1/redis-cluster/datastore",
+    "flavors": "/v1/redis-cluster/flavors",
+    "volume_types": "/v1/redis-cluster/volume-types",
+}
+"""The Redis Cluster catalogue -- the fifth family, on the memory service.
+
+It shares `VDB_MEMORY_SERVICE` with the MemoryStore family, so the two are
+separated by **path**, not by host: this family's controller mounts at
+`/v1/redis-cluster`. Like the PostgreSQL Cluster catalogue it has one engine
+(no engines, families or flavour-codes endpoint) and borrows the zones,
+networks and subnets from the relational catalogue. Its backup locations and
+policies are vBackup resources and live with this family's backup tools, in
+`redis_backup_handler`.
+"""
+
 EMPTY_FLAVORS_NOTE = (
     "No flavours matched. The API answers an unrecognised engine/version pair with an "
     "empty list rather than an error, so this almost always means the pair is wrong "
@@ -194,6 +210,11 @@ class CatalogHandler:
         )
         self.mcp.tool(name="list_postgresql_volume_types", annotations=READ)(
             self.list_postgresql_volume_types
+        )
+        self.mcp.tool(name="list_redis_datastores", annotations=READ)(self.list_redis_datastores)
+        self.mcp.tool(name="list_redis_flavors", annotations=READ)(self.list_redis_flavors)
+        self.mcp.tool(name="list_redis_volume_types", annotations=READ)(
+            self.list_redis_volume_types
         )
         self.mcp.tool(name="get_kafka_limits", annotations=READ)(self.get_kafka_limits)
         self.mcp.tool(name="list_kafka_flavors", annotations=READ)(self.list_kafka_flavors)
@@ -774,6 +795,101 @@ class CatalogHandler:
         return VolumeTypeListData(
             count=len(items), items=items, zone_id=zone_id, multi_zone=multi_zone
         )
+
+    # ------------------------------------------------------------------
+    # Redis Cluster
+    # ------------------------------------------------------------------
+
+    async def list_redis_datastores(
+        self,
+        refresh: bool = Field(False, description="Bypass the cache and re-fetch"),
+    ) -> DatastoreListData:
+        """List the Redis versions a Redis Cluster can be created with.
+
+        Start here: `version` from a row is what a create's
+        `datastoreVersion` takes, and it is also what bounds a restore -- a
+        restore point records the version it was written by and a restore is
+        a create carrying a `backupPointId`, so the two versions have to
+        match.
+
+        The family has one engine, so unlike `list_memory_datastores` there
+        is no `type` to choose -- but take the version from here rather than
+        from the memory catalogue: MemoryStore and Redis Cluster are separate
+        products and need not offer the same versions.
+        """
+        return await self._datastores(
+            "list_redis_datastores",
+            VDB_MEMORY_SERVICE,
+            REDIS_PATHS["datastores"],
+            refresh,
+        )
+
+    async def list_redis_flavors(
+        self,
+        zone_id: str | None = Field(
+            None,
+            description=(
+                "Availability zone from list_relational_zones. Omitting it describes the "
+                "platform default zone (HCM03-1A), not every zone."
+            ),
+        ),
+        refresh: bool = Field(False, description="Bypass the cache and re-fetch"),
+    ) -> FlavorListData:
+        """List the node sizes a Redis Cluster can be created with, in a zone.
+
+        A row's `id` is a create's `packageId`, and a `FLAVOR` resize takes
+        one from here too. `ram_gb` and `vcpus` are **per node**, so the
+        cluster's total is that times `numberOfNodes`. `is_default` marks
+        the zone's default size; `network_performance` is the row's own
+        network class.
+
+        Unlike the relational and memory flavour catalogues this one needs
+        **no** engine or version -- the family has one engine -- so it can
+        be called bare. Ids are per zone, so `packageId`, `volumeTypeId`
+        and `locateZoneId` must all come from the same zone.
+        """
+        params = {"zoneId": zone_id} if zone_id else None
+        raw = await self._fetch(
+            "list_redis_flavors",
+            VDB_MEMORY_SERVICE,
+            REDIS_PATHS["flavors"],
+            refresh,
+            params,
+        )
+        items = [FlavorOption.from_api(row) for row in as_list(raw)]
+        return FlavorListData(count=len(items), items=items, zone_id=zone_id)
+
+    async def list_redis_volume_types(
+        self,
+        zone_id: str | None = Field(
+            None,
+            description=(
+                "Availability zone from list_relational_zones. Omitting it describes the "
+                "platform default zone (HCM03-1A), not every zone."
+            ),
+        ),
+        refresh: bool = Field(False, description="Bypass the cache and re-fetch"),
+    ) -> VolumeTypeListData:
+        """List the storage types a Redis Cluster can be created with, in a zone.
+
+        A row's `id` is a create's `volumeTypeId` and a `VOLUME-TYPE` resize's
+        target. `min_volume_size` / `max_volume_size` bound the create's
+        `volumeSize`, which is per node.
+
+        The rows come back as a bare array -- where the memory family's
+        volume types, on the very same service, nest theirs. Same catalogue,
+        two shapes, so never carry an unwrapper between the two families.
+        """
+        params = {"zoneId": zone_id} if zone_id else None
+        raw = await self._fetch(
+            "list_redis_volume_types",
+            VDB_MEMORY_SERVICE,
+            REDIS_PATHS["volume_types"],
+            refresh,
+            params,
+        )
+        items = [VolumeTypeOption.from_api(row) for row in as_list(raw)]
+        return VolumeTypeListData(count=len(items), items=items, zone_id=zone_id)
 
     # ------------------------------------------------------------------
     # Kafka

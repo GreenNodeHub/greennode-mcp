@@ -90,6 +90,7 @@ legacy directory exists (mirrors greennode-cli).
 | `GRN_PROFILE` | Select profile (default: "default") |
 | `GRN_DEFAULT_REGION` | Override region |
 | `GRN_PROJECT_ID` | Override project_id |
+| `GRN_IAM_TOKEN_URL` | Override the IAM token endpoint (`mcp_core.auth.TokenManager`; for a non-production IAM, e.g. staging) |
 
 ## Adding a new tool
 

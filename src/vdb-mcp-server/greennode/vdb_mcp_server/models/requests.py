@@ -1609,3 +1609,437 @@ class CreateKafkaSecurityRuleDto(_Dto):
             "confirm against get_kafka_limits if a cluster rejects one."
         ),
     )
+
+
+# ----------------------------------------------------------------------
+# Redis Cluster
+# ----------------------------------------------------------------------
+
+RESIZE_FLAVOR = "FLAVOR"
+"""The fourth resize axis, Redis Cluster only: change the flavour (`packageId`).
+
+The gateway's own ``RedisResizeType`` enum has the PostgreSQL Cluster's three
+axes plus this one, so the resize DTO below closes the set at four values.
+"""
+
+REDIS_DEPLOYMENT_SHARDING = "sharding"
+REDIS_DEPLOYMENT_NON_SHARDING = "non-sharding"
+"""The two deployment modes, from the create field's own description.
+
+``sharding`` sizes the cluster with ``numberOfShards`` + ``numberOfReplicas``;
+``non-sharding`` with ``numberOfNodes``. ``numberOfReplicas`` is per shard or
+per master node, so it is legal in **both** modes.
+"""
+
+
+class CreateRedisClusterDto(_Dto):
+    """Body of `POST /v1/redis-cluster` (Redis Cluster, on the memory service).
+
+    An order flow like every other create in vDB: it bills and returns
+    asynchronously, and takes the `user-type` header (`IAM_USER` provisions
+    straight away; `ROOT_USER` raises an order that waits for a human to pay).
+
+    `packageId`, `volumeTypeId` and `volumeSize` are all zone-scoped: both ids
+    come from the `zone_id`-filtered catalogues, and the size must stay within
+    the chosen volume type row's `min_volume_size`/`max_volume_size`. Note the
+    volume type is the **id** here, where the relational create takes its name.
+
+    `deploymentMode` is the axis the cluster is sized on: `sharding` takes
+    `numberOfShards` (+ optional `numberOfReplicas` per shard), `non-sharding`
+    takes `numberOfNodes` (+ optional `numberOfReplicas` per master node). The
+    validator refuses a body that mixes the two.
+
+    The gateway's Java model also carries `user` and `databases` fields, but
+    the published Redis Cluster schema declares neither: a cluster
+    authenticates with `redisPassword` alone and has no SQL-style users or
+    databases. They are deliberately absent here -- `extra="forbid"` turns a
+    copied relational payload into a named error rather than a silent drop.
+
+    `backupPointId` is what turns this create into a **restore**: set it to a
+    restore point from `list_redis_restore_points` and the new cluster is
+    built from that backup.
+    """
+
+    name: str = Field(..., min_length=1, description="Cluster name")
+    locateZoneId: str = Field(
+        ...,
+        description=(
+            "Availability zone. packageId and volumeTypeId must come from this zone's catalogues."
+        ),
+    )
+    packageId: str = Field(..., description="Flavour id from list_redis_flavors for this zone")
+    volumeTypeId: str = Field(
+        ...,
+        description=(
+            "Volume type id from list_redis_volume_types for this zone -- the id, not the "
+            "name the relational create takes."
+        ),
+    )
+    volumeSize: int = Field(
+        ...,
+        ge=1,
+        description=(
+            "Storage size in GB per node, within the chosen volume type's "
+            "min_volume_size/max_volume_size."
+        ),
+    )
+    encryptionVolume: bool = Field(
+        False, description="Encrypt the nodes' volumes. Billed per node."
+    )
+    datastoreVersion: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Redis version from list_redis_datastores, e.g. 'v7.2.13' -- the "
+            "catalogue's v-prefixed string, verbatim"
+        ),
+    )
+    deploymentMode: Literal["sharding", "non-sharding"] = Field(
+        ...,
+        description=(
+            "How the cluster is sized: 'sharding' takes numberOfShards + numberOfReplicas "
+            "per shard; 'non-sharding' takes numberOfNodes + numberOfReplicas per master "
+            "node."
+        ),
+    )
+    numberOfNodes: int | None = Field(
+        None,
+        ge=1,
+        description="Nodes in the cluster. Use with deploymentMode 'non-sharding'.",
+    )
+    numberOfShards: int | None = Field(
+        None,
+        ge=1,
+        description="Shards in the cluster. Use with deploymentMode 'sharding'.",
+    )
+    numberOfReplicas: int | None = Field(
+        None,
+        ge=0,
+        description=(
+            "Replicas per shard (sharding) or per master node (non-sharding). Legal in both modes."
+        ),
+    )
+    netIds: list[str] = Field(
+        ...,
+        min_length=1,
+        description="Subnet IDs ('sub-...') from list_memory_subnets",
+    )
+    configId: str | None = Field(
+        None,
+        description=(
+            "Redis configuration group ID from list_memory_configurations. Set to null to "
+            "create without one."
+        ),
+    )
+    publicAccess: bool = Field(False, description="Allow public access to the cluster")
+    redisPassword: str | None = Field(
+        None,
+        description=f"Redis AUTH password for the cluster. {MEMORY_PASSWORD_MESSAGE}",
+    )
+    enableProxies: bool = Field(
+        False,
+        description="Deploy the cluster behind Redis proxies. Use with poolMaxConnections.",
+    )
+    poolMaxConnections: int | None = Field(
+        None,
+        ge=1,
+        description="Max connections of the proxy connection pool. Use with enableProxies.",
+    )
+    enableSlowlog: bool = Field(
+        False, description="Enable the Redis slowlog. Use with slowlogLogSlowerThan."
+    )
+    slowlogLogSlowerThan: int | None = Field(
+        None,
+        description=(
+            "Redis 'slowlog-log-slower-than', in MICROSECONDS: 0 logs every command, a "
+            "negative value disables logging. Use with enableSlowlog."
+        ),
+    )
+    backupAuto: bool = Field(
+        False,
+        description="Enable the automatic backup schedule. Use with backupDuration/backupTime.",
+    )
+    backupDuration: int | None = Field(None, ge=2, le=14, description=BACKUP_RETENTION_DESCRIPTION)
+    backupTime: str | None = Field(
+        None, description="Start time of the automatic backup, HH:mm (UTC+7). Use with backupAuto."
+    )
+    backupLocationId: str | None = Field(
+        None, description="vBackup destination from list_redis_backup_locations"
+    )
+    backupPolicyId: str | None = Field(
+        None, description="vBackup policy from list_redis_backup_policies"
+    )
+    backupPointId: str | None = Field(
+        None,
+        description=(
+            "Restore point from list_redis_restore_points. Set it to build the new cluster "
+            "FROM a backup; leave it out for an empty cluster."
+        ),
+    )
+    isPoc: bool = Field(False, description="Pay with PoC credit (Auto Payment only)")
+
+    @field_validator("redisPassword")
+    @classmethod
+    def _password_rule(cls, value: str | None) -> str | None:
+        # 16-128 is documented for this family's password (the MemoryStore
+        # rule, and the same charset as the platform's own PASS regex). The
+        # full character-set half is inferred from that sibling rather than
+        # measured here -- a rejection from the API is still possible where
+        # this passes.
+        return None if value is None else validate_memory_password(value)
+
+    @model_validator(mode="after")
+    def _deployment_shape(self) -> "CreateRedisClusterDto":
+        # The two modes size the cluster on different fields, so a body mixing
+        # them is never what the caller meant -- and an order flow bills
+        # before the backend validates the shape.
+        if self.deploymentMode == REDIS_DEPLOYMENT_NON_SHARDING:
+            if self.numberOfNodes is None:
+                raise ValueError(
+                    "deploymentMode 'non-sharding' requires numberOfNodes; "
+                    "numberOfShards belongs to 'sharding'"
+                )
+            if self.numberOfShards is not None:
+                raise ValueError(
+                    "numberOfShards belongs to deploymentMode 'sharding'; "
+                    "'non-sharding' is sized by numberOfNodes"
+                )
+        else:
+            if self.numberOfShards is None:
+                raise ValueError(
+                    "deploymentMode 'sharding' requires numberOfShards; "
+                    "numberOfNodes belongs to 'non-sharding'"
+                )
+            if self.numberOfNodes is not None:
+                raise ValueError(
+                    "numberOfNodes belongs to deploymentMode 'non-sharding'; "
+                    "'sharding' is sized by numberOfShards"
+                )
+        return self
+
+
+class ResizeRedisClusterDto(_Dto):
+    """Body of `PUT /v1/redis-cluster/{clusterId}/resize`.
+
+    One axis per call: `type` selects which, the field belonging to the other
+    axes must be left out, and `numberOfReplicas` rides along with
+    `NUMBER-OF-NODES` only -- the field's own description says so. The
+    validator enforces all of that here, because a body carrying the wrong
+    pair is the kind of mistake this API answers with a nameless rejection.
+
+    `FLAVOR` is the axis the PostgreSQL Cluster resize does not have: it
+    changes the flavour (`packageId`) the cluster runs on.
+
+    `deploymentMode` is required by the `NUMBER-OF-NODES` axis and absent
+    from the published schema entirely (measured on staging, 2026-11-05: the
+    nodes axis without it answers `400 bad_request`, with it the same cluster
+    accepted; the `FLAVOR` axis was accepted without it, though the Portal
+    sends it on every resize). Read it from `get_redis_cluster`'s
+    `deployment_mode` -- the row's `deploy_type` reads empty.
+    """
+
+    type: Literal["VOLUME-SIZE", "VOLUME-TYPE", "NUMBER-OF-NODES", "FLAVOR"] = Field(
+        ...,
+        description=(
+            "Which axis to resize. Upper case and hyphenated, exactly as shown -- the "
+            "same spelling as the PostgreSQL Cluster resize, plus FLAVOR."
+        ),
+    )
+    volumeSize: int | None = Field(
+        None,
+        ge=1,
+        description="New storage size in GB per node, within the volume type's bounds. Use with type VOLUME-SIZE.",
+    )
+    volumeTypeId: str | None = Field(
+        None,
+        description="New volume type id from list_redis_volume_types. Use with type VOLUME-TYPE.",
+    )
+    numberOfNodes: int | None = Field(
+        None, ge=1, description="New node count. Use with type NUMBER-OF-NODES."
+    )
+    numberOfReplicas: int | None = Field(
+        None,
+        ge=0,
+        description="New replica count per shard or master node. Use with type NUMBER-OF-NODES only.",
+    )
+    packageId: str | None = Field(
+        None, description="New flavour id from list_redis_flavors. Use with type FLAVOR."
+    )
+    deploymentMode: Literal["sharding", "non-sharding"] | None = Field(
+        None,
+        description=(
+            "The cluster's deployment mode, from get_redis_cluster's deployment_mode. "
+            "Required by type NUMBER-OF-NODES (the API refuses the axis without it); "
+            "the Portal sends it on every resize."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _one_axis(self) -> "ResizeRedisClusterDto":
+        required = {
+            RESIZE_VOLUME_SIZE: "volumeSize",
+            RESIZE_VOLUME_TYPE: "volumeTypeId",
+            RESIZE_NUMBER_OF_NODES: "numberOfNodes",
+            RESIZE_FLAVOR: "packageId",
+        }
+        wanted = required[self.type]
+        if getattr(self, wanted) is None:
+            raise ValueError(f"type '{self.type}' requires {wanted}")
+        extra = [
+            name
+            for axis, name in required.items()
+            if axis != self.type and getattr(self, name) is not None
+        ]
+        if self.type != RESIZE_NUMBER_OF_NODES and self.numberOfReplicas is not None:
+            extra.append("numberOfReplicas")
+        if extra:
+            raise ValueError(
+                f"type '{self.type}' resizes one axis; remove {', '.join(sorted(extra))}"
+            )
+        if self.type == RESIZE_NUMBER_OF_NODES and self.deploymentMode is None:
+            raise ValueError(
+                "type 'NUMBER-OF-NODES' requires deploymentMode as well -- the API "
+                "refuses the axis without it (measured); read it from "
+                "get_redis_cluster's deployment_mode"
+            )
+        return self
+
+
+class UpdateRedisClusterSettingDto(_Dto):
+    """Body of `PUT /v1/redis-cluster/{clusterId}/settings`.
+
+    A **patch**, not a whole-state replacement like the relational family's
+    update: every field's own description says "omit to leave unchanged", and
+    a null means no change. The all-null body is still rejected here -- a
+    write that changes nothing is never what the caller meant.
+    """
+
+    password: str | None = Field(
+        None,
+        description=f"New Redis AUTH password. {MEMORY_PASSWORD_MESSAGE} Omit to leave unchanged.",
+    )
+    publicAccess: bool | None = Field(
+        None, description="Allow public access. Omit to leave unchanged."
+    )
+    backupAuto: bool | None = Field(
+        None, description="Enable the automatic backup schedule. Omit to leave unchanged."
+    )
+    backupDuration: int | None = Field(None, ge=2, le=14, description=BACKUP_RETENTION_DESCRIPTION)
+    backupTime: str | None = Field(
+        None,
+        description="Start time of the automatic backup, HH:mm (UTC+7). Omit to leave unchanged.",
+    )
+    enableSlowlog: bool | None = Field(
+        None, description="Enable the Redis slowlog. Omit to leave unchanged."
+    )
+    slowlogLogSlowerThan: int | None = Field(
+        None,
+        description=(
+            "Redis 'slowlog-log-slower-than', in MICROSECONDS: 0 logs every command, a "
+            "negative value disables logging. Omit to leave unchanged."
+        ),
+    )
+
+    @field_validator("password")
+    @classmethod
+    def _password_rule(cls, value: str | None) -> str | None:
+        return None if value is None else validate_memory_password(value)
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> "UpdateRedisClusterSettingDto":
+        if all(
+            getattr(self, field) is None
+            for field in (
+                "password",
+                "publicAccess",
+                "backupAuto",
+                "backupDuration",
+                "backupTime",
+                "enableSlowlog",
+                "slowlogLogSlowerThan",
+            )
+        ):
+            raise ValueError(
+                "set at least one of password, publicAccess, backupAuto, backupDuration, "
+                "backupTime, enableSlowlog, slowlogLogSlowerThan -- an empty update does nothing"
+            )
+        return self
+
+
+class UpdateRedisClusterSecRuleDto(_Dto):
+    """One rule in the array sent to `PUT /v1/redis-cluster/{clusterId}/secrules`.
+
+    The endpoint takes a JSON **array** of these and replaces the whole rule
+    set: rules with their `id` are kept, rules without one are created, and
+    existing rules missing from the array are removed. Read the current set
+    with `list_redis_cluster_secrules` first -- a rule dropped from the array
+    is deleted, so re-send everything that should survive.
+
+    The rule is the **full entity**, not the slim `UpdateSecurityGroupRuleDetail`
+    the OpenAPI document publishes for this body: the controller binds
+    ``SecurityGroupRuleEntity``, and a row without ``direction``/``etherType``/
+    ``protocol`` is rejected with ``400 bad_request`` (measured on staging,
+    2026-11-04). The three are plain strings rather than ``Literal`` sets --
+    the closed sets live in the vsr-api backend, the same decision as
+    ``deploymentMode`` -- with the values every rule has been seen to answer
+    named in each description.
+
+    Redis listens on port 6379.
+    """
+
+    id: str | None = Field(
+        None,
+        description=(
+            "Existing rule ID from list_redis_cluster_secrules; omit to insert a new rule."
+        ),
+    )
+    direction: str = Field(
+        ...,
+        min_length=1,
+        description="Traffic direction. Every rule observed answers 'ingress'.",
+    )
+    etherType: str = Field(
+        ...,
+        min_length=1,
+        description="IP version. Every rule observed answers 'IPv4'.",
+    )
+    protocol: str = Field(
+        ...,
+        min_length=1,
+        description="L4 protocol. Every rule observed answers 'tcp'.",
+    )
+    portRangeMin: int = Field(
+        ...,
+        ge=0,
+        le=65535,
+        description="Lowest port to allow. Redis listens on 6379.",
+    )
+    portRangeMax: int = Field(
+        ...,
+        ge=0,
+        le=65535,
+        description="Highest port to allow. Redis listens on 6379.",
+    )
+    remoteIpPrefix: str = Field(
+        ..., min_length=1, description="CIDR allowed to connect, e.g. '10.0.0.0/8'"
+    )
+
+
+class DeleteRedisClusterDto(_Dto):
+    """Deletion options for `POST /v1/redis-cluster/{clusterId}/delete`.
+
+    Carried inside the action envelope as the single entry's `config`, with
+    `action: "delete"` and `resType: "dbaas"` -- the same envelope shape as
+    the MemoryStore delete, with exactly one entry whose id repeats the path.
+    """
+
+    createFinalBackup: bool = Field(
+        False, description="Take one last backup before the cluster is destroyed"
+    )
+    deleteAllBackup: bool = Field(
+        False,
+        description=(
+            "Also destroy every existing backup of this cluster. Irreversible, and it removes "
+            "the only way to recover the data."
+        ),
+    )

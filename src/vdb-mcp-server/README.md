@@ -2,10 +2,10 @@
 
 An MCP (Model Context Protocol) server for **vDB** on VNG Cloud — managed
 databases: relational engines (MySQL, MariaDB, standalone PostgreSQL),
-MemoryStore (Redis), PostgreSQL Clusters and Kafka.
+MemoryStore (Redis), PostgreSQL Clusters, Redis Clusters and Kafka.
 
-> **All four families are implemented** — relational, MemoryStore,
-> PostgreSQL Cluster and Kafka.
+> **All five families are implemented** — relational, MemoryStore,
+> PostgreSQL Cluster, Redis Cluster and Kafka.
 
 ## Configuration
 
@@ -33,9 +33,9 @@ uv run vdb-mcp-server --transport streamable-http --host 0.0.0.0 --port 8080
 ## Tools
 
 Tools are prefixed by product family — `relational`, `memory`, `postgresql`,
-`kafka` — and are **not** interchangeable: the same operation uses a different
-path, and often a different HTTP method, in each family, and some exist in only
-one.
+`redis`, `kafka` — and are **not** interchangeable: the same operation uses a
+different path, and often a different HTTP method, in each family, and some
+exist in only one.
 
 ### Catalogue — what the platform offers
 
@@ -64,6 +64,9 @@ cache.
 | `list_postgresql_datastores` | read | PostgreSQL Cluster versions — a different set from the relational family's PostgreSQL |
 | `list_postgresql_flavors` | read | Cluster node sizes for one zone; **no engine or version argument** — the family has one engine. `multi_zone=true` lists what suits a Multi-AZ cluster (answered for the Multi-AZ default zone, HCM03-1A); not combinable with `zone_id` |
 | `list_postgresql_volume_types` | read | Cluster storage types for one zone; a create takes the `id`, not the name. Same `multi_zone` flag |
+| `list_redis_datastores` | read | Redis Cluster versions — **no engine argument**; the family has one engine. Versions are `v`-prefixed (`v7.2.13`, `v7.0.15`) — a create takes the string verbatim |
+| `list_redis_flavors` | read | Cluster node sizes for one zone, `rdp-…` ids; **no engine or version argument** |
+| `list_redis_volume_types` | read | Cluster storage types for one zone, `rdst-…` ids, with each row's size bounds |
 | `get_kafka_limits` | read | **Start here for Kafka** — the bounds, ports and name regexes the platform enforces |
 | `list_kafka_flavors` | read | Broker sizes; `type`/`version` optional, no zone |
 | `list_kafka_volume_types` | read | Broker storage types |
@@ -73,7 +76,9 @@ cache.
 The memory family has no zones endpoint; use `list_relational_zones` or the
 `zone_id` on a flavour row. The PostgreSQL Cluster family has neither zones nor
 subnets of its own and uses the relational ones — zones and subnets are
-account-wide.
+account-wide. The Redis Cluster family is the same: zones from
+`list_relational_zones`, subnets from `list_memory_subnets` (it shares the
+memory service), configuration groups from `list_memory_configurations`.
 
 **The zones do not offer the same things.** Measured 2026-09-14: the cluster
 flavour catalogue lists 28 sizes in HCM03-1A and HCM03-1B but only **15** in
@@ -173,8 +178,9 @@ tool and there is no `resize_memory_instance_storage`.
 Four things this family does differently:
 
 **An instance ID does not identify its family.** Redis instances are prefixed
-`db-` exactly like relational ones. Only `pg-` (PostgreSQL Cluster) is
-distinctive. Worse, `get_relational_instance` will happily return a Redis
+`db-` exactly like relational ones. Only `pg-` (PostgreSQL Cluster), `rd-`
+(Redis Cluster) and Kafka's own ids are distinctive. Worse,
+`get_relational_instance` will happily return a Redis
 instance or a `pg-` cluster, while `get_memory_instance` rejects anything that
 is not Redis — so the memory tool is the one that actually proves a family.
 Check `datastore_type` on whatever comes back.
@@ -539,6 +545,90 @@ There is no delete, no restore and no "create backup configuration" endpoint
 here. Restoring is a `create_postgresql_cluster` carrying a `backupPointId`,
 which builds a **second** cluster and is priced as a new one.
 
+### Cluster tools (Redis Cluster family)
+
+A **clustered** Redis, separate from MemoryStore's single-node one. The family
+lives behind the same `/vdb-memory` host as MemoryStore — separated by
+**path** (`/v1/redis-cluster`), not by host. Its ids are `rd-`-prefixed
+(measured live: flavours `rdp-…`, volume types `rdst-…`), so the prefix
+**does** name this family — the shared-prefix trap is the `db-` ids relational
+and MemoryStore alone carry.
+Everything in this section was read from the gateway controller and its
+OpenAPI document; the read tools were then live-probed against the staging
+gateway on 2026-11-04 (every one answered 200 — catalogue rows, three
+clusters, the borrowed secrules read, backups, locations, policies), and the
+writes were live-probed on a throwaway cluster (2026-11-04/05): create,
+settings, config-group attach/detach, secrules replace and both resize axes
+all landed — the probes caught two DTO bugs, fixed before merge (secrules
+wants the full rule entity; the resize nodes axis wants `deploymentMode`) —
+while `backup-now` has answered `500 internal_error` in **two** shapes: on
+the config-less throwaway (the missing configuration — a configured cluster
+the same day answered `success` and the restore point landed within 30s), and
+on 2026-11-06 on a configured cluster whose backup pipeline was wedged (two
+restore points stuck `BACKING_UP` since 2026-11-03) — a platform fault to
+report, not a payload to reshape. The delete was refused `403
+IAM_PERMISSION_DENIED`, a policy denial from the backend on credentials whose
+every other write had passed.
+
+| Tool | Access | Description |
+|------|--------|-------------|
+| `list_redis_clusters` | read | The project's clusters. The family's **own** listing — no mixed rows, **no filters at all**; pagination is mandatory |
+| `get_redis_cluster` | read | One cluster in full detail, with the `address` map, fixed/floating IPs and proxy nodes |
+| `list_redis_cluster_secrules` | read | Security rules guarding the cluster — **borrowed** from the memory instance endpoint |
+| `create_redis_cluster_dryrun` | read | Preview the order a create would place |
+| `resize_redis_cluster_dryrun` | read | Preview a resize order |
+| `delete_redis_cluster_dryrun` | read | Preview a delete, including the backup options |
+| `create_redis_cluster` | **write** | Order a cluster — or restore one, by carrying a `backupPointId`. Billable, **per node**, asynchronous. Backup must be enabled **here** (policy + location + schedule) — a cluster created without it can never gain one |
+| `resize_redis_cluster` | **destructive** | Resize one axis — `VOLUME-SIZE`, `VOLUME-TYPE`, `NUMBER-OF-NODES` or `FLAVOR` (an axis this family has that the PostgreSQL resize lacks). Billable; shrinking nodes destroys them. `NUMBER-OF-NODES` needs `deploymentMode` from the row and moves **±1 node per resize** (3-10 absolute). The order is **raised, not applied** — poll for the field to change, not for settled; a second edit before it lands is refused `400` |
+| `update_redis_cluster_setting` | **write** | Password, public access, backup schedule, slowlog — a **patch**: omit means unchanged. The backup schedule only **adjusts** a cluster created with backup — on a config-less cluster `backupAuto` is refused `400` |
+| `update_redis_cluster_config_group` | **write** | Attach a configuration group, or `""` to detach. The wire field is `configGroupId` here, where the create calls it `configId` |
+| `update_redis_cluster_secrules` | **write** | Replace the whole rule set — each rule is the **full entity**: carry `direction`/`etherType`/`protocol` back from the listing (the published schema omits them; a slim row is rejected with `400`) |
+| `delete_redis_cluster` | **destructive** | Delete the cluster. Irreversible. A `403 IAM_PERMISSION_DENIED` is a **policy** denial (the backend authorizes the delete action) — the action must be granted, or the cluster deleted from the console; re-shaping the request cannot help |
+
+**Naming is inverted inside this family.** The create takes `configId`
+(pointing at `list_memory_configurations`); the config-group *update* takes
+`configGroupId` — the same field, the PostgreSQL Cluster spelling. Both tools
+translate `""` into the `null` that actually detaches, the same as their
+relational and memory twins.
+
+**The create posts to the controller root**, not to a `/payment` path like
+the relational and memory creates — but it is the same billable order flow,
+with the same `user_type` defaulting to `IAM_USER` (Auto Payment). The delete
+takes the nested `{action, resType}` envelope the other families use, with
+**no** `engineGroup`, and the controller validates the shape itself: exactly
+one entry, whose id repeats the path.
+
+**`deploymentMode` decides the shape.** `non-sharding` is sized by
+`numberOfNodes`, `sharding` by `numberOfShards` (with `numberOfReplicas` per
+shard or per master node in both); the DTO rejects a body sized on both.
+Flavour and volume-type ids are **prefixed** (`rdp-…`, `rdst-…`), per-zone
+like everywhere else in vDB — take `packageId`, `volumeTypeId` and the
+`volumeSize` bounds from the same zone as `locateZoneId`.
+
+**`TRASH` is the terminal soft-delete state** — a row reading `TRASH` is a
+deleted cluster, not one still running.
+
+### Backup tools (Redis Cluster family)
+
+Cluster backups are **vBackup** resources with a vocabulary of their own,
+under `/v1/backups` on the memory service (plural, where the PostgreSQL
+Cluster family's tree is `/v1/backup`):
+
+| Tool | Access | Description |
+|------|--------|-------------|
+| `list_redis_backups` | read | Every backup-**configuration** in the project (`bk-db-…`), not copies of data |
+| `get_redis_cluster_backup` | read | One cluster's backup configuration. Keyed by **cluster** id despite the `/detail` path. A cluster without one answers an **empty row** (`id=""`), not an error |
+| `list_redis_restore_points` | read | The actual copies (`bk-db-pt-…`); a create's `backupPointId` |
+| `list_redis_backup_locations` | read | vBackup destinations (`bk-des-…`) |
+| `list_redis_backup_policies` | read | vBackup schedules (`bk-pol-…`) |
+| `create_redis_cluster_backup` | **write** | Take a backup now, outside the schedule. Needs a create-time backup configuration — check `get_redis_cluster_backup` first; without one the endpoint answers a misleading `500 internal_error`, with one it answers `success` and the new restore point lands within ~30s (a `500` **with** a configuration is a wedged backup pipeline — a platform fault to report, not a payload to reshape) |
+
+There is no delete, no restore and no "create backup configuration" endpoint
+here. Restoring is a `create_redis_cluster` carrying a `backupPointId`, which
+builds a **second** cluster and is priced as a new one. The restore point's
+`engine_version` is the version the data was written by (`v7.2.13`) — the new
+cluster's `datastoreVersion` has to match it exactly.
+
 ### Kafka tools
 
 Kafka disagrees with the rest of vDB about nearly every convention, so nothing
@@ -713,7 +803,7 @@ Cluster tools work the other way round from the same endpoint; see below.
 
 | Prompt / topic | What it covers |
 |---|---|
-| `getting_started` | The four families, why an instance id does not identify one, the parameter names that do **not** carry across families, tool routing |
+| `getting_started` | The five families, why an instance id does not identify one, the parameter names that do **not** carry across families, tool routing |
 | `create_instance` | Question order, the same-zone rule, per-family password rules, confirm gate |
 | `restore_backup` | Why a restore builds a **second** instance rather than rolling anything back |
 | `configuration_group` | What a change does to attached instances, and `RESTART_REQUIRED` |
@@ -748,6 +838,24 @@ npx @modelcontextprotocol/inspector uv run vdb-mcp-server
 
 To exercise the real API safely, start the server without `--allow-write`:
 only read tools are registered then, so nothing can be changed.
+
+### Testing against a non-production gateway
+
+`GRN_VDB_GATEWAY_URL` overrides the gateway host for every service while the
+process runs — point it at a non-production gateway to live-probe a family
+there before it reaches production. Unset, every call goes to the production
+gateway `https://vdb-gateway.vngcloud.vn`.
+
+A non-production gateway pairs with its own IAM, whose service accounts the
+production IAM (`iamapis.vngcloud.vn`) rejects with `401 AUTHENTICATION_FAILED`
+— point `GRN_IAM_TOKEN_URL` (from `mcp-core`) at that environment's token
+endpoint alongside the gateway override:
+
+```bash
+GRN_VDB_GATEWAY_URL=<non-production-gateway-url> \
+GRN_IAM_TOKEN_URL=<its-iam-token-endpoint> \
+  npx @modelcontextprotocol/inspector uv run vdb-mcp-server
+```
 
 See [`CLAUDE.md`](CLAUDE.md) for the API quirks this package has to work
 around — response envelopes, the mixed relational listing, the order flow, and

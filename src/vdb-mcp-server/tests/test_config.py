@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from greennode.vdb_mcp_server.config import (
+    GATEWAY_URL_ENV,
     REGIONS,
     VDB_KAFKA_SERVICE,
     VDB_MEMORY_SERVICE,
@@ -20,9 +21,17 @@ ALL_SERVICES = (
     VDB_KAFKA_SERVICE,
 )
 
+OTHER_GATEWAY = "https://vdb-gateway.example.test"
+"""Another gateway host, on a reserved example domain.
+
+The override exists to point the server at a non-production gateway; naming
+no real one keeps the test about the routing, not the host.
+"""
+
 
 @pytest.fixture
-def config(sample_config):
+def config(sample_config, monkeypatch):
+    monkeypatch.delenv(GATEWAY_URL_ENV, raising=False)
     return load_config(sample_config)
 
 
@@ -70,3 +79,40 @@ def test_load_config_reads_the_profile(config):
     assert config.client_id == "test-client-id"
     assert config.default_region == "HCM-3"
     assert config.project_id == "pro-test-0001"
+
+
+def test_the_gateway_override_points_every_family_at_the_override_host(sample_config, monkeypatch):
+    """GRN_VDB_GATEWAY_URL reroutes every service to another gateway.
+
+    This is how a family is live-probed against staging before it reaches
+    production: the URL table is built per run, never mutated globally.
+    """
+    monkeypatch.setenv(GATEWAY_URL_ENV, OTHER_GATEWAY)
+    overridden = load_config(sample_config)
+    for region in ("HCM-3", "HAN"):
+        for service in ALL_SERVICES:
+            assert overridden.get_base_url(region, service) == f"{OTHER_GATEWAY}/{service}"
+
+
+def test_the_gateway_override_trims_a_trailing_slash(sample_config, monkeypatch):
+    monkeypatch.setenv(GATEWAY_URL_ENV, f"{OTHER_GATEWAY}/")
+    overridden = load_config(sample_config)
+    assert overridden.get_base_url(None, VDB_MEMORY_SERVICE) == f"{OTHER_GATEWAY}/vdb-memory"
+
+
+def test_without_the_override_the_production_gateway_answers(config):
+    assert (
+        config.get_base_url(None, VDB_MEMORY_SERVICE)
+        == f"https://vdb-gateway.vngcloud.vn/{VDB_MEMORY_SERVICE}"
+    )
+
+
+def test_the_override_never_touches_the_module_constants(sample_config, monkeypatch):
+    """REGIONS stays pinned to production whatever the environment says.
+
+    Anyone importing REGIONS directly (docs, other tools) keeps getting the
+    production table even inside an overridden run.
+    """
+    monkeypatch.setenv(GATEWAY_URL_ENV, OTHER_GATEWAY)
+    load_config(sample_config)
+    assert REGIONS["HCM-3"][VDB_MEMORY_SERVICE] == "https://vdb-gateway.vngcloud.vn/vdb-memory"
