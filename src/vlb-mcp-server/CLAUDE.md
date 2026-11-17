@@ -232,7 +232,10 @@ Two corrections to the monorepo-level assumption:
 
 - **`PUT .../pools/{poolId}/members` replaces the entire list.** `GET` spells
   the fields `address`/`protocolPort`, `PUT` wants `ipAddress`/`port`.
-  `PoolMemberItem.to_member_dto()` is the single conversion point;
+  `PoolMemberItem.to_member_dto()` is the single conversion point. It uses
+  `model_construct`, **not** validation: stored members may carry names the
+  write-side `NAME_PATTERN` rejects (portal- or VKS-made), and validating
+  them made one such member block every attach/detach on the pool;
   `attach_pool_members` / `detach_pool_members` do the read-modify-write, and
   the raw `update_pool_members` is DESTRUCTIVE with the warning first in its
   docstring.
@@ -417,6 +420,14 @@ are never cached, because they are read inside read-modify-write cycles and
 while polling a write. A 30-second-stale read there means writing back a stale
 member list.
 
+A cache key must hold **every** argument that shapes the cached value.
+`list_load_balancers` filters `status` / `subnet_id` / `vpc_id` inside its
+fetch, so they are in the key next to the API params; keyed on the params
+alone, a filtered call served its result to the next unfiltered one.
+
+`list_servers` reads vServer through `paging.fetch_list(..., getter=client.get_vserver)`,
+so a project with more servers than one page is never cut short.
+
 ## Guidance placement policy
 
 | Layer | Carries |
@@ -445,6 +456,7 @@ member list.
 | `test_gateway_contract.py` | Rules transcribed from the gateway source: the status vocabulary, which list filters are real, the not-ready/lock/quota error surface |
 | `test_write_rules.py` | Every cross-field create rule, with the gateway's own messages |
 | `test_http_transport.py` | Identity resolution on the HTTP transport, `/health` exemption, and what the `--auth-debug` summary may reveal |
+| `test_auth.py` | `get_access_token`: service token on stdio only; over HTTP the caller's own token, or a refusal |
 
 All `respx`-mocked. Handlers are called directly, so **every parameter must be
 passed explicitly** — a `Field(...)` default arrives as a `FieldInfo` object

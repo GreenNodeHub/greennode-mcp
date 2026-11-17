@@ -303,7 +303,17 @@ class LoadBalancerHandler:
                 filtered_locally=sorted(k for k, v in client_side.items() if v),
             )
 
-        key = ("list_load_balancers", resolved_region, pid, tuple(sorted(params.items())))
+        # The local filters belong in the key too: they run inside `fetch`, so
+        # the cached value is already filtered. Keyed on `params` alone, a
+        # `status="ACTIVE"` call served its filtered list to the next
+        # unfiltered call for the whole TTL.
+        key = (
+            "list_load_balancers",
+            resolved_region,
+            pid,
+            tuple(sorted(params.items())),
+            (status or None, subnet_id or None, vpc_id or None),
+        )
         return await self.cache.get_or_fetch("list_load_balancers", key, fetch, refresh)
 
     async def get_load_balancer(

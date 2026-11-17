@@ -264,3 +264,31 @@ async def test_a_tool_without_a_ttl_is_never_cached(config, client):
     await handler.list_listener_headers(region="HCM-3", refresh=False)
     await handler.list_listener_headers(region="HCM-3", refresh=False)
     assert route.call_count == 2
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_list_servers_follows_pages_when_truncated(discovery):
+    """PR #29 review: list_servers made a single GET. When the vServer
+    envelope reports more servers than one page holds, the rest must be
+    fetched, or a backend the user wants is reported as missing.
+    """
+    mock_iam(respx.mock)
+    url = f"{VSERVER_HCM3}/v2/{PROJECT}/servers"
+
+    def srv(n):
+        return {
+            "uuid": f"srv-{n}",
+            "name": f"web-{n:02d}",
+            "status": "ACTIVE",
+            "internalInterfaces": [{"fixedIp": f"10.0.1.{n}", "floatingIp": ""}],
+        }
+
+    def respond(request):
+        page = int(request.url.params.get("page", "1"))
+        batch = [srv(1), srv(2)] if page == 1 else [srv(3)]
+        return httpx.Response(200, json=paging_env(batch, total=3, page=page, page_size=2))
+
+    respx.get(url).mock(side_effect=respond)
+    result = await discovery.list_servers(region="HCM-3", refresh=True)
+    assert [s.id for s in result.servers] == ["srv-1", "srv-2", "srv-3"]

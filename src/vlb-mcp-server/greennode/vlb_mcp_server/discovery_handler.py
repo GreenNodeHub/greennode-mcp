@@ -23,7 +23,7 @@ from greennode.vlb_mcp_server.models import (
     ZoneItem,
     ZoneListData,
 )
-from greennode.vlb_mcp_server.paging import as_list
+from greennode.vlb_mcp_server.paging import as_list, fetch_list
 from greennode.vlb_mcp_server.project import require_project_id
 from greennode.vlb_mcp_server.tool_annotations import READ
 from greennode.vlb_mcp_server.validators import validate_id
@@ -143,10 +143,18 @@ class DiscoveryHandler:
         resolved_region = region or self.config.default_region
 
         async def fetch() -> ServerListData:
-            raw = await self.client.get_vserver(f"/v2/{pid}/servers", region=region)
+            # fetch_list walks the following pages when the envelope reports
+            # more servers than it returned; a single GET left the rest out, so
+            # a backend the user wanted read as missing.
+            items, _ = await fetch_list(
+                self.client,
+                f"/v2/{pid}/servers",
+                region=region,
+                getter=self.client.get_vserver,
+            )
             return ServerListData(
                 region=resolved_region,
-                servers=[ServerItem.from_api(s) for s in as_list(raw) if isinstance(s, dict)],
+                servers=[ServerItem.from_api(s) for s in items if isinstance(s, dict)],
             )
 
         key = ("list_servers", resolved_region, pid)

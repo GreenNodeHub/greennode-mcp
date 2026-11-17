@@ -107,14 +107,21 @@ class PoolMemberItem(BaseModel):
         read-only and would be rejected. ``weight`` and ``monitorPort`` are
         carried through rather than defaulted, so re-sending an unchanged member
         does not quietly reset its tuning.
+
+        Built with ``model_construct``, which skips validation on purpose. These
+        members are already stored, and the portal or VKS may have created them
+        with a name outside ``NAME_PATTERN``. Validating them against the
+        write-side rules made one such member block every attach and detach on
+        the pool. The two primitive-int defaults that ``MemberDto``'s validator
+        would supply are filled in here instead.
         """
-        return MemberDto(
+        return MemberDto.model_construct(
             ipAddress=self.ip_address,
             port=self.port or 0,
             backup=self.backup,
-            weight=self.weight,
+            weight=self.weight if self.weight is not None else 1,
             name=self.name or None,
-            monitorPort=self.monitor_port,
+            monitorPort=self.monitor_port or self.port,
         )
 
 

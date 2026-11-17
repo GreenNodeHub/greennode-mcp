@@ -194,6 +194,7 @@ def register_handlers(
     token_manager: TokenManager,
     cache: DiscoveryCache,
     allow_write: bool = False,
+    expose_service_token: bool = True,
 ) -> MCPServer:
     """Register every domain handler on *mcp* and return it.
 
@@ -201,7 +202,7 @@ def register_handlers(
     without a running process — the guidance tests assert that every tool a
     guide or a cache TTL names actually exists, which needs the whole set.
     """
-    AuthHandler(mcp, config, token_manager)
+    AuthHandler(mcp, config, token_manager, expose_service_token=expose_service_token)
     CatalogueHandler(mcp, config, client, cache)
     DiscoveryHandler(mcp, config, client, cache)
     LoadBalancerHandler(mcp, config, client, cache, allow_write=allow_write)
@@ -285,7 +286,16 @@ def main() -> None:
     mcp = create_server(auth_debug=auth_debug, allow_write=args.allow_write)
 
     cache = DiscoveryCache()
-    register_handlers(mcp, config, client, token_manager, cache, allow_write=args.allow_write)
+    register_handlers(
+        mcp,
+        config,
+        client,
+        token_manager,
+        cache,
+        allow_write=args.allow_write,
+        # A shared HTTP server must never hand out the service-account token.
+        expose_service_token=args.transport == "stdio",
+    )
 
     if args.transport == "stdio":
         if auth_debug:

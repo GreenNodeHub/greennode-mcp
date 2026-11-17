@@ -541,3 +541,29 @@ def test_create_dto_forbids_unknown_fields():
             type="Layer 7",
             bogus="x",
         )
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_list_load_balancers_cache_key_includes_the_local_filters(config, client, cache):
+    """PR #29 review: the cache key held only the API params, while `status`,
+    `subnet_id` and `vpc_id` are applied inside the cached fetch. A call with
+    `status="ACTIVE"` then served its filtered list to the next unfiltered
+    call for the whole TTL.
+    """
+    from mcp.server.mcpserver import MCPServer
+
+    handler = LoadBalancerHandler(MCPServer("t"), config, client, cache, allow_write=False)
+    mock_iam(respx.mock)
+    deleting = {**SAMPLE_LB, "uuid": "lb-2", "displayStatus": "DELETING"}
+    route = respx.get(BASE).mock(
+        return_value=httpx.Response(200, json=paging_env([SAMPLE_LB, deleting]))
+    )
+
+    active = await _list(handler, status="ACTIVE", refresh=False)
+    everything = await _list(handler, refresh=False)
+
+    assert [lb.id for lb in active.load_balancers] == [SAMPLE_LB["uuid"]]
+    assert [lb.id for lb in everything.load_balancers] == [SAMPLE_LB["uuid"], "lb-2"]
+    assert everything.filtered_locally == []
+    assert route.call_count == 2

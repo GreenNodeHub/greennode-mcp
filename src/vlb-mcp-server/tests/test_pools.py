@@ -747,3 +747,33 @@ async def test_a_member_without_a_weight_is_not_left_drained(pools_rw):
 def test_an_explicit_zero_weight_is_still_honoured():
     """Draining a member without removing it is a real operation."""
     assert MemberDto(ipAddress="10.0.0.1", port=80, backup=False, weight=0).weight == 0
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_attach_pool_members_keeps_a_member_with_a_portal_style_name(pools_rw):
+    """PR #29 review: existing members were rebuilt through the write-side
+    MemberDto, so a member created in the portal or by VKS with a name outside
+    NAME_PATTERN (too short, too long, or a space) failed validation and the
+    tool could not touch that pool at all. Stored members must go back as stored.
+    """
+    mock_iam(respx.mock)
+    odd = [
+        {**SAMPLE_MEMBERS[0], "name": "a"},
+        {**SAMPLE_MEMBERS[1], "name": "vks node " + "x" * 60},
+    ]
+    respx.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=list_env(odd)))
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+
+    await pools_rw.attach_pool_members(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        members=[MemberDto(ipAddress="10.0.0.13", port=80, backup=False)],
+        region="HCM-3",
+    )
+    sent = json.loads(route.calls[0].request.content)["members"]
+    assert [m["ipAddress"] for m in sent] == ["10.0.0.11", "10.0.0.12", "10.0.0.13"]
+    assert sent[0]["name"] == "a"
+    assert sent[1]["name"] == odd[1]["name"]
+    # the primitive-int defaults still hold for stored members
+    assert sent[0]["monitorPort"] == 80 and sent[0]["weight"] == 1

@@ -175,6 +175,7 @@ async def fetch_list(
     region: str | None = None,
     params: dict | None = None,
     page_size: int = DEFAULT_PAGE_SIZE,
+    getter=None,
 ) -> tuple[list, dict]:
     """Fetch a vLB list endpoint completely, returning ``(items, first_envelope)``.
 
@@ -188,8 +189,12 @@ async def fetch_list(
 
     The first envelope comes back too, so a caller can report ``page`` /
     ``pageSize`` / ``totalItem`` without a second request.
+
+    ``getter`` defaults to ``client.get`` (the vLB gateway); pass
+    ``client.get_vserver`` to walk a vServer list the same way.
     """
-    first = await client.get(path, region=region, params=params or None)
+    get = getter or client.get
+    first = await get(path, region=region, params=params or None)
     envelope = first if isinstance(first, dict) else {}
     items = as_list(first)
     total = total_items(first)
@@ -202,7 +207,7 @@ async def fetch_list(
     page = int(base.get("page") or 1)
     while True:
         page += 1
-        data = await client.get(path, region=region, params={**base, "page": page, "size": size})
+        data = await get(path, region=region, params={**base, "page": page, "size": size})
         batch = as_list(data)
         if not batch:
             return collected, envelope

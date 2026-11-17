@@ -41,6 +41,10 @@ vLB call then runs as that caller, with their own project and permissions. With
 no token the shared service account is used; with neither, the request is 401.
 A rejected user token never falls back to the service account.
 
+`get_access_token` over HTTP returns the caller's own token, and refuses when
+the request carries none. It never returns the service-account token there;
+only the stdio transport, which is local and single-user, does.
+
 ## Regions and projects
 
 Every resource is region-scoped: `HCM-3` (default) or `HAN`. The project id is
@@ -57,7 +61,7 @@ strictly reads; this server never mutates a vServer resource.
 | Tool | Access | Description |
 |------|--------|-------------|
 | `get_feature_guide` | read | Step-by-step flow for a composite capability |
-| `get_access_token` | read | Current IAM token, region and endpoint |
+| `get_access_token` | read | Current IAM token, region and endpoint (over HTTP: the caller's own token only) |
 
 Prompts: `vlb_getting_started`, `vlb_create_load_balancer`, `vlb_manage_members`,
 `vlb_route_http_traffic`, `vlb_terminate_tls`, `vlb_high_availability`.
@@ -169,7 +173,7 @@ deliberate narrowings:
 
 ## Testing status
 
-393 tests, all `respx`-mocked — no network, no credentials.
+406 tests, all `respx`-mocked — no network, no credentials.
 
 **Verified against the live HCM-3 gateway (2026-09-08).** Every read tool was
 run against a project holding 48 load balancers, and every create-body rule was
