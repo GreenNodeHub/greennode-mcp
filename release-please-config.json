@@ -78,6 +78,21 @@
           "path": "greennode/vdb_mcp_server/__init__.py"
         }
       ]
+    },
+    "src/vlb-mcp-server": {
+      "release-type": "python",
+      "package-name": "vlb-mcp-server",
+      "component": "vlb-mcp-server",
+      "include-component-in-tag": true,
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "greennode/vlb_mcp_server/__init__.py"
+        }
+      ]
     }
   }
 }
