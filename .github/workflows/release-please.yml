@@ -20,6 +20,16 @@ permissions:
   pull-requests: write
   actions: write
 
+# One run at a time. Two overlapping runs each compute from their own view of
+# main: a run started before a release PR merged can reopen that same release
+# after the merge, and merging the duplicate fails with "Duplicate release tag"
+# (seen with vlb-mcp-server-v0.1.0, PRs #30/#31). Not cancel-in-progress — a
+# run that is tagging a release must finish; a queued run that gets superseded
+# is safe, since the newer one tags any merged release PR still pending.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-24.04
@@ -38,6 +48,10 @@ jobs:
       # Tags created with GITHUB_TOKEN do not trigger push workflows, so
       # dispatch the deploy explicitly for each released package that has a
       # deploy pipeline (workflow_dispatch is exempt from that restriction).
+      # Every `*-mcp-server` package ships a Dockerfile and deploy.yml derives
+      # the Dockerfile path and image name from the tag, so match the suffix
+      # rather than listing servers — a new server deploys without editing
+      # this file. mcp-core is a library with no image, so it still skips.
       - name: Dispatch production deploy for released tags
         if: ${{ steps.release.outputs.releases_created == 'true' }}
         env:
@@ -49,7 +63,7 @@ jobs:
             tag=$(jq -r --arg p "$path" '.[$p + "--tag_name"] // empty' outputs.json)
             [ -z "$tag" ] && continue
             case "$tag" in
-              vks-mcp-server-v*|vserver-mcp-server-v*|vmonitor-mcp-server-v*|vbackup-mcp-server-v*)
+              *-mcp-server-v*)
                 echo "Dispatching deploy for $tag"
                 gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref main -f "tag=$tag"
                 ;;
