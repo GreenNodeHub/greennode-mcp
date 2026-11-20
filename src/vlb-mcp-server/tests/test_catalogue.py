@@ -284,11 +284,16 @@ async def test_list_servers_follows_pages_when_truncated(discovery):
             "internalInterfaces": [{"fixedIp": f"10.0.1.{n}", "floatingIp": ""}],
         }
 
+    servers = [srv(n) for n in range(1, 31)]
+
     def respond(request):
+        # Honour page/size like the real backend, defaulting to 10 per page —
+        # so a walk that asks for page 2 at size 500 gets nothing back.
         page = int(request.url.params.get("page", "1"))
-        batch = [srv(1), srv(2)] if page == 1 else [srv(3)]
-        return httpx.Response(200, json=paging_env(batch, total=3, page=page, page_size=2))
+        size = int(request.url.params.get("size", "10"))
+        batch = servers[(page - 1) * size : page * size]
+        return httpx.Response(200, json=paging_env(batch, total=30, page=page, page_size=size))
 
     respx.get(url).mock(side_effect=respond)
     result = await discovery.list_servers(region="HCM-3", refresh=True)
-    assert [s.id for s in result.servers] == ["srv-1", "srv-2", "srv-3"]
+    assert [s.id for s in result.servers] == [f"srv-{n}" for n in range(1, 31)]

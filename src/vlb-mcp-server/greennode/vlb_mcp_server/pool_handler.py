@@ -330,6 +330,8 @@ class PoolHandler:
         - The pool's health monitor is read and resent unchanged, so this
           cannot disturb the probe. To change the probe itself use
           `update_pool_health_monitor`.
+        - On an HTTP pool, an unset `stickiness` / `tls_encryption` keeps the
+          pool's current value.
         - Neither the pool name nor its protocol can be changed here; recreate
           the pool for that.
 
@@ -346,7 +348,21 @@ class PoolHandler:
         # the whole call with "If healthCheckProtocol field is HTTP, following
         # fields must be specified: …". A TCP probe happens to survive the
         # omission — which is exactly why this was easy to miss.
-        monitor = await self._read_health_monitor(path, pool_id, region)
+        #
+        # The pool is read too: an HTTP pool must carry `stickiness` and
+        # `tlsEncryption` on every PUT, so an unset flag takes the pool's
+        # current value instead of being dropped (which the gateway rejects,
+        # or reads as a reset that silently breaks session pinning).
+        pool_raw, monitor = await asyncio.gather(
+            self.client.get(f"{path}/{pool_id}", region=region),
+            self._read_health_monitor(path, pool_id, region),
+        )
+        pool = PoolItem.from_api(unwrap_one(pool_raw))
+        if pool.protocol.upper() == "HTTP":
+            if stickiness is None:
+                stickiness = pool.stickiness
+            if tls_encryption is None:
+                tls_encryption = pool.tls_encryption
         payload = UpdatePoolDto(
             algorithm=algorithm,
             stickiness=stickiness,
@@ -448,7 +464,9 @@ class PoolHandler:
         existing = await self._read_members(path, pool_id, region)
         incoming = {_member_key(m): m for m in members}
         merged = [incoming.pop(_member_key(m), m) for m in existing]
-        merged.extend(m for m in members if _member_key(m) in incoming)
+        # After the pops, `incoming` holds exactly the new keys, each with its
+        # LAST value — so a request repeating a new (ip, port) sends it once.
+        merged.extend(incoming.values())
 
         # The gateway refuses a member list identical to the stored one with
         # 400 "The members provided are identical to the existing members in
@@ -539,7 +557,13 @@ class PoolHandler:
         success_code: str | None = Field(
             None, description="Accepted HTTP status codes, e.g. '200' or '200-299'."
         ),
-        domain_name: str | None = Field(None, description="Host header for the probe."),
+        domain_name: str | None = Field(
+            None,
+            description=(
+                "Host header for the probe. Required with HTTP/1.1, forbidden with 1.0 "
+                "(switching to 1.0 drops the stored one). Pass '' to clear it."
+            ),
+        ),
         http_version: Literal["1.0", "1.1"] | None = Field(
             None, description="HTTP version to probe with."
         ),
@@ -554,7 +578,9 @@ class PoolHandler:
           pool.
         - The pool must already have a health monitor; one cannot be added to a
           pool created without it.
-        - Only the fields you pass change. This reads the pool first and carries
+        - `timeout` must stay below `interval`; this is checked before any write.
+        - Only the fields you pass change; pass '' to clear an optional text
+          field. This reads the pool first and carries
           its algorithm, the untouched probe values and — on an HTTP pool only —
           its stickiness and TLS setting forward, because the underlying
           `PUT .../pools/{poolId}` requires them and would otherwise reset them.
@@ -592,16 +618,29 @@ class PoolHandler:
                 return new
             return old if old is not None else fallback
 
+        def text(new, old):
+            """Caller's value wins; an explicit "" clears the field."""
+            if new is not None:
+                return new or None
+            return old or None
+
+        version = text(http_version, current.http_version)
+        domain = text(domain_name, current.domain_name)
+        if version == "1.0" and domain_name is None:
+            # HTTP/1.0 forbids a Host header, so the stored one cannot be
+            # carried forward — otherwise switching to 1.0 is impossible.
+            domain = None
+
         monitor = UpdateHealthMonitorDto(
             healthyThreshold=pick(healthy_threshold, current.healthy_threshold, 3),
             unhealthyThreshold=pick(unhealthy_threshold, current.unhealthy_threshold, 3),
             timeout=pick(timeout, current.timeout, 5),
             interval=pick(interval, current.interval, 30),
-            healthCheckPath=health_check_path or current.health_check_path or None,
+            healthCheckPath=text(health_check_path, current.health_check_path),
             healthCheckMethod=health_check_method or current.health_check_method or None,
-            successCode=success_code or current.success_code or None,
-            domainName=domain_name or current.domain_name or None,
-            httpVersion=http_version or current.http_version or None,
+            successCode=text(success_code, current.success_code),
+            domainName=domain,
+            httpVersion=version,
         )
         # The gateway requires `stickiness` and `tlsEncryption` on an HTTP pool
         # and rejects them on any other protocol — even as `false`, which is

@@ -114,12 +114,12 @@ Prompts: `vlb_getting_started`, `vlb_create_load_balancer`, `vlb_manage_members`
 | `list_pool_members` | read | Backend members |
 | `get_pool_health_monitor` | read | The pool's health check |
 | `create_pool` | write | Add a pool (health monitor mandatory) |
-| `update_pool` | write | Algorithm, stickiness, TLS |
+| `update_pool` | write | Algorithm, stickiness, TLS (an HTTP pool keeps its current flags when unset) |
 | `delete_pool` | destructive | Delete it, its members and its monitor |
 | `attach_pool_members` | write | Add backends, keeping the existing ones |
 | `detach_pool_members` | destructive | Remove named backends, keeping the rest |
 | `update_pool_members` | destructive | **Replace the whole member list** |
-| `update_pool_health_monitor` | write | Change the health check, carrying the rest forward |
+| `update_pool_health_monitor` | write | Change the health check, carrying the rest forward (`''` clears a text field) |
 
 ### L7 routing policies
 
@@ -128,9 +128,9 @@ Prompts: `vlb_getting_started`, `vlb_create_load_balancer`, `vlb_manage_members`
 | `list_l7_policies` | read | Policies of a listener, with `position` |
 | `get_l7_policy` | read | One policy with its rules |
 | `create_l7_policy` | write | Add a path/host routing rule |
-| `update_l7_policy` | write | **Full replacement**, including rules |
+| `update_l7_policy` | write | **Full replacement**; `rules` required (at least one) |
 | `delete_l7_policy` | destructive | Delete a policy |
-| `update_l7_policy_order` | write | Change evaluation order |
+| `update_l7_policy_order` | write | Change evaluation order (positions are 1-based) |
 
 ### Certificates
 

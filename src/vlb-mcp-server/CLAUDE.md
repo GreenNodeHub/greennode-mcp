@@ -226,7 +226,14 @@ Two corrections to the monorepo-level assumption:
   `filter_applied` uses `in`, so that is not mistaken for an ignored filter.
 - `paging.fetch_list` walks the following pages whenever the envelope reports
   more than it returned, so a long list is never silently truncated even if the
-  paging params fail to land.
+  paging params fail to land. Two details matter: if the first request sent no
+  explicit `page`/`size`, the backend used its **own** default page size, so the
+  walk restarts from page 1 with an explicit `size` (continuing at `page=2,
+  size=500` would skip everything between the default page and item 500); and
+  `list_load_balancers` passes `walk=False` when `name` is set, because then
+  the caller asked for one page and `totalItem` counts every match — walking
+  would append all later pages under a `page` label that describes only the
+  first.
 
 ### Write-body traps
 
@@ -326,7 +333,17 @@ when it is a pending intention.
   only name in this API that does.
 - **`update_listener` and `update_l7_policy` are full replacements.** Omitting
   `certificateAuthorities`, `insertHeaders` or `rules` may clear them; a policy
-  left without rules matches every request.
+  left without rules matches every request. So `UpdateL7PolicyDto.rules` is
+  **required** with `min_length=1` — the update can no longer clear them.
+- **`update_pool` reads the pool as well as the monitor.** On an HTTP pool an
+  unset `stickiness` / `tls_encryption` takes the pool's current value, because
+  the PUT must carry both and dropping them breaks session pinning.
+- **`update_pool_health_monitor`: `""` clears an optional text field**, and
+  switching `http_version` to `1.0` drops the stored `domainName` (1.0 forbids
+  one). `UpdateHealthMonitorDto` checks `timeout < interval` and "no domain on
+  1.0" locally; it deliberately does **not** require a domain on 1.1, because
+  `update_pool` builds the DTO from the stored probe and a probe made elsewhere
+  without one would then block every pool update.
 - **Nothing can be renamed.** There is no `PUT /loadBalancers/{id}`, and the
   listener, pool and policy updates all omit the name field.
 

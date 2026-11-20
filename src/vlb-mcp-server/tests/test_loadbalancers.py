@@ -567,3 +567,21 @@ async def test_list_load_balancers_cache_key_includes_the_local_filters(config, 
     assert [lb.id for lb in everything.load_balancers] == [SAMPLE_LB["uuid"], "lb-2"]
     assert everything.filtered_locally == []
     assert route.call_count == 2
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_a_named_list_returns_only_the_requested_page(lbs_ro):
+    """PR #29 review: with `name` the gateway pages for real and totalItem
+    counts every match, so walking on returned page 2 plus every later page
+    under a `page=2` label. One request, one page.
+    """
+    mock_iam(respx.mock)
+    page_two = [{**SAMPLE_LB, "uuid": f"lb-{n}", "name": f"vks-{n:02d}"} for n in range(10)]
+    route = respx.get(BASE).mock(
+        return_value=httpx.Response(200, json=paging_env(page_two, total=46, page=2, page_size=10))
+    )
+    result = await _list(lbs_ro, name="vks", page=2, size=10)
+    assert route.call_count == 1
+    assert len(result.load_balancers) == 10
+    assert result.page == 2

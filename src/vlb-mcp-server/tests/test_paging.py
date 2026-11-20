@@ -11,6 +11,7 @@ from greennode.vlb_mcp_server.paging import (
     as_list,
     created_id,
     fetch_all_items,
+    fetch_list,
     lb_list_params,
     unwrap,
     unwrap_one,
@@ -152,11 +153,61 @@ async def test_fetch_all_items_loops_when_truncated(client):
         httpx.Response(200, json=paging_env([{"uuid": "c"}], total=3)),
     ]
     route = respx.get(f"{VLB_HCM3}/v2/{PROJECT}/loadBalancers").mock(side_effect=pages)
-    items = await fetch_all_items(client, f"/v2/{PROJECT}/loadBalancers", page_size=2)
+    items = await fetch_all_items(
+        client, f"/v2/{PROJECT}/loadBalancers", params={"page": 1, "size": 1}
+    )
     assert [i["uuid"] for i in items] == ["a", "b", "c"]
-    # Page 1 is fetched once, then the loop continues from page 2 — it must not
-    # restart and re-collect the batch it already has.
+    # Page 1 was asked for explicitly, so the loop continues from page 2 — it
+    # must not restart and re-collect the batch it already has.
     assert [dict(c.request.url.params).get("page") for c in route.calls[1:]] == ["2", "3"]
+
+
+def _sized_backend(total: int, default_size: int):
+    """A list endpoint that honours page/size, with its own default page size."""
+    all_items = [{"uuid": f"i-{n}"} for n in range(total)]
+
+    def respond(request):
+        page = int(request.url.params.get("page", "1"))
+        size = int(request.url.params.get("size", str(default_size)))
+        batch = all_items[(page - 1) * size : page * size]
+        return httpx.Response(200, json=paging_env(batch, total=total, page=page, page_size=size))
+
+    return respond
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_all_items_restarts_when_first_page_used_backend_default(client):
+    """PR #29 review: with no explicit size, page 2 at page_size=500 starts at
+    item 501 — continuing from there skipped everything after the backend's
+    default page. The walk must restart from page 1 with an explicit size.
+    """
+    mock_iam(respx.mock)
+    route = respx.get(f"{VLB_HCM3}/v2/{PROJECT}/loadBalancers").mock(
+        side_effect=_sized_backend(total=30, default_size=10)
+    )
+    items = await fetch_all_items(client, f"/v2/{PROJECT}/loadBalancers")
+    assert [i["uuid"] for i in items] == [f"i-{n}" for n in range(30)]
+    assert dict(route.calls[1].request.url.params) == {"page": "1", "size": "500"}
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_fetch_list_without_walk_returns_only_the_requested_page(client):
+    """PR #29 review: a caller asking for one page must get that page only."""
+    mock_iam(respx.mock)
+    route = respx.get(f"{VLB_HCM3}/v2/{PROJECT}/loadBalancers").mock(
+        side_effect=_sized_backend(total=46, default_size=10)
+    )
+    items, envelope = await fetch_list(
+        client,
+        f"/v2/{PROJECT}/loadBalancers",
+        params={"name": "vks", "page": 2, "size": 10},
+        walk=False,
+    )
+    assert [i["uuid"] for i in items] == [f"i-{n}" for n in range(10, 20)]
+    assert envelope["page"] == 2
+    assert route.call_count == 1
 
 
 # --- validate_lb_id -----------------------------------------------------------

@@ -603,6 +603,25 @@ class UpdateHealthMonitorDto(BaseModel):
         None, description="HTTP version to probe with."
     )
 
+    @model_validator(mode="after")
+    def _probe_is_coherent(self):
+        """The create-side rules that still apply without the protocol.
+
+        Caught here so an update fails locally instead of one gateway 400 per
+        round trip — same messages as :class:`CreateHealthMonitorDto`.
+
+        "1.1 requires a domainName" is deliberately NOT checked: ``update_pool``
+        builds this DTO from the stored probe, and a probe made elsewhere
+        without a domain would then block every pool update locally.
+        """
+        if self.timeout >= self.interval:
+            raise ValueError("Timeout must be less than interval")
+        if self.httpVersion == "1.0" and self.domainName:
+            raise ValueError(
+                "Domain name cannot be specified for Http version 1.0 health check protocol"
+            )
+        return self
+
 
 class UpdatePoolDto(BaseModel):
     """Request body for ``PUT /v2/{projectId}/loadBalancers/{id}/pools/{poolId}``.
@@ -791,10 +810,20 @@ class CreateL7PolicyDto(_L7PolicyFieldsDto):
 class UpdateL7PolicyDto(_L7PolicyFieldsDto):
     """Request body for ``PUT .../l7policies/{policyId}``.
 
-    The name cannot be changed. ``rules`` is a full replacement: omitting it may
-    clear the policy's match conditions, which would make it match everything —
-    read the policy with ``get_l7_policy`` and resend them.
+    The name cannot be changed. ``rules`` is a full replacement, so it is
+    **required** here: omitting it would clear the policy's match conditions
+    and make it match every request — read the policy with ``get_l7_policy``
+    and resend them.
     """
+
+    rules: list[L7RuleDto] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "The COMPLETE rule list (replaces the current one); ALL must match for the "
+            "policy to fire. Required — a policy without rules matches every request."
+        ),
+    )
 
 
 class ReorderPolicyDto(BaseModel):
@@ -805,12 +834,8 @@ class ReorderPolicyDto(BaseModel):
     policyId: str = Field(..., description="Policy to move.")
     position: int = Field(
         ...,
-        ge=0,
-        description=(
-            "New position. The API's two descriptions contradict each other — the field "
-            "says zero-based, the surrounding list says 'start from 1'. Read the current "
-            "positions from list_l7_policies and stay in the same numbering."
-        ),
+        ge=1,
+        description=("New position, 1-based (confirmed live): the first policy evaluated is 1."),
     )
 
 

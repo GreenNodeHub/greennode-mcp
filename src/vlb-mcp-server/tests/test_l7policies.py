@@ -122,7 +122,11 @@ async def test_get_and_update_build_the_identical_url(l7_rw):
         load_balancer_id=LB,
         listener_id=LISTENER,
         policy_id=POLICY,
-        body=UpdateL7PolicyDto(action="REDIRECT_TO_POOL", redirectPoolId=POOL),
+        body=UpdateL7PolicyDto(
+            action="REDIRECT_TO_POOL",
+            redirectPoolId=POOL,
+            rules=[L7RuleDto(compareType="STARTS_WITH", ruleValue="/api", ruleType="PATH")],
+        ),
         region="HCM-3",
     )
     assert str(get_route.calls[0].request.url) == str(put_route.calls[0].request.url)
@@ -176,15 +180,15 @@ async def test_update_l7_policy_order_sends_policy_id_and_position(l7_rw):
         load_balancer_id=LB,
         listener_id=LISTENER,
         policies=[
-            ReorderPolicyDto(policyId=POLICY, position=0),
-            ReorderPolicyDto(policyId="pol-2", position=1),
+            ReorderPolicyDto(policyId=POLICY, position=1),
+            ReorderPolicyDto(policyId="pol-2", position=2),
         ],
         region="HCM-3",
     )
     assert json.loads(route.calls[0].request.content) == {
         "policies": [
-            {"policyId": POLICY, "position": 0},
-            {"policyId": "pol-2", "position": 1},
+            {"policyId": POLICY, "position": 1},
+            {"policyId": "pol-2", "position": 2},
         ]
     }
 
@@ -196,8 +200,8 @@ async def test_update_l7_policy_order_rejects_duplicate_positions(l7_rw):
             load_balancer_id=LB,
             listener_id=LISTENER,
             policies=[
-                ReorderPolicyDto(policyId=POLICY, position=0),
-                ReorderPolicyDto(policyId="pol-2", position=0),
+                ReorderPolicyDto(policyId=POLICY, position=1),
+                ReorderPolicyDto(policyId="pol-2", position=1),
             ],
             region="HCM-3",
         )
@@ -218,7 +222,26 @@ def test_redirect_to_pool_requires_a_pool():
 
 def test_update_dto_enforces_the_same_pairing():
     with pytest.raises(ValidationError, match="redirectUrl"):
-        UpdateL7PolicyDto(action="REDIRECT_TO_URL")
+        UpdateL7PolicyDto(
+            action="REDIRECT_TO_URL",
+            rules=[L7RuleDto(compareType="STARTS_WITH", ruleValue="/api", ruleType="PATH")],
+        )
+
+
+def test_update_dto_requires_at_least_one_rule():
+    """PR #29 review: a policy left without rules matches EVERY request, so an
+    update that omits or empties `rules` is refused locally.
+    """
+    with pytest.raises(ValidationError, match="rules"):
+        UpdateL7PolicyDto(action="REDIRECT_TO_POOL", redirectPoolId="pool-1")
+    with pytest.raises(ValidationError, match="rules"):
+        UpdateL7PolicyDto(action="REDIRECT_TO_POOL", redirectPoolId="pool-1", rules=[])
+
+
+def test_reorder_positions_are_one_based():
+    """Live result: positions start at 1, so 0 is refused locally."""
+    with pytest.raises(ValidationError, match="greater than or equal to 1"):
+        ReorderPolicyDto(policyId="pol-1", position=0)
 
 
 def test_rule_dto_rejects_an_unknown_compare_type():

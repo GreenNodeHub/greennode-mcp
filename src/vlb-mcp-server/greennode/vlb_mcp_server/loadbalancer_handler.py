@@ -20,6 +20,7 @@ from greennode.vlb_mcp_server.discovery_cache import DiscoveryCache
 from greennode.vlb_mcp_server.guards import require_write
 from greennode.vlb_mcp_server.models import (
     BandwidthData,
+    CloneCertificateDto,
     CloneLoadBalancerDto,
     CloneMetadataData,
     CreatedResourceData,
@@ -257,11 +258,13 @@ class LoadBalancerHandler:
         params = lb_list_params(name=name, zone_id=zone_id, page=page, size=size)
 
         async def fetch() -> LoadBalancerListData:
-            # fetch_list walks the remaining pages when the gateway reports more
-            # than it returned, and hands back the first envelope so page /
-            # pageSize / totalItem cost no extra request.
+            # Without `name` the gateway ignores paging and returns everything,
+            # so fetch_list walks on only as a net against truncation. With
+            # `name` the caller asked for ONE page: totalItem counts all
+            # matches, and walking would append every later page under a
+            # `page`/`page_size` that describes only the first.
             items, envelope = await fetch_list(
-                self.client, path, region=region, params=params, page_size=size
+                self.client, path, region=region, params=params, page_size=size, walk=not name
             )
             load_balancers = [
                 LoadBalancerItem.from_api(lb) for lb in items if isinstance(lb, dict)
@@ -645,7 +648,7 @@ class LoadBalancerHandler:
         load_balancer_id: str = Field(..., description="Load balancer to clone FROM."),
         name: str = Field(..., description="Name for the new load balancer (5-50 chars)."),
         package_id: str = Field(..., description="Package id for the new load balancer."),
-        certificates: list[dict] | None = Field(
+        certificates: list[CloneCertificateDto] | None = Field(
             None,
             description=(
                 "Per-listener certificate overrides, each "

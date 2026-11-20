@@ -274,3 +274,25 @@ async def test_write_tools_refuse_in_read_only_mode(listeners_ro):
 async def test_listener_tools_reject_a_reserved_load_balancer_segment(listeners_ro):
     with pytest.raises(ValueError, match="reserved VLB path segment"):
         await listeners_ro.list_listeners(load_balancer_id="headers", region="HCM-3")
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_a_null_header_value_does_not_break_a_listener_read(listeners_ro):
+    """A present-but-null header field must read as "", not crash HeaderDto."""
+    mock_iam(respx.mock)
+    respx.get(f"{LISTENERS}/{LISTENER}").mock(
+        return_value=httpx.Response(
+            200,
+            json=data_env(
+                {
+                    **SAMPLE_LISTENER,
+                    "insertHeaders": [{"headerName": "X-Forwarded-For", "headerValue": None}],
+                }
+            ),
+        )
+    )
+    listener = await listeners_ro.get_listener(
+        load_balancer_id=LB, listener_id=LISTENER, region="HCM-3"
+    )
+    assert listener.insert_headers[0].headerValue == ""

@@ -106,7 +106,10 @@ class ListenerItem(BaseModel):
                 str(h) for h in (available if isinstance(available, list) else [])
             ],
             insert_headers=[
-                HeaderDto(headerName=h.get("headerName", ""), headerValue=h.get("headerValue", ""))
+                HeaderDto(
+                    headerName=h.get("headerName") or "",
+                    headerValue=h.get("headerValue") or "",
+                )
                 for h in (inserted if isinstance(inserted, list) else [])
                 if isinstance(h, dict)
             ],

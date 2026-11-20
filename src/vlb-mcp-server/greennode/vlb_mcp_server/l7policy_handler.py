@@ -162,9 +162,10 @@ class L7PolicyHandler:
 
         ## Requirements
         - Requires `--allow-write.`
-        - `rules` is a full replacement. Omitting it can leave the policy with
-          no conditions, which makes it match EVERY request on the listener —
-          read `get_l7_policy` first and resend the rules you want to keep.
+        - `rules` is a full replacement and is required (at least one rule):
+          a policy with no conditions would match EVERY request on the
+          listener. Read `get_l7_policy` first and resend the rules you want
+          to keep.
         - The name cannot be changed; recreate the policy for that.
         - Changing the action changes where live traffic goes. Confirm with the
           user.
@@ -228,10 +229,8 @@ class L7PolicyHandler:
         - Order decides routing: the first policy whose rules all match wins, so
           a broad policy placed ahead of a specific one makes the specific one
           unreachable.
-        - Read the current `position` values from `list_l7_policies` and keep
-          the same numbering. The API contradicts itself about whether positions
-          are 0- or 1-based — mirroring what it already reports avoids the
-          question.
+        - Positions are 1-based: the first policy evaluated is 1. Read the
+          current `position` values from `list_l7_policies` first.
         - Two policies cannot share a position.
 
         ## Workflow

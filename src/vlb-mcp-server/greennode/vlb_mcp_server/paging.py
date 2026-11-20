@@ -176,12 +176,23 @@ async def fetch_list(
     params: dict | None = None,
     page_size: int = DEFAULT_PAGE_SIZE,
     getter=None,
+    walk: bool = True,
 ) -> tuple[list, dict]:
     """Fetch a vLB list endpoint completely, returning ``(items, first_envelope)``.
 
     Fast path: one call. Defensive net: when the envelope reports more items
     than it returned (``totalItem`` above the batch), keep requesting the
     following pages and append until the reported total is collected.
+
+    If the first request carried no explicit ``page``/``size``, the backend used
+    its own default page size, which says nothing about where page 2 starts at
+    ``page_size``. So the walk then restarts from page 1 with an explicit
+    ``size`` instead of continuing — continuing would skip every item between
+    the default page and ``page_size``.
+
+    ``walk=False`` turns the net off: use it when the caller asked for one
+    specific page, so ``totalItem`` above the batch is real paging, not
+    truncation.
 
     This matters more here than it looks: the LB list's query encoding is not
     actually pinned down by the spec, so if the paging params fail to land the
@@ -198,13 +209,21 @@ async def fetch_list(
     envelope = first if isinstance(first, dict) else {}
     items = as_list(first)
     total = total_items(first)
-    if total is None or len(items) >= total:
+    if not walk or total is None or len(items) >= total:
         return items, envelope
 
     base = dict(params or {})
-    size = base.get("size", page_size)
-    collected = list(items)
-    page = int(base.get("page") or 1)
+    if "page" in base and "size" in base:
+        # The first page was asked for explicitly, so the next one follows it.
+        size = base["size"]
+        collected = list(items)
+        page = int(base["page"] or 1)
+    else:
+        # The first page used the backend's default size: start again from
+        # page 1 at a known size, so no item between the two sizes is skipped.
+        size = page_size
+        collected = []
+        page = 0
     while True:
         page += 1
         data = await get(path, region=region, params={**base, "page": page, "size": size})

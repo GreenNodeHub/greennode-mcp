@@ -235,6 +235,7 @@ async def test_update_pool_resends_the_existing_health_monitor(pools_rw):
     showed up on an HTTP pool.
     """
     mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200, json=data_env(SAMPLE_POOL)))
     respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
         return_value=httpx.Response(200, json=data_env(HM))
     )
@@ -260,6 +261,9 @@ async def test_update_pool_resends_the_existing_health_monitor(pools_rw):
 async def test_update_pool_on_a_monitorless_pool_sends_no_monitor(pools_rw):
     """A pool created without a probe must not gain an invented one."""
     mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(
+        return_value=httpx.Response(200, json=data_env({**SAMPLE_POOL, "protocol": "TCP"}))
+    )
     respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
         return_value=httpx.Response(200, json=data_env({}))
     )
@@ -777,3 +781,141 @@ async def test_attach_pool_members_keeps_a_member_with_a_portal_style_name(pools
     assert sent[1]["name"] == odd[1]["name"]
     # the primitive-int defaults still hold for stored members
     assert sent[0]["monitorPort"] == 80 and sent[0]["weight"] == 1
+
+
+# --- PR #29 review, second round -----------------------------------------------------
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_pool_keeps_stickiness_and_tls_on_an_http_pool(pools_rw):
+    """An HTTP pool must carry both flags on every PUT; changing only the
+    algorithm must not drop them (the gateway rejects that, or resets them).
+    """
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(
+        return_value=httpx.Response(
+            200, json=data_env({**SAMPLE_POOL, "stickiness": True, "tlsEncryption": True})
+        )
+    )
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env(HM))
+    )
+    route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+    await pools_rw.update_pool(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        algorithm="LEAST_CONNECTIONS",
+        stickiness=None,
+        tls_encryption=None,
+        region="HCM-3",
+    )
+    sent = json.loads(route.calls[0].request.content)
+    assert sent["stickiness"] is True
+    assert sent["tlsEncryption"] is True
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_pool_sends_no_flags_on_a_tcp_pool(pools_rw):
+    mock_iam(respx.mock)
+    respx.get(f"{POOLS}/{POOL}").mock(
+        return_value=httpx.Response(200, json=data_env({**SAMPLE_POOL, "protocol": "TCP"}))
+    )
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env({}))
+    )
+    route = respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+    await pools_rw.update_pool(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        algorithm="ROUND_ROBIN",
+        stickiness=None,
+        tls_encryption=None,
+        region="HCM-3",
+    )
+    sent = json.loads(route.calls[0].request.content)
+    assert "stickiness" not in sent and "tlsEncryption" not in sent
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_attach_pool_members_sends_a_repeated_new_member_once(pools_rw):
+    """The last entry for a new (ip, port) wins, and it is sent only once."""
+    mock_iam(respx.mock)
+    respx.get(MEMBERS_URL).mock(return_value=httpx.Response(200, json=list_env(SAMPLE_MEMBERS)))
+    route = respx.put(MEMBERS_URL).mock(return_value=httpx.Response(200))
+    await pools_rw.attach_pool_members(
+        load_balancer_id=LB,
+        pool_id=POOL,
+        members=[
+            MemberDto(ipAddress="10.0.0.5", port=80, backup=False, weight=1),
+            MemberDto(ipAddress="10.0.0.5", port=80, backup=False, weight=5),
+        ],
+        region="HCM-3",
+    )
+    sent = json.loads(route.calls[0].request.content)["members"]
+    new = [m for m in sent if m["ipAddress"] == "10.0.0.5"]
+    assert len(new) == 1 and new[0]["weight"] == 5
+    assert len(sent) == len(SAMPLE_MEMBERS) + 1
+
+
+def _hm_args(**overrides):
+    args = {
+        "load_balancer_id": LB,
+        "pool_id": POOL,
+        "health_check_path": None,
+        "health_check_method": None,
+        "healthy_threshold": None,
+        "unhealthy_threshold": None,
+        "timeout": None,
+        "interval": None,
+        "success_code": None,
+        "domain_name": None,
+        "http_version": None,
+        "region": "HCM-3",
+    }
+    args.update(overrides)
+    return args
+
+
+def _mock_hm_reads(monitor):
+    respx.get(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200, json=data_env(SAMPLE_POOL)))
+    respx.get(f"{POOLS}/{POOL}/healthMonitor").mock(
+        return_value=httpx.Response(200, json=data_env(monitor))
+    )
+    return respx.put(f"{POOLS}/{POOL}").mock(return_value=httpx.Response(200))
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_switching_the_probe_to_http_1_0_drops_the_stored_domain(pools_rw):
+    """HTTP/1.0 forbids a domainName; carrying the stored one forward made the
+    switch impossible (gateway 400 on every attempt).
+    """
+    mock_iam(respx.mock)
+    route = _mock_hm_reads({**HM, "domainName": "app.example.com"})
+    await pools_rw.update_pool_health_monitor(**_hm_args(http_version="1.0"))
+    sent = json.loads(route.calls[0].request.content)["healthMonitor"]
+    assert sent["httpVersion"] == "1.0"
+    assert "domainName" not in sent
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_an_empty_string_clears_an_optional_probe_field(pools_rw):
+    mock_iam(respx.mock)
+    route = _mock_hm_reads({**HM, "domainName": "app.example.com"})
+    await pools_rw.update_pool_health_monitor(**_hm_args(domain_name=""))
+    sent = json.loads(route.calls[0].request.content)["healthMonitor"]
+    assert "domainName" not in sent
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_update_health_monitor_checks_timeout_below_interval_locally(pools_rw):
+    mock_iam(respx.mock)
+    route = _mock_hm_reads(HM)  # interval=30
+    with pytest.raises(ValueError, match="Timeout must be less than interval"):
+        await pools_rw.update_pool_health_monitor(**_hm_args(timeout=30))
+    assert not route.called
