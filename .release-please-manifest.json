@@ -5,5 +5,5 @@
   "src/vserver-mcp-server": "0.1.1",
   "src/vbackup-mcp-server": "0.1.1",
   "src/vdb-mcp-server": "0.1.0",
-  "src/vlb-mcp-server": "0.0.0"
+  "src/vlb-mcp-server": "0.1.0"
 }
